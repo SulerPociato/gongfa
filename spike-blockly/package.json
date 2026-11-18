@@ -1,0 +1,1 @@
+{"name":"spike-blockly","private":true,"type":"module","dependencies":{"blockly":"^13.4.0","jsdom":"^29.1.1"}}
