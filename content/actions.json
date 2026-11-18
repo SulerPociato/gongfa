@@ -1,0 +1,14 @@
+[
+  {
+    "id": "breath",
+    "baseGain": 1,
+    "demonDelta": 0,
+    "kind": "gain"
+  },
+  {
+    "id": "calm",
+    "baseGain": 0,
+    "demonDelta": -0.0005,
+    "kind": "calm"
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "name": "@gongfa/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./number": "./src/number/bignum.ts",
+    "./content": "./src/content/loader.ts",
+    "./types": "./src/types.ts"
+  }
+}

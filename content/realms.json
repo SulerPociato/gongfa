@@ -1,0 +1,11 @@
+[
+  {
+    "id": 0,
+    "name": {
+      "zh": "炼气"
+    },
+    "threshold": "1e3",
+    "passivePerSec": 0,
+    "actionMult": 1
+  }
+]
