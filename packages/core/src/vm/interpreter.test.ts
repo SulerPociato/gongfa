@@ -4,7 +4,7 @@ import type { Content } from '../content/schema';
 import { BASE_BUDGET, type Clock } from '../types';
 import { Vm, type ActionRequest, type ActionSink, type VmSnapshot } from './interpreter';
 import type { StallEvent, VmEvent } from './events';
-import type { Op, Program } from './program';
+import { MAX_LOOP_DEPTH, type Op, type Program } from './program';
 
 const CONTENT: Content = loadContent({
   actions: [
@@ -322,6 +322,52 @@ describe('多程序：stall 只中止当前程序', () => {
     console.log(
       `双程序实测：pA 动作 ${rec.calls.length} 次 gain=${result.gain} steps=${result.steps} ｜ pB 拿到 stall ${JSON.stringify(events[1])}`,
     );
+  });
+});
+
+describe('installUnchecked：verifier 之外的 IR（存档快进路径）', () => {
+  function bareVm(sink: ActionSink, code: readonly Op[]): Vm {
+    const vm = new Vm({ content: CONTENT, sink });
+    vm.installUnchecked([program(code)]);
+    return vm;
+  }
+
+  it('count=0 的循环体执行 0 次，pc 直接落到 end+1', () => {
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0 }));
+    const code: readonly Op[] = [
+      { op: 'LOOP_BEGIN', end: 2, count: 0 },
+      BREATH, // 循环体：一次都不该执行
+      { op: 'LOOP_END', begin: 0 }, // 唯一弹栈点，被跳过
+      { op: 'ACTION', actionId: 'calm' }, // end+1 = 3，落点探针
+      HALT,
+    ];
+    const result = bareVm(rec.sink, code).tick();
+
+    expect(rec.calls.map((call) => [call.actionId, call.pc, call.k])).toEqual([['calm', 3, 1]]);
+    expect(result.steps).toBe(3);
+    expect(result.stall).toBeNull();
+  });
+
+  it('count=0 不占帧：连排 16 个之后真循环照跑，泄帧会在第 17 次压帧撞 loopLimit', () => {
+    const code: Op[] = [];
+    for (let i = 0; i < MAX_LOOP_DEPTH; i++) {
+      const begin = code.length;
+      code.push({ op: 'LOOP_BEGIN', end: begin + 2, count: 0 }, BREATH, { op: 'LOOP_END', begin });
+    }
+    const begin = code.length;
+    code.push({ op: 'LOOP_BEGIN', end: begin + 2, count: 2 }, { op: 'ACTION', actionId: 'calm' }, { op: 'LOOP_END', begin }, HALT);
+
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0 }));
+    const result = bareVm(rec.sink, code).tick();
+
+    expect(result.stall).toBeNull();
+    expect(rec.calls.map((call) => [call.actionId, call.k])).toEqual([
+      ['calm', 1],
+      ['calm', 2],
+    ]);
+    // 16 个 count=0 各 1 步（只执行 LOOP_BEGIN）+ 真循环 6 步（LB + 2×(ACTION+LE) + HALT）
+    expect(result.steps).toBe(MAX_LOOP_DEPTH + 6);
+    console.log(`installUnchecked 防泄帧实测：count=0 ×${MAX_LOOP_DEPTH} + count=2 ×1 → steps=${result.steps} 动作=${rec.calls.length} stall=${JSON.stringify(result.stall)}`);
   });
 });
 

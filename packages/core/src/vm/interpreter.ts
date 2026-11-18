@@ -132,6 +132,11 @@ export class Vm {
     return { ok: errors.length === 0, errors, warnings };
   }
 
+  /** @internal 跳过 verifier 直接装载：只给测试和未来的存档快进用，玩家编译产物必须走 loadPrograms。 */
+  installUnchecked(programs: readonly Program[]): void {
+    this.installed = [...programs];
+  }
+
   tick(): TickResult {
     this.ticksRun += 1;
     const tick = this.ticksRun;

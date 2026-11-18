@@ -1,3 +1,4 @@
 ﻿node_modules/
+dist/
 spike-blockly/spike.mjs
 .DS_Store
