@@ -1,5 +1,7 @@
 // P0 积木清单：入口 + 吐纳/调息 + 如果/循环/比较。渲染 JSON 与 IR 映射同处一文件，避免两处真相。
 // actionId 若与 content/actions.json 不符，core 的 verifier 会在装载时报 action-id 错，不会静默漂移。
+// 块型名一律带 gongfa_ 前缀：controls_if / controls_repeat / logic_compare 是 Blockly 标准库已经注册过的名字，
+// 同名定义会在加载时报 "overwrites previous definition"，而且以后引到标准块就互相踩。
 
 export const TICK_HAT_JSON = {
   kind: 'block_definition',
@@ -28,9 +30,9 @@ export const CALM_JSON = {
 } as const;
 
 // 「否则」凹槽常驻（不做 ifelse 增删突变）：不填就是空分支，编译器按“无否则”回补跳转。
-export const CONTROLS_IF_JSON = {
+export const GONGFA_IF_JSON = {
   kind: 'block_definition',
-  type: 'controls_if',
+  type: 'gongfa_if',
   message0: '如果 %1 则 %2',
   args0: [
     { type: 'input_value', name: 'CONDITION', check: 'Boolean' },
@@ -43,9 +45,9 @@ export const CONTROLS_IF_JSON = {
   style: 'gongfa_control',
 } as const;
 
-export const CONTROLS_REPEAT_JSON = {
+export const GONGFA_REPEAT_JSON = {
   kind: 'block_definition',
-  type: 'controls_repeat',
+  type: 'gongfa_repeat',
   message0: '循环 %1 次 %2',
   args0: [
     { type: 'field_number', name: 'NUM', min: 1, max: 10, precision: 1, value: 3 },
@@ -57,9 +59,9 @@ export const CONTROLS_REPEAT_JSON = {
 } as const;
 
 // 左值只暴露 qi / demon / budget（IR 的 LOAD 还支持 rate / realm，P0 不给玩家选）。
-export const LOGIC_COMPARE_JSON = {
+export const GONGFA_COMPARE_JSON = {
   kind: 'block_definition',
-  type: 'logic_compare',
+  type: 'gongfa_compare',
   message0: '%1 %2 %3',
   args0: [
     {
@@ -89,7 +91,7 @@ export const LOGIC_COMPARE_JSON = {
  * 交给 `Blockly.defineBlocksWithJsonArray`。
  * 境界门控（筑基才给「如果 / 循环」）推迟到任务 6：现在工具箱一次性给全 5 块，属已知偏差。
  */
-export const BLOCK_DEFINITIONS: readonly unknown[] = [TICK_HAT_JSON, BREATH_JSON, CALM_JSON, CONTROLS_IF_JSON, CONTROLS_REPEAT_JSON, LOGIC_COMPARE_JSON];
+export const BLOCK_DEFINITIONS: readonly unknown[] = [TICK_HAT_JSON, BREATH_JSON, CALM_JSON, GONGFA_IF_JSON, GONGFA_REPEAT_JSON, GONGFA_COMPARE_JSON];
 
 /** 开局预置：画布上只有一个入口块，玩家从工具箱拖「吐纳」进来。 */
 export const STARTER_WORKSPACE_JSON = {
@@ -102,9 +104,9 @@ export const TOOLBOX_JSON = {
   contents: [
     { kind: 'block', type: 'breath' },
     { kind: 'block', type: 'calm' },
-    { kind: 'block', type: 'controls_if' },
-    { kind: 'block', type: 'controls_repeat' },
-    { kind: 'block', type: 'logic_compare' },
+    { kind: 'block', type: 'gongfa_if' },
+    { kind: 'block', type: 'gongfa_repeat' },
+    { kind: 'block', type: 'gongfa_compare' },
   ],
 } as const;
 
@@ -118,7 +120,7 @@ export const BLOCK_SPECS: Readonly<Record<string, BlockSpec>> = {
   tick_hat: { kind: 'entry', label: '每 tick' },
   breath: { kind: 'action', actionId: 'breath', label: '吐纳' },
   calm: { kind: 'action', actionId: 'calm', label: '调息' },
-  controls_if: { kind: 'control', label: '如果' },
-  controls_repeat: { kind: 'control', label: '循环' },
-  logic_compare: { kind: 'value', label: '比较' },
+  gongfa_if: { kind: 'control', label: '如果' },
+  gongfa_repeat: { kind: 'control', label: '循环' },
+  gongfa_compare: { kind: 'value', label: '比较' },
 };

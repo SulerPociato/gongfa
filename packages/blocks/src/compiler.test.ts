@@ -26,13 +26,13 @@ function hat(body?: SerializedBlock): WorkspaceJson {
 
 // 任务 4 的三块：字段值一律走 fields（Blockly 把 field_number 存成 number、field_dropdown 存成 string，两种都要吃）
 function compare(left: string, op: string, threshold: number | string, id = 'c1'): SerializedBlock {
-  return { type: 'logic_compare', id, fields: { LEFT: left, OP: op, THRESHOLD: threshold } };
+  return { type: 'gongfa_compare', id, fields: { LEFT: left, OP: op, THRESHOLD: threshold } };
 }
 
 function repeat(count: number | string, body?: SerializedBlock, id = 'r1'): SerializedBlock {
   return body === undefined
-    ? { type: 'controls_repeat', id, fields: { NUM: count } }
-    : { type: 'controls_repeat', id, fields: { NUM: count }, inputs: { DO: { block: body } } };
+    ? { type: 'gongfa_repeat', id, fields: { NUM: count } }
+    : { type: 'gongfa_repeat', id, fields: { NUM: count }, inputs: { DO: { block: body } } };
 }
 
 function ifElse(cond?: SerializedBlock, then?: SerializedBlock, otherwise?: SerializedBlock, id = 'i1'): SerializedBlock {
@@ -40,7 +40,7 @@ function ifElse(cond?: SerializedBlock, then?: SerializedBlock, otherwise?: Seri
   if (cond !== undefined) inputs['CONDITION'] = { block: cond };
   if (then !== undefined) inputs['IF'] = { block: then };
   if (otherwise !== undefined) inputs['ELSE'] = { block: otherwise };
-  return { type: 'controls_if', id, inputs };
+  return { type: 'gongfa_if', id, inputs };
 }
 
 const ACTION_BREATH: Op = { op: 'ACTION', actionId: 'breath' };
@@ -99,7 +99,8 @@ const CAPTURED_FROM_BROWSER: WorkspaceJson = {
   },
 };
 
-// 验收 1：浏览器里 5 次真实拖拽搭出「每 tick → 如果 心魔 > 0.5 则 调息 否则 循环 3 次 吐纳」后的 save() 原样输出。
+// 验收 1：浏览器里 5 次真实拖拽搭出「每 tick → 如果 心魔 > 0.5 则 调息 否则 循环 3 次 吐纳」后的 save() 原样输出
+// （2026-11-19 改名 gongfa_* 之后重采，id 与坐标就是当次拖拽的结果）。
 // 与 ACCEPTANCE_PROGRAM 的区别只有 id / 坐标，以及字段是 Blockly 的原生类型（THRESHOLD、NUM 是 number 不是 string）。
 const CAPTURED_ACCEPTANCE_FROM_BROWSER: WorkspaceJson = {
   blocks: {
@@ -107,29 +108,29 @@ const CAPTURED_ACCEPTANCE_FROM_BROWSER: WorkspaceJson = {
     blocks: [
       {
         type: 'tick_hat',
-        id: '9%ls3/?G=vcDc-!kI,}{',
+        id: 'SMW.0nX.C0oVT,8**^NK',
         x: 32,
         y: 32,
         inputs: {
           BODY: {
             block: {
-              type: 'controls_if',
-              id: '8`IbIxRQ5)r@Wz5lSP52',
+              type: 'gongfa_if',
+              id: '{[@!8f|}K7=^V#6N)9_:',
               inputs: {
                 CONDITION: {
                   block: {
-                    type: 'logic_compare',
-                    id: '4aGxtqlq6(ynH4Bt=/ec',
+                    type: 'gongfa_compare',
+                    id: ',qa|7A4tJ:v+TY,J(m1i',
                     fields: { LEFT: 'demon', OP: '>', THRESHOLD: 0.5 },
                   },
                 },
-                IF: { block: { type: 'calm', id: 'xi=b/NQCM6oQ)jg*=SoY' } },
+                IF: { block: { type: 'calm', id: 'Ca/7}W$Cp`[uj$!{qro@' } },
                 ELSE: {
                   block: {
-                    type: 'controls_repeat',
-                    id: 'NUC$UpVK2o2EN:*;i`dw',
+                    type: 'gongfa_repeat',
+                    id: 'OG](:%{d=|)fTL2ZSfk_',
                     fields: { NUM: 3 },
-                    inputs: { DO: { block: { type: 'breath', id: 'Ly3bXI(SLMYG9Gri3GkD' } } },
+                    inputs: { DO: { block: { type: 'breath', id: '(1quRLZF^en#9QS8@=;R' } } },
                   },
                 },
               },
@@ -148,28 +149,28 @@ const CAPTURED_DEEP_LOOP_FROM_BROWSER: WorkspaceJson = {
     blocks: [
       {
         type: 'tick_hat',
-        id: 've.av:}Y%*I$rn;~|*j;',
+        id: 'QurNV7;AY5B{^1d3=pv2',
         x: 0,
-        y: 176,
+        y: 32,
         inputs: {
           BODY: {
             block: {
-              type: 'controls_repeat',
-              id: '!Cw^tZ7.{iO$cC%qE||Z',
+              type: 'gongfa_repeat',
+              id: '|HGLf+-Q%[vrg$TXo,o?',
               fields: { NUM: 10 },
               inputs: {
                 DO: {
                   block: {
-                    type: 'controls_repeat',
-                    id: 'zpG4C_YsxM7HR}Wp0+3T',
+                    type: 'gongfa_repeat',
+                    id: '3okY?cjJ0ApEU9e%@UG#',
                     fields: { NUM: 10 },
                     inputs: {
                       DO: {
                         block: {
-                          type: 'controls_repeat',
-                          id: 'Ow391DLS`3rB0cjV[Ien',
+                          type: 'gongfa_repeat',
+                          id: '`~Eh!xtABjBDD.Ygx@XH',
                           fields: { NUM: 10 },
-                          inputs: { DO: { block: { type: 'breath', id: '0oNlv]4@4MqBtx,F|-ox' } } },
+                          inputs: { DO: { block: { type: 'breath', id: 'ES`E^%)RwX6;~hnnHY/c' } } },
                         },
                       },
                     },
@@ -364,7 +365,7 @@ describe('条件与循环编译（任务 4）', () => {
       expect(result.ok).toBe(false);
       expect(result.errors.join(' ')).toContain(`「循环」次数必须是 1–10，收到 ${bad}`);
     }
-    const missing = compileWorkspace(hat({ type: 'controls_repeat', id: 'r', inputs: { DO: { block: breath() } } }));
+    const missing = compileWorkspace(hat({ type: 'gongfa_repeat', id: 'r', inputs: { DO: { block: breath() } } }));
     expect(missing.ok).toBe(false);
     expect(missing.errors.join(' ')).toContain('「循环」次数必须是 1–10');
   });
@@ -410,7 +411,7 @@ describe('条件与循环编译（任务 4）', () => {
 describe('积木定义与内容表对齐', () => {
   it('P0 六块：入口 + 吐纳/调息 + 如果/循环/比较，工具箱含除入口外的全部', () => {
     expect(BLOCK_DEFINITIONS.length).toBe(6);
-    expect(Object.keys(BLOCK_SPECS).sort()).toEqual(['breath', 'calm', 'controls_if', 'controls_repeat', 'logic_compare', 'tick_hat']);
+    expect(Object.keys(BLOCK_SPECS).sort()).toEqual(['breath', 'calm', 'gongfa_compare', 'gongfa_if', 'gongfa_repeat', 'tick_hat']);
     expect(BLOCK_SPECS['breath']?.actionId).toBe('breath');
     expect(BLOCK_SPECS['calm']?.actionId).toBe('calm');
     expect(TICK_HAT_JSON.message0).toBe('每 tick %1');
@@ -418,9 +419,9 @@ describe('积木定义与内容表对齐', () => {
     expect(TOOLBOX_JSON.contents).toEqual([
       { kind: 'block', type: 'breath' },
       { kind: 'block', type: 'calm' },
-      { kind: 'block', type: 'controls_if' },
-      { kind: 'block', type: 'controls_repeat' },
-      { kind: 'block', type: 'logic_compare' },
+      { kind: 'block', type: 'gongfa_if' },
+      { kind: 'block', type: 'gongfa_repeat' },
+      { kind: 'block', type: 'gongfa_compare' },
     ]);
     expect(STARTER_WORKSPACE_JSON.blocks.blocks.length).toBe(1);
   });

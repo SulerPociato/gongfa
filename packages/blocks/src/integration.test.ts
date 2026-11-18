@@ -13,13 +13,13 @@ function calm(id: string): SerializedBlock {
   return { type: 'calm', id };
 }
 function compare(id: string, left: string, op: string, threshold: number | string): SerializedBlock {
-  return { type: 'logic_compare', id, fields: { LEFT: left, OP: op, THRESHOLD: threshold } };
+  return { type: 'gongfa_compare', id, fields: { LEFT: left, OP: op, THRESHOLD: threshold } };
 }
 function repeat(id: string, count: number | string, body: SerializedBlock): SerializedBlock {
-  return { type: 'controls_repeat', id, fields: { NUM: count }, inputs: { DO: { block: body } } };
+  return { type: 'gongfa_repeat', id, fields: { NUM: count }, inputs: { DO: { block: body } } };
 }
 function ifElse(id: string, cond: SerializedBlock, then: SerializedBlock, otherwise: SerializedBlock): SerializedBlock {
-  return { type: 'controls_if', id, inputs: { CONDITION: { block: cond }, IF: { block: then }, ELSE: { block: otherwise } } };
+  return { type: 'gongfa_if', id, inputs: { CONDITION: { block: cond }, IF: { block: then }, ELSE: { block: otherwise } } };
 }
 function hat(body: SerializedBlock): WorkspaceJson {
   return { blocks: { languageVersion: 0, blocks: [{ type: 'tick_hat', id: 'h', x: 32, y: 32, inputs: { BODY: { block: body } } }] } };

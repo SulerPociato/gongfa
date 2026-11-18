@@ -110,10 +110,10 @@ function emitStatement(emitter: Emitter, block: SerializedBlock): void {
 
 function emitControl(emitter: Emitter, block: SerializedBlock): void {
   switch (block.type) {
-    case 'controls_if':
+    case 'gongfa_if':
       emitIf(emitter, block);
       return;
-    case 'controls_repeat':
+    case 'gongfa_repeat':
       emitRepeat(emitter, block);
       return;
     default:

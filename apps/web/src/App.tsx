@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import * as Blockly from 'blockly';
+// 只引 blockly/core：blockly 主入口会顺带注册标准库积木（controls_*、logic_*），我们用不到它们，
+// 引了还会和自定义块型抢注册、往 console 刷覆盖警告。
+import * as Blockly from 'blockly/core';
 import * as zhHans from 'blockly/msg/zh-hans';
 import {
   BLOCK_DEFINITIONS,
