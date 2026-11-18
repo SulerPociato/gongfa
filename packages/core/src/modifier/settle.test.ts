@@ -14,8 +14,8 @@ const CONTENT = loadContent({
   ],
 });
 
-function req(actionId: string, k: number): ActionRequest {
-  return { actionId, k, pc: 0 };
+function req(actionId: string, k: number, loopDepth = 0): ActionRequest {
+  return { actionId, k, pc: 0, loopDepth };
 }
 
 describe('makeActionSink（契约 §2.1 / §2.2）', () => {
@@ -58,10 +58,31 @@ describe('makeActionSink（契约 §2.1 / §2.2）', () => {
     expect(sink.execute(req('breath', 2)).qi).toBeCloseTo(0.8, 12);
   });
 
-  it('demonDelta 查表，不在别处算；未知 actionId 抛错', () => {
+  it('demonDelta = 表值 + §2.2.1 增长；未知 actionId 抛错', () => {
     const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
-    expect(sink.execute(req('breath', 1)).demonDelta).toBe(0);
+    // breath 表里 demonDelta=0，增长 0.00005×(1+0.5×0)
+    expect(sink.execute(req('breath', 1)).demonDelta).toBeCloseTo(0.00005, 12);
+    // calm 表里 -0.0005，kind≠gain 不增长
     expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo(-0.0005, 12);
     expect(() => sink.execute(req('herb', 1))).toThrow(RangeError);
+  });
+
+  it('§2.2.1 增长随 loopDepth：0→0.00005，1→0.000075，2→0.0001', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    const at = (loopDepth: number) => sink.execute(req('breath', 1, loopDepth)).demonDelta;
+    expect(at(0)).toBeCloseTo(0.00005, 12);
+    expect(at(1)).toBeCloseTo(0.00005 * 1.5, 12);
+    expect(at(2)).toBeCloseTo(0.0001, 12);
+  });
+
+  it('调息在任何深度都不增长，只保留表里的 -0.0005', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    expect(sink.execute(req('calm', 1, 3)).demonDelta).toBeCloseTo(-0.0005, 12);
+    expect(sink.execute(req('calm', 2, 8)).demonDelta).toBeCloseTo(-0.0005, 12);
+  });
+
+  it('demonBase 可注入（任务 10 要跑 0.00004 / 0.00005 两档）', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0, demonBase: 0.00004 });
+    expect(sink.execute(req('breath', 1, 1)).demonDelta).toBeCloseTo(0.00004 * 1.5, 12);
   });
 });

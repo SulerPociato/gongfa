@@ -26,7 +26,7 @@ export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<Runtime | null>(null);
   if (runtimeRef.current === null) runtimeRef.current = createRuntime();
-  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [] });
+  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], stall: null });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -54,7 +54,9 @@ export function App() {
     const loop = createLoop(runtime, (state) => {
       const qi = Math.floor(state.qi);
       setHud((previous) =>
-        previous.qi === qi && previous.rate === state.ratePerSec ? previous : { qi, rate: state.ratePerSec, errors: previous.errors }
+        previous.qi === qi && previous.rate === state.rate && previous.stall === state.stall
+          ? previous
+          : { qi, rate: state.rate, errors: previous.errors, stall: state.stall }
       );
     });
     loop.start();

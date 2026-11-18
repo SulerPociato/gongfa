@@ -76,3 +76,10 @@ body {
   margin: 0;
   padding-left: 16px;
 }
+
+.hud .stall {
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0 0 14px;
+}

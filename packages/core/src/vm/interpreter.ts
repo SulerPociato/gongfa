@@ -9,6 +9,8 @@ export interface ActionRequest {
   readonly actionId: string;
   readonly k: number;
   readonly pc: number;
+  /** 契约 §2.2.1：运行期循环栈深度，只作为 sink 的入参，不进 IR。 */
+  readonly loopDepth: number;
 }
 
 export interface ActionOutcome {
@@ -241,7 +243,7 @@ export class Vm {
           }
           case 'ACTION': {
             actionSeq += 1;
-            const outcome = this.sink.execute({ actionId: op.actionId, k: actionSeq, pc });
+            const outcome = this.sink.execute({ actionId: op.actionId, k: actionSeq, pc, loopDepth: frames.length });
             gain = Qi.add(gain, Qi.of(outcome.qi));
             demonDelta = Qi.add(demonDelta, Qi.of(outcome.demonDelta));
             pc += 1;

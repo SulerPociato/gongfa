@@ -106,6 +106,28 @@ describe('ACTION 的 k 传递', () => {
     vm.tick();
     expect(rec.calls.map((call) => call.k)).toEqual([1, 2, 3, 1, 2, 3]);
   });
+
+  it('loopDepth = 运行期循环栈深度（契约 §2.2.1，不进 IR）', () => {
+    const code: readonly Op[] = [
+      BREATH, // 0 栈外
+      { op: 'LOOP_BEGIN', end: 3, count: 2 },
+      BREATH, // 2 深度 1
+      { op: 'LOOP_END', begin: 1 },
+      { op: 'LOOP_BEGIN', end: 8, count: 2 },
+      { op: 'LOOP_BEGIN', end: 7, count: 2 },
+      BREATH, // 6 深度 2
+      { op: 'LOOP_END', begin: 5 },
+      { op: 'LOOP_END', begin: 4 },
+      HALT,
+    ];
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0 }));
+    const result = loadedVm(code, { sink: rec.sink }).tick();
+    // 外层回边跳回 begin+1，会重新执行内层 LOOP_BEGIN，所以深度 2 的动作有 4 次（2 轮 × 2 次）
+    expect(rec.calls.map((call) => call.loopDepth)).toEqual([0, 1, 1, 2, 2, 2, 2]);
+    expect(rec.calls.map((call) => call.k)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    // 实测 20 步 = 7 ACTION + 4 次 LOOP_BEGIN + 8 次 LOOP_END + 1 HALT（每条指令算 1 步，契约 §4.3）
+    expect(result.steps).toBe(20);
+  });
 });
 
 describe('循环语义（契约 §4.2）', () => {

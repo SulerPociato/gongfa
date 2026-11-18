@@ -4,6 +4,7 @@
 export const INK = '#0A0E12'; // 底色（墨黑）
 export const SPIRIT = '#35E0C8'; // 主色（灵气青）：连线、插入标记、滚动条、块名文字
 export const PAPER = '#1C2228'; // 面板（宣纸灰）：块体填充
+export const GOLD = '#E8C978'; // 强调（符纸金）：控件与条件块
 
 export interface ThemeJson {
   readonly name: string;
@@ -25,6 +26,8 @@ export const GONGFA_THEME: ThemeJson = {
   blockStyles: {
     gongfa_hat: { colourPrimary: SPIRIT, colourSecondary: PAPER, colourTertiary: INK, hat: 'cap' },
     gongfa_action: { colourPrimary: PAPER, colourSecondary: SPIRIT, colourTertiary: SPIRIT },
+    gongfa_control: { colourPrimary: GOLD, colourSecondary: PAPER, colourTertiary: INK },
+    gongfa_logic: { colourPrimary: PAPER, colourSecondary: GOLD, colourTertiary: GOLD },
   },
   componentStyles: {
     workspaceBackgroundColour: INK,
