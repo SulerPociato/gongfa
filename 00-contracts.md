@@ -173,6 +173,7 @@ LOOP_END(begin):
 
 - 嵌套：用运行期循环栈，栈深上限 16
 - `count` 编译期限定 1–10
+- **`count = 0` 时不压帧，直接跳 `end + 1`**（压帧会因跳过 LOOP_END 而泄帧，16 层后假死）
 - 不允许 `break` / `continue`（P0）
 
 ### 4.3 steps 与预算
