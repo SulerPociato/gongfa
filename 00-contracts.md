@@ -147,7 +147,7 @@ perTickTotal = perTickGain + realmPassivePerSec / 10
 ```ts
 type Op =
   | { op: 'PUSH'; value: number }
-  | { op: 'LOAD'; key: 'qi' | 'rate' | 'demon' | 'realm' | 'budget' }
+  | { op: 'LOAD'; key: 'qi' | 'rate' | 'demon' | 'realm' | 'budget' }  // budget = 本 tick 剩余预算
   | { op: 'ADD' | 'SUB' | 'MUL' | 'DIV' }
   | { op: 'CMP'; arg: '<' | '>' | '==' }
   | { op: 'ACTION'; actionId: string }      // 效果由 content/actions.json 解析
