@@ -112,7 +112,38 @@ describe('加载顺序与阶段归因（契约 §5.2 固定顺序）', () => {
     }
   });
 
+  it('主槽坏、备用槽可用：只出一句提醒，不出一串字段路径', () => {
+    const storage = createFake({
+      [ACTIVE_KEY]: 'B',
+      [SLOT_KEYS[1]!]: saveText({ realm: 9 }),
+      [SLOT_KEYS[0]!]: saveText({ qi: '88.5' }),
+    });
+
+    const result = loadGame({ storage, clock, compile: okCompile(EMPTY_PROGRAM) });
+
+    expect(result.fellBack, '走的是备用槽').toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.state?.qi).toBe('88.5');
+    expect(result.errors, '档读回来了就不该有红字').toEqual([]);
+    expect(result.notices).toEqual(['主存档（B 槽）不可用，已回退 A 槽继续']);
+    expect(result.summary).toBe('主存档（B 槽）不可用，已回退 A 槽继续');
+  });
+
+  it('两槽都坏：summary 一句给界面，明细留在 errors 给日志，灰字不重复', () => {
+    const storage = createFake({ [ACTIVE_KEY]: 'A', [SLOT_KEYS[0]!]: 'garbage{', [SLOT_KEYS[1]!]: saveText({ realm: 4 }) });
+
+    const result = loadGame({ storage, clock, compile: okCompile(EMPTY_PROGRAM) });
+
+    expect(result.state).toBeNull();
+    // 备份 key 就是 storage 里真实存在的那个键名
+    expect(result.summary).toBe('存档已损坏，已备份为 gongfa:corrupted-9000，已开新档');
+    expect(storage.read('gongfa:corrupted-9000')).toBe('garbage{');
+    expect(result.errors.join(' ')).toContain('state.realm');
+    expect(result.notices).toEqual([]);
+  });
+
   it('install 失败 → stage=install，编译结果仍然交回', () => {
+
     const storage = createFake({ [SLOT_KEYS[0]!]: saveText() });
     const program: Program = { id: 'gongfa', code: [{ op: 'ACTION', actionId: 'nope' }, { op: 'HALT' }] };
 

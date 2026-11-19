@@ -123,6 +123,8 @@ describe('双槽存档读写（契约 §5.2 第 4 步）', () => {
     expect(result.save?.savedAt).toBe(1000);
     expect(result.corruptedKey).toBeNull();
     expect(result.errors.join(' ')).toContain('state.realm');
+    // 界面只用这一句；上面的字段级明细是给宿主打日志的，不许拼进 summary
+    expect(result.summary).toBe('主存档（B 槽）不可用，已回退 A 槽继续');
   });
 
   it('两槽都坏 → 坏档另存 corrupted-<ts>、清槽、开新档', () => {
@@ -144,6 +146,8 @@ describe('双槽存档读写（契约 §5.2 第 4 步）', () => {
     const corruptedKey = `${CORRUPTED_PREFIX}5000`;
     expect(result.corruptedKey).toBe(corruptedKey);
     expect(result.errors.join(' ')).toContain('两槽都校验失败');
+    // 玩家看到的只有这一句，key 与下面实际写入的那个是同一个
+    expect(result.summary).toBe(`存档已损坏，已备份为 ${corruptedKey}，已开新档`);
     // 备份的是主槽那份，坏档不丢；两个数据槽和指针都清空
     expect(storage.read(corruptedKey)).toBe(brokenPrimary);
     expect(storage.read(SLOT_KEYS[0])).toBeNull();

@@ -137,7 +137,10 @@ export interface ReadResult {
   /** 两槽都坏时坏档另存的 key；没备份就是 null */
   corruptedKey: string | null;
   stage: DecodeStage | null;
+  /** 字段级明细：只给宿主打日志/展开用，不要整份渲染进 UI */
   errors: string[];
+  /** 给玩家看的一句话（损坏开新档、回退备用槽）；没有异常就是 null */
+  summary: string | null;
 }
 
 export function clearSaves(storage: SaveStorage): void {
@@ -145,7 +148,7 @@ export function clearSaves(storage: SaveStorage): void {
   safeRemove(storage, ACTIVE_KEY);
 }
 
-const EMPTY: ReadResult = { ok: false, fresh: true, save: null, fellBack: false, corruptedKey: null, stage: null, errors: [] };
+const EMPTY: ReadResult = { ok: false, fresh: true, save: null, fellBack: false, corruptedKey: null, stage: null, errors: [], summary: null };
 
 // 读档：按指针决定主/备，主槽坏了回退备用槽，两槽都坏才开新档。
 export function readSave(storage: SaveStorage, clock: Clock): ReadResult {
@@ -167,6 +170,7 @@ export function readSave(storage: SaveStorage, clock: Clock): ReadResult {
       ? { ok: false as const, stage: 'envelope' as DecodeStage, errors: [`存档读取抛异常：${entry.text.slice(10)}`], save: null }
       : decodeSave(entry.text);
     if (decoded.ok) {
+      const backup = slotName(entry.index);
       return {
         ok: true,
         fresh: false,
@@ -175,6 +179,7 @@ export function readSave(storage: SaveStorage, clock: Clock): ReadResult {
         corruptedKey: null,
         stage: null,
         errors: failures,
+        summary: position > 0 ? `主存档（${slotName(order[0] ?? 0)} 槽）不可用，已回退 ${backup} 槽继续` : null,
       };
     }
     failures.push(`${slotName(entry.index)} 槽：${decoded.errors.join('；')}`);
@@ -193,5 +198,6 @@ export function readSave(storage: SaveStorage, clock: Clock): ReadResult {
     corruptedKey,
     stage: primaryStage ?? 'envelope',
     errors: [`两槽都校验失败：${failures.join('、')}`, `坏档已另存到 ${corruptedKey}`],
+    summary: `存档已损坏，已备份为 ${corruptedKey}，已开新档`,
   };
 }

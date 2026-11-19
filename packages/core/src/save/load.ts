@@ -36,6 +36,8 @@ export interface LoadResult {
   errors: readonly string[];
   /** 可继续但玩家该知道：回退备用槽、降级空程序 */
   notices: readonly string[];
+  /** 读回档时是红字（已备份为 …，已开新档），回退成功时是灰字提醒；无异常为 null */
+  summary: string | null;
   state: GameState | null;
   program: Program | null;
   fellBack: boolean;
@@ -47,16 +49,18 @@ export interface LoadResult {
 export function loadGame(options: LoadOptions): LoadResult {
   const { storage, clock, compile, install } = options;
   const read = readSave(storage, clock);
-  const notices = read.fellBack ? read.errors : [];
+  // 分层：summary 是给玩家看的一句（损坏→红字，回退→灰字提醒），errors 留给宿主打日志
+  const notices = read.fellBack && read.summary !== null ? [read.summary] : [];
 
   if (read.save === null) {
-    // 两槽都坏时 read.errors 已经写了「坏档已另存到 …」，玩家能自己去 localStorage 查改坏了哪儿
+    // errors 是逐字段明细 + 「坏档已另存到 …」：交给宿主打日志，界面只用 summary 那一句
     return {
       ok: false,
       fresh: read.fresh,
       stage: read.stage,
-      errors: read.fellBack ? [] : read.errors,
+      errors: read.errors,
       notices,
+      summary: read.summary,
       state: null,
       program: null,
       fellBack: read.fellBack,
@@ -75,6 +79,7 @@ export function loadGame(options: LoadOptions): LoadResult {
       stage: 'compile',
       errors,
       notices: ['功法已停用，按空程序运行；重新搭好后会自动存档。'],
+      summary: read.summary,
       state,
       program: EMPTY_PROGRAM,
       fellBack: read.fellBack,
@@ -91,6 +96,7 @@ export function loadGame(options: LoadOptions): LoadResult {
       stage: 'install',
       errors: installErrors,
       notices,
+      summary: read.summary,
       state,
       program,
       fellBack: read.fellBack,
@@ -104,6 +110,7 @@ export function loadGame(options: LoadOptions): LoadResult {
     stage: null,
     errors: [],
     notices,
+    summary: read.summary,
     state,
     program,
     fellBack: read.fellBack,

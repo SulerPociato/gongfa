@@ -11,13 +11,13 @@ import {
   TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { loadGame, newGameState, type GameState, type Program } from '@gongfa/core';
+import { loadGame, newGameState, type GameState, type LoadResult, type Program, type SaveStorage } from '@gongfa/core';
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
 import { createRuntime, type Runtime } from './game/runtime';
 import { createLoop } from './game/loop';
-import { Hud, type HudModel } from './game/hud';
+import { Hud, type CorruptLineModel, type HudModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -38,13 +38,33 @@ function clockText(ms: number): string {
   return `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
 }
 
+// 「详情」里的备份原文截断到此长度：整份 JSON 能有三千字，HUD 那块地方放不下。
+const BACKUP_TEXT_CHARS = 2000;
+
+// 存档损坏提示分层：HUD 只留 core 那一句「已备份为 …，已开新档」，
+// 逐字段明细 + 备份原文进 console.group('save:corrupt') 和「详情」展开区。
+// 回退备用槽成功（state 还在）不走这里：档读回来了，core 那时 errors 为空，只有一句灰字 notice。
+function corruptReport(storage: SaveStorage, loaded: LoadResult): CorruptLineModel | null {
+  if (loaded.state !== null || loaded.summary === null) return null;
+
+  const backup = loaded.corruptedKey === null ? null : storage.read(loaded.corruptedKey);
+  const detail = backup === null || backup === ''
+    ? [...loaded.errors]
+    : [...loaded.errors, `备份 ${loaded.corruptedKey} 原文：`, backup.slice(0, BACKUP_TEXT_CHARS)];
+  console.group('save:corrupt');
+  console.warn(loaded.summary);
+  for (const message of detail) console.warn(message);
+  console.groupEnd();
+  return { line: loaded.summary, detail };
+}
+
 
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<Runtime | null>(null);
   const saveRef = useRef<SaveBridge | null>(null);
   if (runtimeRef.current === null) runtimeRef.current = createRuntime();
-  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], stall: null, save: ['读取存档…'], notices: [] });
+  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], corrupt: null, stall: null, save: ['读取存档…'], notices: [] });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -109,10 +129,14 @@ export function App() {
     });
     const blockErrors = loadBlocks(loaded.state?.workspace);
     const restoreErrors = loaded.state === null ? [] : runtime.restore(loaded.state);
-    // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默。
-    // 但积木没能上屏（已退回开局程序）时，core 对存档那份坏 workspace 的编译报错要丢掉：
-    // 它说的不是眼前跑的程序，而且开局程序自带入口块，再报「缺少每 tick 入口块」就是假报错。
-    const archiveErrors = blockErrors.length > 0 ? [] : loaded.errors;
+    // 损坏提示分层：HUD 那一行 + 控制台明细 + 「详情」展开区，都由这一次装载的结果决定
+    const corrupted = corruptReport(storage, loaded);
+    // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默。两处不进红字：
+    // ① 积木没能上屏（已退回开局程序）时，core 对存档那份坏 workspace 的编译报错要丢掉——
+    //    它说的不是眼前跑的程序，而且开局程序自带入口块，再报「缺少每 tick 入口块」就是假报错；
+    // ② 存档损坏：HUD 只留 corrupted 那一行，逐字段明细由 corruptReport 打进 console.group('save:corrupt')。
+    // 回退备用槽成功时 loaded.errors 本来就是空（core 只在读不到可用档时才填明细），灰字 notice 说一句即可。
+    const archiveErrors = blockErrors.length > 0 || corrupted !== null ? [] : loaded.errors;
     const hardErrors = [...blockErrors, ...restoreErrors, ...archiveErrors];
     const base: GameState = loaded.state ?? newGameState({ seed: randomSeed(), workspace: saved ?? STARTER_WORKSPACE_JSON, now: wallClock.now() });
     // 红字分两路：playErrors = 程序/存档本身没跑起来，saveErrors = 落盘失败（超限、配额满）。
@@ -155,7 +179,7 @@ export function App() {
       setHud((previous) =>
         previous.qi === qi && previous.rate === state.rate && previous.stall === state.stall
           ? previous
-          : { qi, rate: state.rate, errors: previous.errors, stall: state.stall, save: previous.save, notices: previous.notices }
+          : { qi, rate: state.rate, errors: previous.errors, corrupt: previous.corrupt, stall: state.stall, save: previous.save, notices: previous.notices }
       );
     });
     loop.start();
@@ -163,8 +187,9 @@ export function App() {
     setHud((previous) => ({
       ...previous,
       notices: loaded.notices,
-      // 坏档那几条已经在 hardErrors 里（HUD 红字），这里只标这一次装载是哪种情况
-      save: loaded.fresh ? (loaded.stage === null ? ['新档 · 尚未落盘'] : ['坏档已清空 · 见红字']) : ['档已装载'],
+      corrupt: corrupted,
+      // 损坏那句在红字里（含备份 key），灰字只标这一次装载的来历，不重复两遍
+      save: loaded.fresh ? ['新档 · 尚未落盘'] : ['档已装载'],
     }));
 
     return () => {
