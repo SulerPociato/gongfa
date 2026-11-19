@@ -15,7 +15,7 @@ import { bookEvent, derivePhase, loadGame, newGameState, type BookDef, type Book
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
-import { createRuntime, type Runtime, type RuntimeState } from './game/runtime';
+import { createRuntime, urlSeed, type Runtime, type RuntimeState } from './game/runtime';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { Hud, type BookAction, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
@@ -96,7 +96,9 @@ export function App() {
   const bookActionRef = useRef<((action: BookAction) => void) | null>(null);
   // 「可渡劫」按钮同理：runtime 在 useEffect 里才和存档控制器配上，这里只留转发口。
   const breakthroughActionRef = useRef<(() => void) | null>(null);
-  if (runtimeRef.current === null) runtimeRef.current = createRuntime();
+  // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
+  // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
+  if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed() });
   const booted = runtimeRef.current.state();
   const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], corrupt: null, stall: null, save: ['读取存档…'], notices: [], book: { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, realm: realmModel(booted) });
 
@@ -156,6 +158,8 @@ export function App() {
         totalQi: state.totalQi,
         breakthroughs: state.breakthroughs,
         playMs: state.playMs,
+        // 契约 §5.1 的 seed 是回放口径：落盘的必须是这一局真正在用的那一个，不能由基线另带
+        seed: state.seed,
         // 任务 5B：持有与装备随时会被四个按钮改写，必须跟着快照走，不能只靠基线带
         ownedBooks: game.ownedBooks,
         equippedBook: game.equippedBook,
@@ -184,7 +188,7 @@ export function App() {
     // 装备与持有是 GameState 的字段，也是玩家随时会改的东西，所以前台拿一份可变的档面走：
     // 装载/卸下/固化改写它，落盘由 snapshot 带出去，读写两端各校验一次（契约 §5.2）。
     // 新档直接带开局书（D3）；5A 落盘的旧档里 ownedBooks 是空的，靠 grantStarterBook 当场补发一次。
-    let game: GameState = loaded.state ?? newGameState({ seed: randomSeed(), workspace: saved ?? STARTER_WORKSPACE_JSON, now: wallClock.now(), ownedBooks: [STARTER_BOOK_ID] });
+    let game: GameState = loaded.state ?? newGameState({ seed: runtime.state().seed, workspace: saved ?? STARTER_WORKSPACE_JSON, now: wallClock.now(), ownedBooks: [STARTER_BOOK_ID] });
     const grant = grantStarterBook(game, BOOK_CATALOGUE);
     game = grant.state;
     let noticeList: readonly string[] = [...loaded.notices, ...(grant.notice === null ? [] : [grant.notice])];

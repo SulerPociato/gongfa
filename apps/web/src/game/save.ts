@@ -18,6 +18,8 @@ export interface SaveSnapshot {
   readonly totalQi: number;
   readonly breakthroughs: number;
   readonly playMs: number;
+  /** 这一局真正在跑的 RNG 种子（runtime 里那份），落盘后回放与排行榜都按它 */
+  readonly seed: number;
   /** 任务 5B：持有与装备会随「装载 / 卸下 / 固化」当场变，属于运行时事实，不能只靠基线带 */
   readonly ownedBooks: readonly string[];
   readonly equippedBook: string | null;
@@ -74,6 +76,7 @@ export function createSaveController(deps: {
       realm: snapshot.realm,
       budgetPool: snapshot.budgetPool,
       stats: { totalQi: String(snapshot.totalQi), breakthroughs: snapshot.breakthroughs, playMs: snapshot.playMs },
+      seed: snapshot.seed,
       lastSeenAt: now,
       // 任务 5B：持有与装备会随装载/卸下当场变，落盘前都要重校验（equipped ⊆ owned，改档照样挡）
       ownedBooks: [...snapshot.ownedBooks],

@@ -118,10 +118,23 @@ function seedRealm(): number {
 }
 
 // debug only：?seed=1 钉住随机序列，验收 5「同种子跑两次，杂念 tick 完全一致」靠它；正式 UI 不出现这个参数。
-// 新档的真随机种子由 App 侧 crypto 生成后走 restore() 覆盖，这里只是没读档时的起点。
-function seedSeed(): number {
-  const raw = Number(new URLSearchParams(window.location.search).get('seed'));
-  return Number.isInteger(raw) && raw >= 0 ? raw >>> 0 : 0;
+// 返回 null 表示查询串里没有，起点由宿主（App 掷 crypto）定；有存档时 restore() 覆盖它，存档优先。
+// 先判 raw：Number(null) 是 0，直接 Number(...) 会把「没带参数」当成「带了 seed=0」——
+// 任务 6 验收就是被这一行骗到，所有新档共用 seed 0 的杂念序列。
+export function urlSeed(): number | null {
+  const raw = new URLSearchParams(window.location.search).get('seed');
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 ? value >>> 0 : null;
+}
+
+export interface RuntimeDeps {
+  /**
+   * 这一局的随机种子。新档由宿主掷一次 crypto，同时喂给 createRuntime 与 newGameState ——
+   * 两边必须同一个值，否则落盘的 state.seed 描述的不是眼前跑的随机流
+   * （runtime 先前固定用 ?seed= 否则 0，于是所有新档共用同一条杂念序列，刷新后才换）。
+   */
+  readonly seed?: number;
 }
 
 // 境界 id → realms.json 下标。表里没有就不静默：退回首境并说明，宁可少算也不拿 undefined 当乘数。
@@ -141,8 +154,8 @@ type MutableState = { -readonly [K in keyof Omit<RuntimeState, DerivedField>]: R
 // 事件 tick 号只留最近 64 条：验收窗口 120 秒 = 1200 tick，全存下来没必要，长跑也不能把内存吃掉。
 const EVENT_LOG_MAX = 64;
 
-export function createRuntime(clock: Clock = wallClock): Runtime {
-  const state: MutableState = { ...DEFAULTS, demon: seedDemon(), seed: seedSeed(), stall: null };
+export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock): Runtime {
+  const state: MutableState = { ...DEFAULTS, demon: seedDemon(), seed: deps.seed ?? urlSeed() ?? 0, stall: null };
   const noiseTicks: number[] = [];
   const backlashTicks: number[] = [];
   const noteTick = (list: number[], tick: number): void => {
