@@ -109,8 +109,11 @@ export function App() {
     });
     const blockErrors = loadBlocks(loaded.state?.workspace);
     const restoreErrors = loaded.state === null ? [] : runtime.restore(loaded.state);
-    // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默
-    const hardErrors = [...blockErrors, ...restoreErrors, ...loaded.errors];
+    // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默。
+    // 但积木没能上屏（已退回开局程序）时，core 对存档那份坏 workspace 的编译报错要丢掉：
+    // 它说的不是眼前跑的程序，而且开局程序自带入口块，再报「缺少每 tick 入口块」就是假报错。
+    const archiveErrors = blockErrors.length > 0 ? [] : loaded.errors;
+    const hardErrors = [...blockErrors, ...restoreErrors, ...archiveErrors];
     const base: GameState = loaded.state ?? newGameState({ seed: randomSeed(), workspace: saved ?? STARTER_WORKSPACE_JSON, now: wallClock.now() });
     // 红字分两路：playErrors = 程序/存档本身没跑起来，saveErrors = 落盘失败（超限、配额满）。
     // 落盘失败必须显眼：玩家以为存上了、其实没存，比编译报错更能坑人。
