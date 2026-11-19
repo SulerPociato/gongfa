@@ -571,11 +571,29 @@ export function App() {
     if (debugVisible) {
       window.__gongfa_debug = {
         state: () => runtime.state(),
-        // 验收用：手动触发离线结算，绕过 localStorage 读取
-        settleOffline: (lastSeenAt: number) => runtime.settleOffline({
-          lastSeenAt,
-          allowBreakthrough: readSettings(storage).settings.offlineBreakthrough,
-        }),
+        // 验收用：手动触发离线结算，绕过 localStorage 读取，并更新 UI
+        settleOffline: (lastSeenAt: number) => {
+          const result = runtime.settleOffline({
+            lastSeenAt,
+            allowBreakthrough: readSettings(storage).settings.offlineBreakthrough,
+          });
+          if (result !== null) {
+            // 与 mount 路径共用同一个 setter：转换为 RetreatReport 并更新 HUD
+            setHud((previous) => ({
+              ...previous,
+              retreat: {
+                elapsedMs: result.elapsedMs,
+                creditedGained: result.creditedGained,
+                rawGained: result.rawGained,
+                realmName: runtime.state().realmName,
+                breakthrough: result.breakthroughs.length > 0
+                  ? { realm: result.breakthroughs[0]!.realm, ok: result.breakthroughs[0]!.ok }
+                  : null,
+              },
+            }));
+          }
+          return result;
+        },
       };
     }
 
