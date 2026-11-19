@@ -7,5 +7,32 @@
     "threshold": "1e3",
     "passivePerSec": 0,
     "actionMult": 1
+  },
+  {
+    "id": 1,
+    "name": {
+      "zh": "筑基"
+    },
+    "threshold": "2e4",
+    "passivePerSec": 5,
+    "actionMult": 3
+  },
+  {
+    "id": 2,
+    "name": {
+      "zh": "金丹"
+    },
+    "threshold": "4e5",
+    "passivePerSec": 30,
+    "actionMult": 25
+  },
+  {
+    "id": 3,
+    "name": {
+      "zh": "元婴"
+    },
+    "threshold": "2.5e6",
+    "passivePerSec": 150,
+    "actionMult": 100
   }
 ]

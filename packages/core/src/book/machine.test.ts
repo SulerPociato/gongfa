@@ -187,4 +187,28 @@ describe('装备 ↔ 成对装卸（契约 §4「移除来源时成对移除」�
     expect(sink.execute(req(1)).qi).toBeCloseTo(3 * (2 / 3), 12);
     expect(sink.execute(req(1)).demonDelta).toBeCloseTo(0.00005 * 0.95, 12);
   });
+
+  it('境界切换重建 sink 冲不掉书：decay 按新境界重算，modifiers 原样带过去（任务 6 的 Q2）', () => {
+    const realm1 = loadContent({
+      actions: [{ id: 'breath', baseGain: 1, demonDelta: 0, kind: 'gain' }],
+      realms: [
+        { id: 0, name: { zh: '炼气' }, threshold: '1e3', passivePerSec: 0, actionMult: 1 },
+        { id: 1, name: { zh: '筑基' }, threshold: '2e4', passivePerSec: 5, actionMult: 3 },
+      ],
+    });
+    const at0 = bookSettleDeps(BOOK, 0);
+    const at1 = bookSettleDeps(BOOK, 1);
+    // 只有衰减跟着境界走；修正器数组连引用都没换，所以「境界 +1」不可能少带一条 modifier
+    expect(at1.bookDecay).toBeCloseTo(0.6667, 4);
+    expect(at1.bookDecay).not.toBe(at0.bookDecay);
+    expect(at1.modifiers).toBe(BOOK.modifiers);
+    const sink0 = makeActionSink({ content: realm1, realmIndex: 0, ...at0 });
+    const sink1 = makeActionSink({ content: realm1, realmIndex: 1, ...at1 });
+    expect(sink0.mults).toEqual({ bookDecay: 1, rateMult: 1, demonMult: 0.95 });
+    expect(sink1.mults.demonMult).toBe(0.95);
+    expect(sink1.mults.rateMult).toBe(1);
+    expect(sink1.mults.bookDecay).toBeCloseTo(2 / 3, 12);
+    // 心魔增长在境界切换前后同乘 0.95：换境界既不该放大它，也不该顺手清掉它
+    expect(sink1.execute(req(1)).demonDelta / sink0.execute(req(1)).demonDelta).toBe(1);
+  });
 });
