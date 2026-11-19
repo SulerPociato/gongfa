@@ -8,17 +8,17 @@ import {
   compileWorkspace,
   GONGFA_THEME,
   STARTER_WORKSPACE_JSON,
-  TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { bookEvent, derivePhase, loadGame, newGameState, type BookDef, type BookEvent, type BookPhase, type GameState, type LoadResult, type Program, type SaveStorage } from '@gongfa/core';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, bookEvent, derivePhase, loadGame, newGameState, type BookDef, type BookEvent, type BookPhase, type GameState, type LoadResult, type Program, type SaveStorage } from '@gongfa/core';
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
-import { createRuntime, urlSeed, type Runtime, type RuntimeState } from './game/runtime';
+import { createRuntime, urlSeed, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
-import { Hud, type BookAction, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
+import { lockedCount, toolboxForRealm } from './game/toolbox';
+import { Hud, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -42,6 +42,62 @@ function realmModel(state: RuntimeState): RealmModel {
     canBreakthrough: state.canBreakthrough,
     pauseRemainingMs: state.pauseRemainingMs,
     demon: state.demon,
+  };
+}
+
+// 渡劫相位的推导顺序就是玩家看到的优先级（契约 §7.1 / §7.3）：
+// 挑战中 > 末境 > 存量没到 > 蓄势没到点 > 冷却没走完 > 可渡劫。
+// 冷却排在蓄势之后：60 秒远短于 15 分钟，先到期的那条才是玩家此刻该等的东西。
+function challengePhaseOf(state: RuntimeState): ChallengePhase {
+  if (state.challengeActive) return 'trial';
+  if (state.nextRealmName === null) return 'final';
+  if (!state.canBreakthrough) return 'threshold';
+  if (state.chargeRemainingMs > 0) return 'charge';
+  if (state.cooldownRemainingMs > 0) return 'cooldown';
+  return 'ready';
+}
+
+function challengeModel(state: RuntimeState): ChallengeModel {
+  return {
+    phase: challengePhaseOf(state),
+    // 冷却与蓄势都归零才算就绪；挑战进行中允许再点一次（那一次就是手动确认，85%）。
+    enabled: state.canChallenge,
+    nextRealmName: state.nextRealmName,
+    chargeRemainingMs: state.chargeRemainingMs,
+    trialRemainingMs: state.trialRemainingMs,
+    cooldownRemainingMs: state.cooldownRemainingMs,
+    attempt: state.attempt,
+    insight: state.insight,
+    demo: state.demo,
+  };
+}
+
+// 工具箱这一栏的说明：§4.3 的门控是内容设计，被挡住几块要当场说出来，别让玩家以为少件。
+// 总数在这里算一次：全开的 contents 就是「这套积木一共有几块」，不写死 5。
+const TOOLBOX_COUNT = toolboxForRealm(0, true).contents.length;
+
+function toolHintOf(state: RuntimeState): string {
+  const locked = lockedCount(state.realmIndex, state.demo);
+  if (state.demo) return `演示模式 · 工具箱全开（筑基的 ${lockedCount(state.realmIndex, false)} 块正式玩法要突破后才给）`;
+  if (locked === 0) return `工具箱 · ${state.realmName}已给齐全部 ${TOOLBOX_COUNT} 块`;
+  return `工具箱 · ${state.realmName}还差 ${locked} 块（筑基起给「如果 / 循环」）`;
+}
+
+// 每次 state() 都要重建整份 HudModel：book / corrupt / save / notices 这些跟帧无关的视图存在 view 里，
+// 帧只换 qi / rate / stall / realm / challenge / toolHint 六件套。
+function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices'>): HudModel {
+  return {
+    qi: Math.floor(state.qi),
+    rate: state.rate,
+    stall: state.stall,
+    realm: realmModel(state),
+    challenge: challengeModel(state),
+    toolHint: toolHintOf(state),
+    book,
+    errors: extra.errors,
+    corrupt: extra.corrupt,
+    save: extra.save,
+    notices: extra.notices,
   };
 }
 
@@ -95,12 +151,14 @@ export function App() {
   // 四个功法书按钮的实现在 useEffect 里才拿得到 workspace 与存档控制器，这里只留一个转发口。
   const bookActionRef = useRef<((action: BookAction) => void) | null>(null);
   // 「可渡劫」按钮同理：runtime 在 useEffect 里才和存档控制器配上，这里只留转发口。
-  const breakthroughActionRef = useRef<(() => void) | null>(null);
+  const challengeActionRef = useRef<(() => void) | null>(null);
   // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
   // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
-  if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed() });
+  // markDirty 走 saveRef 现取：控制器要到 useEffect 里才建出来，构造时只能留一个晚绑定的闭包。
+  // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 15 分钟。
+  if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
-  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], corrupt: null, stall: null, save: ['读取存档…'], notices: [], book: { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, realm: realmModel(booted) });
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [] }));
 
   useEffect(() => {
     const container = containerRef.current;
@@ -108,10 +166,21 @@ export function App() {
     if (container === null || runtime === null) return;
 
     const storage = createLocalStorageSaveStorage();
+    // 工具箱按境界门控（契约 §4.3 的解锁列）：炼气只给 4 块，筑基起补「如果 / 循环」。
+    // ?demo=1 全开（01-design §11.4「演示模式强制全开」）。Blockly 的 updateToolbox 重建整棵 flyout，
+    // 但 flyout 是「打开时才渲染」的，所以只换 ToolboxJson 不会碰画布上已有的积木，也不触发 compile。
+    let toolboxRealm = booted.realmIndex;
+    const toolboxJson = (index: number): NonNullable<InjectOptions['toolbox']> =>
+      toolboxForRealm(index, booted.demo) as unknown as NonNullable<InjectOptions['toolbox']>;
     const workspace = Blockly.inject(container, {
       theme: Blockly.Theme.defineTheme(GONGFA_THEME.name, GONGFA_THEME as unknown as ThemeConfig),
-      toolbox: TOOLBOX_JSON as unknown as NonNullable<InjectOptions['toolbox']>,
+      toolbox: toolboxJson(toolboxRealm),
     });
+    const syncToolbox = (index: number): void => {
+      if (index === toolboxRealm) return;
+      toolboxRealm = index;
+      workspace.updateToolbox(toolboxJson(index) as unknown as Parameters<typeof workspace.updateToolbox>[0]);
+    };
 
     // 存档里的 workspace 是真相源（契约 §5.1），IR 只是缓存：这里只往 saved 里存 Blockly 的原样 JSON，
     // 每次落盘都从它取，读档时也用它重编译。cache 是最近一次编译产物，落盘时写进 programs 字段。
@@ -160,6 +229,8 @@ export function App() {
         playMs: state.playMs,
         // 契约 §5.1 的 seed 是回放口径：落盘的必须是这一局真正在用的那一个，不能由基线另带
         seed: state.seed,
+        // 任务 6.5：蓄势时刻（§5.1 的 chargeReadyAt）也在运行时字段里，快照不带它就永远写不进档
+        chargeReadyAt: state.chargeReadyAt,
         // 任务 5B：持有与装备随时会被四个按钮改写，必须跟着快照走，不能只靠基线带
         ownedBooks: game.ownedBooks,
         equippedBook: game.equippedBook,
@@ -321,17 +392,45 @@ export function App() {
       bookActionRef.current = null;
     };
 
-    // 任务 6 的简化突破：存量达标就进下一境（qi=0、demon=0，契约 §7.1），本轮没有渡劫挑战。
-    // 境界一变，书的衰减要按新境界重算，所以成功后走一次 refreshBook：sink 与 HUD 的「衰减 ×」同时跟上。
-    breakthroughActionRef.current = (): void => {
-      const errors = runtime.breakthrough();
-      if (errors.length > 0) {
-        pushActionErrors(errors);
+    // HUD 的渲染闸门：逐帧把看得出来的变化量化成 key，key 不变就不重渲染。
+    // 声明在这里是因为渡劫回调点完要把它清空 —— 结算改了 chargeReadyAt / attempt / insight，
+    // 那三个字段不在 key 里，不清就会等下一次数字变化才刷新按钮。
+    let lastHudKey = '';
+    // 上一次播报过的结算（同一份引用 = 同一发），用来把托管结算也只说一次。
+    let seenChallenge: ChallengeResult | null = null;
+
+    // 结算的播报不挂在点击上：托管那一发是 run() 里结算的，没有回调可挂，所以逐帧观察 state.lastChallenge。
+    // 境界一变要重推书的衰减（新境按新 realmIndex 算），所以成功路径走一次 refreshBook（同任务 6）。
+    const reportChallenge = (result: ChallengeResult): void => {
+      if (result.phase === 'refused') {
+        pushActionErrors(result.errors);
         return;
       }
       refreshBook(false);
-      pushNotice(`突破成功：进入${runtime.state().realmName}，存量与心魔清零`);
-      controller.markDirty();
+      const dice = `第 ${result.attempt} 次 · ${(result.rate * 100).toFixed(0)}% 档 · 骰 ${result.roll.toFixed(4)}`;
+      if (result.ok) {
+        pushNotice(`渡劫${result.forced ? `（保底第 ${result.attempt} 次）` : ''}成功：进入${result.realmName}，存量与心魔清零 · ${dice}`);
+      } else {
+        pushNotice(`渡劫失败：存量 ×${FAILURE_QI_MULT} → ${Math.floor(result.qi)}、心魔归 0、悟道 +1 · ${dice}`);
+      }
+    };
+
+    // 任务 6.5：「可渡劫」的唯一入口。点击本身只可能带来两种新信息：
+    // ① 蓄势就绪 → 开启 10 秒挑战；② 前置条件没满足（惩罚 / 阈值 / 末境 / 冷却 / 蓄势）→ 红字。
+    // 当场结算（手动确认、演示模式）与到点结算（托管）都由 reportChallenge 说。
+    challengeActionRef.current = (): void => {
+      const result = runtime.pressChallenge();
+      if (result.phase === 'trial') {
+        lastHudKey = '';
+        pushNotice(`渡劫开始：${(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒内点「立即冲关」按 ${(MANUAL_RATE * 100).toFixed(0)}% 算，放手则按 ${(AUTO_RATE * 100).toFixed(0)}% 托管`);
+        return;
+      }
+      if (result.phase === 'idle') {
+        pushActionErrors(result.errors);
+        return;
+      }
+      // 结算已经在 runtime 里改完数字并标过脏；这里只打破 HUD 的渲染闸门，让灰字立刻出现。
+      lastHudKey = '';
     };
 
     // event 为空 = 挂载时那一次手动编译；组号是我们的程序化换画布 = 不是玩家编辑。
@@ -353,13 +452,29 @@ export function App() {
 
     // 境界/心魔/惩罚倒计时是连续变化的，逐帧比上一次贵；这些字段量化后拼成 key，
     // 只有真正看得出来的变化（灵力整数、速率、心魔千分位、剩余 0.1 秒、境界四件套、stall）才重渲染。
-    let lastHudKey = '';
+    // 渡劫三件套按秒量化：蓄势 15 分钟不需要 60 次/秒的重渲染，剩余 1 秒一跳就够玩家看清。
     const loop = createLoop(runtime, (state) => {
+      // 结算结果每出现一份新的就播报一次：引用相同 = 还是那一发，不重复说。
+      if (state.lastChallenge !== seenChallenge) {
+        seenChallenge = state.lastChallenge;
+        lastHudKey = '';
+        if (seenChallenge !== null) reportChallenge(seenChallenge);
+      }
       const qi = Math.floor(state.qi);
-      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}`;
+      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}`;
       if (key === lastHudKey) return;
       lastHudKey = key;
-      setHud((previous) => ({ ...previous, qi, rate: state.rate, stall: state.stall, realm: realmModel(state) }));
+      // 突破/渡劫成功之后工具箱跟着换（§4.3）：flyout 是打开时才渲染的，但已打开的面板要当场重建才看得见新块。
+      syncToolbox(state.realmIndex);
+      setHud((previous) => ({
+        ...previous,
+        qi,
+        rate: state.rate,
+        stall: state.stall,
+        realm: realmModel(state),
+        challenge: challengeModel(state),
+        toolHint: toolHintOf(state),
+      }));
     });
     loop.start();
 
@@ -380,7 +495,7 @@ export function App() {
     return () => {
       loop.stop();
       detachBook();
-      breakthroughActionRef.current = null;
+      challengeActionRef.current = null;
       if (debugVisible) delete window.__gongfa_debug;
       // StrictMode 的双挂载与真实卸载都走这里：先落一次档再拆工作区，别把刚搭的程序丢在内存里
       controller.flush();
@@ -393,7 +508,7 @@ export function App() {
   return (
     <div className="layout">
       <div className="canvas" ref={containerRef} />
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onBreakthrough={() => { breakthroughActionRef.current?.(); }} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} />
     </div>
   );
 }

@@ -1,11 +1,16 @@
 import actionsJson from '../../../../content/actions.json';
 import realmsJson from '../../../../content/realms.json';
 import {
+  CHALLENGE_COOLDOWN_MS,
+  CHALLENGE_TRIAL_MS,
+  CHARGE_WINDOW_MS,
   applyBacklash,
+  armCharge,
   BACKLASH_PAUSE_MS,
   BASE_BUDGET,
   bookSettleDeps,
-  breakthrough as breakthroughRule,
+  chargeRemainingMs,
+  isChargeReady,
   isThresholdReached,
   loadContent,
   makeActionSink,
@@ -13,11 +18,13 @@ import {
   passivePerTick,
   Qi,
   reachesBacklash,
+  resolveChallenge,
   Scheduler,
   TICKS_PER_SEC,
   Vm,
   type ActionRequest,
   type BookDef,
+  type ChallengeMode,
   type Clock,
   type GameState,
   type Program,
@@ -48,8 +55,17 @@ export interface RuntimeState {
   readonly realmName: string;
   readonly threshold: number;
   readonly passivePerSec: number;
-  /** 存量 ≥ 当前境界阈值且还有下一境 → HUD 的「可渡劫」按钮亮。本轮没有渡劫挑战（任务 6.5 替换成蓄势+挑战）。 */
+  /** 存量 ≥ 当前境界阈值且还有下一境 → 「可冲关」的前半条件（后半是蓄势就绪，见 canChallenge）。 */
   readonly canBreakthrough: boolean;
+  /**
+   * 蓄势完成时刻（契约 §5.1 的 chargeReadyAt，真实时间毫秒）：0 = 本境界从未达标。
+   * 这是落盘字段：每次 arm 出非零值都要标脏，否则浏览器刷新后会重新等 15 分钟。
+   */
+  readonly chargeReadyAt: number;
+  /** 本境界内第几次渡劫（§7.1 的 N，从 1 起）：只活内存，刷新回到 1 = 「连续失败」清零。 */
+  readonly attempt: number;
+  /** 本档悟道（§7.1「不入档，刷新清零」）：每次渡劫失败 +1。 */
+  readonly insight: number;
   /** 走火入魔剩余毫秒：>0 表示惩罚期内不跑 tick、不计 playMs。不落盘（见 pausedUntil 的已知漏洞）。 */
   readonly pauseRemainingMs: number;
   /** VM 的 tick 计数（每会话从 0 起，存档里没这个字段），杂念与走火的 tick 号都按它对账。 */
@@ -63,13 +79,57 @@ export interface RuntimeState {
   readonly bookDecay: number;
   readonly rateMult: number;
   readonly demonMult: number;
+  /** 蓄势还要等的真实毫秒：chargeReadyAt 为 0（从未达标）时也是 0，靠 canChallenge 区分。 */
+  readonly chargeRemainingMs: number;
+  /** 存量达标 + 有下一境 + 蓄势已就绪 + 不在冷却 → 「可渡劫」按钮真的能点（HUD 的 disabled 只看这个）。 */
+  readonly canChallenge: boolean;
+  /** 10 秒挑战进行中：按钮文案切成「立即冲关（手动 85%）」，画布同时提示「改功法只改接下来的产出」。 */
+  readonly challengeActive: boolean;
+  /** 挑战剩余毫秒：0 = 不在挑战中。 */
+  readonly trialRemainingMs: number;
+  /** 渡劫冷却剩余毫秒：0 = 可以开始下一次。 */
+  readonly cooldownRemainingMs: number;
+  /** realms.json 的下标（境界 id 在表里的位置）：工具箱门控与蓄势窗口都按它取，不假设 id 连续。 */
+  readonly realmIndex: number;
+  /** 下一境的名字，末境是 null：HUD 据此区分「还差存量」与「已到顶」，也用来写「渡劫 → 金丹」。 */
+  readonly nextRealmName: string | null;
+  /** ?demo=1：跳过蓄势与 10 秒，HUD 要写明当前是演示模式。 */
+  readonly demo: boolean;
+  /**
+   * 最近一次「结算」（10 秒到点的托管、挑战中的手动确认、演示模式的当场结算都算，拒绝也算）：
+   * 托管那一发是 run() 里结算的，没有按钮可挂回调，所以结果放在状态里由宿主逐帧观察，
+   * 否则玩家只看见数字跳了一下，不知道这局是成是败、骰了多少。
+   */
+  readonly lastChallenge: ChallengeResult | null;
 }
 
 /**
  * 每次 state() 现算、不进可变状态的字段：境界四件套来自 realms.json 当前行，
- * 两个 tick 列表来自闭包里的数组（同一份引用交出去，debug 句柄读到的是实时值）。
+ * 两个 tick 列表来自闭包里的数组（同一份引用交出去，debug 句柄读到的是实时值），
+ * 渡劫这几件套是把闭包里的墙钟 deadline 换算成剩余毫秒。
  */
-type DerivedField = 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks';
+type DerivedField =
+  | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
+  | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo';
+
+/**
+ * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
+ * 已开始但结算被拒（挑战中存量掉回阈值下，§7.1「渡劫无从开始」）。后两类都要在 HUD 上说出来。
+ */
+export interface ChallengeResult {
+  readonly errors: readonly string[];
+  readonly phase: 'idle' | 'trial' | 'refused' | 'settled';
+  readonly ok: boolean;
+  readonly mode: ChallengeMode | null;
+  /** 结算时用的是本境界第几次（§7.1 的 N）；未结算时为下一次将要用的 N。 */
+  readonly attempt: number;
+  readonly rate: number;
+  readonly roll: number;
+  /** 第 3 次的成功来自保底而非骰子（§7.1）：HUD 要区分「渡劫成功」与「保底功成」。 */
+  readonly forced: boolean;
+  readonly qi: number;
+  readonly realmName: string;
+}
 
 export interface Runtime {
   run(dtMs: number): TickResult[];
@@ -79,8 +139,11 @@ export interface Runtime {
   restore(state: GameState): readonly string[];
   /** 装备或卸下（含固化）功法书：衰减与 modifiers 成对装卸。 */
   attachBook(book: BookDef | null): void;
-  /** 简化突破：存量 ≥ 阈值就直接进下一境界（qi=0、demon=0，契约 §7.1）。返回拒绝原因，空数组 = 成功。 */
-  breakthrough(): readonly string[];
+  /**
+   * 「可渡劫」按钮的唯一入口（契约 §7.1）：蓄势就绪时开启 10 秒挑战，挑战中再点一次按手动 85% 当场结算，
+   * 放手到点则由 run() 按托管 60% 自动结算。拒绝原因在 errors 里，空数组 = 这次点击被接受。
+   */
+  pressChallenge(): ChallengeResult;
   state(): RuntimeState;
 }
 
@@ -96,12 +159,16 @@ const DEFAULTS: Omit<RuntimeState, 'stall' | DerivedField> = {
   totalQi: 0,
   breakthroughs: 0,
   playMs: 0,
+  chargeReadyAt: 0,
+  attempt: 1,
+  insight: 0,
   pauseRemainingMs: 0,
   tick: 0,
   bookId: null,
   bookDecay: 1,
   rateMult: 1,
   demonMult: 1,
+  lastChallenge: null,
 };
 
 // debug only：?demon=0.49 把心魔种子挪到 0.5 附近，方便当场看分支切换；正式 UI 不出现这个参数。
@@ -135,6 +202,26 @@ export interface RuntimeDeps {
    * （runtime 先前固定用 ?seed= 否则 0，于是所有新档共用同一条杂念序列，刷新后才换）。
    */
   readonly seed?: number;
+  /**
+   * 「有字段要落盘了」的通知。runtime 不认存档控制器（构造时控制器还没建），宿主给一个闭包就行。
+   * 渡劫结算与蓄势起算都会调它：chargeReadyAt 是 §5.1 的存档字段，漏标一次刷新就重新等 15 分钟。
+   */
+  readonly markDirty?: (() => void) | undefined;
+}
+
+// 演示模式（01-design §十 / 契约 §7.3「演示模式可跳过蓄势」）：?demo=1 开，
+// 蓄势窗口与 10 秒挑战一起跳过（直接按手动 85% 结算），工具箱也全开。
+// 值为 0 / false 视为不开，方便评审用 ?demo=0 对照正式玩法。
+export function urlDemo(): boolean {
+  const raw = new URLSearchParams(window.location.search).get('demo');
+  return raw !== null && raw !== '0' && raw.toLowerCase() !== 'false';
+}
+
+// debug only：?debug=1 且 ?charge=0 时把蓄势窗口强行设成 0（立刻可冲关），当场验 15/60 分钟的算术。
+// 和 ?demo=1 分开：演示模式是一揽子开关，这个只动蓄势，心魔、杂念、离线照旧。
+function chargeSkipped(): boolean {
+  const query = new URLSearchParams(window.location.search);
+  return query.has('debug') && query.get('charge') === '0';
 }
 
 // 境界 id → realms.json 下标。表里没有就不静默：退回首境并说明，宁可少算也不拿 undefined 当乘数。
@@ -172,18 +259,44 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let currentBook: BookDef | null = null;
   let sink: SettleSink;
 
-  // realmIndex 只由 indexOfRealm（找不到退回首行）和 breakthrough（下一行必然存在才返回成功）改，
+  // realmIndex 只由 indexOfRealm（找不到退回首行）和渡劫成功（下一行必然存在才返回成功）改，
   // 所以永远落在表内；realms.json 非空由 loadContent 保证。
   const currentRealm = (): RealmDef => content.realms[realmIndex] ?? content.realms[0]!;
+  const demoMode = urlDemo();
+  const markDirty = deps.markDirty ?? (() => undefined);
+
+  // 渡劫的两个墙钟 deadline。P0 已知漏洞：attempt / insight / trialUntil / cooldownUntil 只在内存里，
+  // 刷新即清零 —— §7.1 的「同一境界连续 3 次必成」与「渡劫后 60 秒冷却」因此都能被刷新绕过。
+  // 契约 §5.1 没有对应字段，任务 8 造 schema v2 时一并落盘；HUD 的文案必须写明「刷新清零」。
+  // 只有 chargeReadyAt（§5.1 现成字段）落盘，蓄势这条时间墙跨刷新继续。
+  let trialUntil = 0;
+  let cooldownUntil = 0;
+
+  // 宿主策略决定窗口：演示模式与 ?charge=0 把窗口设成 0，核心只做「首次达标 + 窗口」这一条加法。
+  // 窗口按【目标境界】下标取：筑基存量首次达标要冲的是金丹 → CHARGE_WINDOW_MS[realmIndex + 1]。
+  const chargeWindowMs = (): number => (demoMode || chargeSkipped() ? 0 : CHARGE_WINDOW_MS[realmIndex + 1] ?? 0);
 
   const realmView = (): Pick<RuntimeState, DerivedField> => {
     const realm = currentRealm();
+    const next = content.realms[realmIndex + 1];
+    const now = clock.now();
+    const thresholdReached = isThresholdReached(state.qi, realm);
+    const active = trialUntil > now;
     return {
       realmName: realm.name.zh,
+      nextRealmName: next?.name.zh ?? null,
       threshold: realm.threshold,
       passivePerSec: realm.passivePerSec,
-      // 只看「存量够不够 + 还有没有下一境」；惩罚期由 HUD 用 pauseRemainingMs 置灰，runtime.breakthrough 再挡一次。
-      canBreakthrough: isThresholdReached(state.qi, realm) && realmIndex + 1 < content.realms.length,
+      realmIndex,
+      // 「可冲关」的前半：够存量、还有下一境。惩罚与冷却由 canChallenge 和 pressChallenge 兜底。
+      canBreakthrough: thresholdReached && next !== undefined,
+      // 后半才是蓄势（§7.3）；挑战进行中按钮要能点（那一次点击 = 手动确认），所以 active 直接放行。
+      canChallenge: active || (thresholdReached && next !== undefined && isChargeReady(state.chargeReadyAt, now) && cooldownUntil <= now),
+      chargeRemainingMs: chargeRemainingMs(state.chargeReadyAt, now),
+      challengeActive: active,
+      trialRemainingMs: active ? trialUntil - now : 0,
+      cooldownRemainingMs: Math.max(0, cooldownUntil - now),
+      demo: demoMode,
       noiseTicks,
       backlashTicks,
     };
@@ -219,9 +332,58 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   });
   let lastGood: Program | null = null;
 
+  // 没开始就没结算：数字沿用当前值、境界名是当前境，HUD 只把 errors 打进红字。
+  const idleResult = (mode: ChallengeMode, attempt: number, rate: number, roll: number, errors: readonly string[]): ChallengeResult => ({
+    errors, phase: 'idle', ok: false, mode, attempt, rate, roll, forced: false, qi: state.qi, realmName: currentRealm().name.zh,
+  });
+
+  // 结算 = 契约 §7.1 的全部后果。成功复用 breakthrough 规则（境界 +1、qi=0、demon=0）并换 sink；
+  // 失败是 qi ×0.85、心魔归 0、悟道 +1、境界不动。报错路径（阈值没到 / 末境 / 坏下标）一个数字都不动，
+  // 也不记冷却、不吃掉第 N 次：渡劫压根没开始。
+  const settle = (mode: ChallengeMode): ChallengeResult => {
+    const attempt = state.attempt;
+    const outcome = resolveChallenge({
+      realms: content.realms,
+      realmIndex,
+      state: { qi: state.qi, demon: state.demon, realm: state.realm },
+      seed: state.seed,
+      attempt,
+      mode,
+    });
+    trialUntil = 0;
+    if (outcome.errors.length > 0) {
+      // 结算口径的拒绝（10 秒里存量掉回阈值下）：数字一个都不动，但这一发确实开始了，得让宿主把原因说出来。
+      state.lastChallenge = { ...idleResult(mode, attempt, outcome.rate, outcome.roll, outcome.errors), phase: 'refused' };
+      return state.lastChallenge;
+    }
+    cooldownUntil = clock.now() + CHALLENGE_COOLDOWN_MS;
+    // N 是「本境界内第几次」：换成攻下一境的那一境要重新从 1 数，失败留在同境界则继续 +1。
+    state.attempt = outcome.ok ? 1 : attempt + 1;
+    state.insight += outcome.insight;
+    state.qi = outcome.state.qi;
+    state.demon = outcome.state.demon;
+    state.realm = outcome.state.realm;
+    if (outcome.ok) {
+      realmIndex = outcome.realmIndex;
+      // 新境界的蓄势从「本境界从未达标」重新起算（§7.3），不带着上一境的完成时刻；
+      // 失败则原样保留 —— §7.3「同一境界内重复挑战不重置蓄势」。
+      state.chargeReadyAt = 0;
+      state.breakthroughs += 1;
+      resetSink();
+    }
+    scheduler.reset();
+    markDirty();
+    state.lastChallenge = { errors: [], phase: 'settled', ok: outcome.ok, mode, attempt, rate: outcome.rate, roll: outcome.roll, forced: outcome.forced, qi: state.qi, realmName: currentRealm().name.zh };
+    return state.lastChallenge;
+  };
+
   return {
     run: (dtMs) => {
-      const remaining = pausedUntil - clock.now();
+      const now = clock.now();
+      // 挑战的 10 秒是墙钟，和走火惩罚期并行：暂停只冻 tick 产出，不该把渡劫拖长。
+      // 放在函数开头，惩罚期那一帧也能按托管结算 —— 玩家「放手」的语义就是到点必出结果。
+      if (trialUntil !== 0 && now >= trialUntil) settle('auto');
+      const remaining = pausedUntil - now;
       if (remaining > 0) {
         // 惩罚期：不跑 tick、不计 playMs（D3），accumulator 也清掉。
         // 必须 reset：攒着 dt 的话恢复瞬间 5 秒会排成 50 tick 突发，Scheduler 只补 MAX_CATCHUP_TICKS=5，
@@ -244,6 +406,14 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
         state.rate = gained * TICKS_PER_SEC;
         state.ticks += 1;
         if (gained > 0) state.totalQi += gained;
+        // 蓄势起算点（§7.3「存量首次达到阈值的那一刻」）：逐 tick 判，armCharge 自己幂等。
+        // 走火那一 tick 也记：arm 之后掉回阈值下不清零，重复挑战不重置蓄势。
+        const armed = armCharge({ realm: currentRealm(), windowMs: chargeWindowMs(), qi: state.qi, chargeReadyAt: state.chargeReadyAt, now });
+        if (armed !== state.chargeReadyAt) {
+          state.chargeReadyAt = armed;
+          // chargeReadyAt 是 §5.1 的存档字段：不标脏就永远写不进档，刷新后 15 分钟从头再等。
+          markDirty();
+        }
         const demonBefore = state.demon;
         // 心魔夹在 0..1（契约 §1）；走火判据看夹紧之前的和，这一 tick 的账先记完再罚（01-design §4.4）。
         if (reachesBacklash(demonBefore, result.demonDelta)) {
@@ -291,16 +461,33 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       backlashTicks.length = 0;
       pausedUntil = 0;
       state.pauseRemainingMs = 0;
+      // 挑战的墙钟与保底计数不跨会话（§5.1 没有这些字段）：读档后回到「本境界第 1 次、没在挑战、没在冷却」。
+      trialUntil = 0;
+      cooldownUntil = 0;
+      state.attempt = 1;
+      state.insight = 0;
+      // 上一份会话的结算结果不带进这一局：否则刚刷新就看见一句陈年的「渡劫失败」。
+      state.lastChallenge = null;
       // realms.json 现在有 4 行（炼气/筑基/金丹/元婴，契约 §2.3）：
       // 存档里的境界没有对应产出表时明说，不静默用炼气的乘数算出个偏低速率。
       const index = content.realms.findIndex((realm) => realm.id === saved.realm);
       const fallback = index < 0;
       realmIndex = fallback ? 0 : index;
       state.realm = content.realms[realmIndex]?.id ?? 0;
+      // 蓄势时刻优先读档面：任务 5 落的 v1 档没这个字段（undefined），补一次 arm 而不是报错，
+      // 否则「刷新继续等剩余窗口」这条验收会读回 NaN 比较（undefined >= number 恒 false → 按钮永远灰）。
+      state.chargeReadyAt = Number.isFinite(saved.chargeReadyAt) ? saved.chargeReadyAt : 0;
       // 装备位由宿主在 restore 之后 attachBook 回来（runtime 不查目录）：这里先清成中性，
       // 免得上一份会话的书衰减残留在 sink 里。
       currentBook = null;
       resetSink();
+      // 存量已经达标却还没有蓄势时刻（离线达标、或读的是任务 5 那份没有该字段的档）：从这一帧补起算点。
+      // 拿当前时刻而不是达标时刻，是因为契约没存达标时刻；宁可多等，也不给玩家一个假就绪。
+      const armed = armCharge({ realm: currentRealm(), windowMs: chargeWindowMs(), qi: state.qi, chargeReadyAt: state.chargeReadyAt, now: clock.now() });
+      if (armed !== state.chargeReadyAt) {
+        state.chargeReadyAt = armed;
+        markDirty();
+      }
       if (fallback) {
         errors.push(`存档境界 ${saved.realm} 在 content/realms.json 里还没有产出表（现有 ${content.realms.map((realm) => realm.id).join('/')}），先按境界 ${state.realm} 算`);
       }
@@ -310,21 +497,27 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       currentBook = book;
       resetSink();
     },
-    breakthrough: () => {
-      if (pausedUntil > clock.now()) return [`走火入魔还剩 ${Math.ceil((pausedUntil - clock.now()) / 1000)} 秒，惩罚期内不能渡劫`];
-      const outcome = breakthroughRule({ realms: content.realms, realmIndex, state: { qi: state.qi, demon: state.demon, realm: state.realm } });
-      if (!outcome.ok) return outcome.errors;
-      realmIndex = outcome.realmIndex;
-      state.qi = outcome.state.qi;
-      state.demon = outcome.state.demon;
-      state.realm = outcome.state.realm;
-      state.breakthroughs += 1;
-      // 境界一变，sink 里的 actionMult 与书的衰减同时按新境界重算：只走 resetSink 这一个出口（Q2），
-      // 书的 modifiers 原样带过去，不会渡个劫就把功法加成洗掉。
-      resetSink();
-      // 换境界不改时间轴：清掉攒下的 dt，免得下一帧把旧 accumulator 当成新境界的产出补跑。
-      scheduler.reset();
-      return [];
+    pressChallenge: () => {
+      const now = clock.now();
+      // 挑战中再点一次 = 手动确认（85%）。已经到期那一帧交给 run() 按托管结算，这里不抢它的口径。
+      if (trialUntil !== 0) return trialUntil > now ? settle('manual') : settle('auto');
+      if (pausedUntil > now) return idleResult('manual', state.attempt, 0, 0, [`走火入魔还剩 ${Math.ceil((pausedUntil - now) / 1000)} 秒，惩罚期内不能渡劫`]);
+      const realm = currentRealm();
+      if (!isThresholdReached(state.qi, realm)) {
+        return idleResult('manual', state.attempt, 0, 0, [`存量 ${Qi.format(state.qi)} 未达 ${realm.name.zh} 阈值 ${Qi.format(realm.threshold)}，渡劫无从开始`]);
+      }
+      if (realmIndex + 1 >= content.realms.length) return idleResult('manual', state.attempt, 0, 0, [`已是最高境界（${realm.name.zh}），无可渡之劫`]);
+      if (cooldownUntil > now) return idleResult('manual', state.attempt, 0, 0, [`上次渡劫的冷却还没走完，还剩 ${Math.ceil((cooldownUntil - now) / 1000)} 秒`]);
+      // 兜底：HUD 已经把按钮置灰，直接调 API（debug 句柄）也要能看见原因，不静默 no-op。
+      if (!isChargeReady(state.chargeReadyAt, now)) {
+        return idleResult('manual', state.attempt, 0, 0, [chargeRemainingMs(state.chargeReadyAt, now) > 0
+          ? `蓄势还需 ${Math.ceil(chargeRemainingMs(state.chargeReadyAt, now) / 1000)} 秒`
+          : '本境界存量还没达到过阈值，蓄势尚未开始']);
+      }
+      // 演示模式：跳过 10 秒倒计时，直接按手动口径结算（评审 1:50 那一步只有几秒画面）。
+      if (demoMode) return settle('manual');
+      trialUntil = now + CHALLENGE_TRIAL_MS;
+      return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh };
     },
     state: () => ({ ...state, ...realmView() }),
   };

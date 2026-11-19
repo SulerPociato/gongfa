@@ -1,0 +1,28 @@
+import { TOOLBOX_JSON } from '@gongfa/blocks';
+
+// 工具箱的门控表：块型 → 最低境界下标（契约 §4.3 的「解锁」列）。
+// 没在这张表里的（每 tick / 吐纳 / 调息 / 比较）炼气就给。固化不列进来 —— 书是开局赠送的，
+// 01-design §5.2.1 的「抄模板 → 改模板」没有境界门槛，卡住它等于把 P0 的成长路径拦腰截断。
+const MIN_REALM: Record<string, number> = {
+  gongfa_if: 1,
+  gongfa_repeat: 1,
+};
+
+type ToolboxContent = (typeof TOOLBOX_JSON.contents)[number];
+
+export interface ToolboxJson {
+  readonly kind: 'flyoutToolbox';
+  readonly contents: readonly ToolboxContent[];
+}
+
+// 演示模式（?demo=1）全开：01-design §11.4「演示模式强制全开」，评审第一眼就能看到整套积木。
+export function toolboxForRealm(realmIndex: number, openAll: boolean): ToolboxJson {
+  const contents = TOOLBOX_JSON.contents.filter((item) => openAll || (MIN_REALM[item.type] ?? 0) <= realmIndex);
+  return { kind: 'flyoutToolbox', contents };
+}
+
+// 「还差哪几块」：提示语要按当前境界说出来，而不是让玩家自己猜下一境给什么。
+export function lockedCount(realmIndex: number, openAll: boolean): number {
+  if (openAll) return 0;
+  return TOOLBOX_JSON.contents.filter((item) => (MIN_REALM[item.type] ?? 0) > realmIndex).length;
+}

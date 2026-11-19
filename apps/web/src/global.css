@@ -111,7 +111,12 @@ body {
   opacity: 0.6;
 }
 
-.hud .breakthrough {
+/* 任务 6.5：渡劫面板。按钮灰不灰只看 canChallenge，相位只决定说哪句话 */
+.hud .challenge {
+  margin: 0 0 18px;
+}
+
+.hud .challenge-button {
   background: rgba(53, 224, 200, 0.12);
   border: 1px solid var(--spirit);
   border-radius: 4px;
@@ -122,13 +127,53 @@ body {
   padding: 5px 10px;
 }
 
-.hud .breakthrough:hover:not(:disabled) {
+.hud .challenge-button:hover:not(:disabled) {
   background: rgba(53, 224, 200, 0.22);
 }
 
-.hud .breakthrough:disabled {
+.hud .challenge-button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+/* 10 秒窗口里最容易误解的是「磨得越久越容易」：这块要在按钮正下方，字体别比按钮小太多 */
+.hud .trial {
+  border-left: 2px solid var(--spirit);
+  margin: 8px 0 0;
+  padding-left: 8px;
+}
+
+.hud .trial-rule {
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.hud .trial-odds {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 4px 0 0;
+}
+
+/* 保底与悟道是「本档」口径：刷新清零这句不能缩到看不见 */
+.hud .challenge-meta {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+  opacity: 0.7;
+}
+
+.hud .demo-badge {
+  border: 1px dashed #e8b45a;
+  border-radius: 4px;
+  color: #e8b45a;
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+  padding: 3px 6px;
 }
 
 /* 走火入魔是正在生效的惩罚，不是提示：用危险色，倒计时留在文案里 */
@@ -176,6 +221,14 @@ body {
 .hud .hint {
   font-size: 12px;
   line-height: 1.7;
+  opacity: 0.6;
+}
+
+/* 工具箱被境界挡住几块：和上一句同色同体，它是补充不是告警 */
+.hud .tool-hint {
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 6px 0 0;
   opacity: 0.6;
 }
 
