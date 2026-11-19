@@ -44,7 +44,7 @@
 - 数值 / IR / 存档 / 功法书口径以 00-contracts.md 为准，先读契约再写代码
 
 目录：
-packages/core/src/{vm,number,content,modifier,save,offline}
+packages/core/src/{vm,number,content,modifier,save,offline,rng,demon,realm}
 apps/web/src/{editor,game,adapters}
 content/{blocks.json,actions.json,realms.json,artifacts.json,books/*.json}
 tools/balance-sim.ts（用 tsx 执行）

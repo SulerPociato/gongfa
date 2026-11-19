@@ -263,7 +263,7 @@ score = 总产出 / 总步数      // 步数为 0 → score = 0（不记 ∞）
 code-cultivation/
 ├─ packages/core/
 ├─ packages/blocks/src/{definitions, compiler, theme}
-├─ packages/core/src/{vm, number, content, modifier, save, offline}
+├─ packages/core/src/{vm, number, content, modifier, save, offline, rng, demon, realm}
 │  ├─ src/number/bignum.ts
 │  ├─ src/content/{loader.ts, schema.ts}
 │  ├─ src/modifier/
