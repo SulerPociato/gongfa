@@ -347,7 +347,8 @@ const MIGRATIONS: Record<number, (old: unknown) => unknown> = {
 elapsed = clamp(now - lastSeenAt, 0, 60min)
 结果    = fastForward(elapsed / TICK_MS)      // 复用 VM，同一种子
 结果    = fastForward(elapsed / TICK_MS)
-gained  = 结果.rawGained × 0.6        // 渡劫前的产出都计入 rawGained
+gained  = Σ(每 tick 产出 × 0.6)    // **逐 tick 折**：阈值判定也按折后存量走
+rawGained = Σ(每 tick 全额产出)     // 仅用于报告"同期在线口径"一行
 finalQi = 结果.finalQi                // 渡劫成功则 0，失败停在阈值
 
 ```
@@ -356,7 +357,8 @@ finalQi = 结果.finalQi                // 渡劫成功则 0，失败停在阈�
 - 离线期间**不涨心魔、不触发杂念**
 - 离线期间 `demonDelta` **一律归零**（既不涨也不消，防"挂一叠调息白嫖洗心魔"），`demon` 原样带出
 - 离线渡劫复用同一 `attempt` 序列，§7.1 的"第 3 次必成"照常生效
-- 离线渡劫失败：模拟**停在阈值**，`creditedGained = finalQi = 阈值`（不再额外乘 0.6，因为逐 tick 已按 0.6 折）
+- 离线渡劫失败：模拟**停在阈值**，`creditedGained = finalQi = 阈值`（逐 tick 已折 0.6，不再二次折）
+- 逐 tick 折算的副作用：离线达到阈值比在线慢 1/0.6 ≈ 1.67 倍，这正是「在线 > 离线」不等式的来源
 - 系数以常量 `OFFLINE_RATE = 0.6` 为准，**不采信档面 `state.offlineRate`**（防改档白拿）
 （因此与在线不是严格等价，只保证"产出等价"）
 - 离线期间最多触发 1 次渡劫（见 7.1）
