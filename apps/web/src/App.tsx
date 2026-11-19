@@ -15,15 +15,35 @@ import { bookEvent, derivePhase, loadGame, newGameState, type BookDef, type Book
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
-import { createRuntime, type Runtime } from './game/runtime';
+import { createRuntime, type Runtime, type RuntimeState } from './game/runtime';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
-import { Hud, type BookAction, type CorruptLineModel, type HudModel } from './game/hud';
+import { Hud, type BookAction, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
 type SerializedState = Parameters<typeof Blockly.serialization.workspaces.load>[0];
 type SaveBridge = ReturnType<typeof createSaveController>;
+
+// D5：验收与回放用的只读句柄（state() 的实时视图，含 noiseTicks / backlashTicks / tick）。
+// 只在 DEV 或 ?debug=1 时挂，正式构建默认不挂；卸载时删掉，不留上一份会话的 runtime。
+declare global {
+  interface Window {
+    __gongfa_debug?: { readonly state: () => RuntimeState } | undefined;
+  }
+}
+
+// 进度条和文案共用的境界视图：字段全部来自 runtime.state()，HUD 侧不做任何算术。
+function realmModel(state: RuntimeState): RealmModel {
+  return {
+    name: state.realmName,
+    threshold: state.threshold,
+    passivePerSec: state.passivePerSec,
+    canBreakthrough: state.canBreakthrough,
+    pauseRemainingMs: state.pauseRemainingMs,
+    demon: state.demon,
+  };
+}
 
 // 块定义与语言包是 Blockly 的进程级单例：放模块顶层只执行一次，
 // 放 useEffect 里会被 StrictMode 的双挂载二次注册（Blockly 对重复 type 直接报错）。
@@ -74,8 +94,11 @@ export function App() {
   const saveRef = useRef<SaveBridge | null>(null);
   // 四个功法书按钮的实现在 useEffect 里才拿得到 workspace 与存档控制器，这里只留一个转发口。
   const bookActionRef = useRef<((action: BookAction) => void) | null>(null);
+  // 「可渡劫」按钮同理：runtime 在 useEffect 里才和存档控制器配上，这里只留转发口。
+  const breakthroughActionRef = useRef<(() => void) | null>(null);
   if (runtimeRef.current === null) runtimeRef.current = createRuntime();
-  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], corrupt: null, stall: null, save: ['读取存档…'], notices: [], book: { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 } });
+  const booted = runtimeRef.current.state();
+  const [hud, setHud] = useState<HudModel>({ qi: 0, rate: 0, errors: [], corrupt: null, stall: null, save: ['读取存档…'], notices: [], book: { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, realm: realmModel(booted) });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -294,6 +317,19 @@ export function App() {
       bookActionRef.current = null;
     };
 
+    // 任务 6 的简化突破：存量达标就进下一境（qi=0、demon=0，契约 §7.1），本轮没有渡劫挑战。
+    // 境界一变，书的衰减要按新境界重算，所以成功后走一次 refreshBook：sink 与 HUD 的「衰减 ×」同时跟上。
+    breakthroughActionRef.current = (): void => {
+      const errors = runtime.breakthrough();
+      if (errors.length > 0) {
+        pushActionErrors(errors);
+        return;
+      }
+      refreshBook(false);
+      pushNotice(`突破成功：进入${runtime.state().realmName}，存量与心魔清零`);
+      controller.markDirty();
+    };
+
     // event 为空 = 挂载时那一次手动编译；组号是我们的程序化换画布 = 不是玩家编辑。
     const compile = (event?: ChangeEvent): void => {
       const blocks = Blockly.serialization.workspaces.save(workspace) as unknown as WorkspaceJson;
@@ -311,15 +347,23 @@ export function App() {
     workspace.addChangeListener(compile);
     compile();
 
+    // 境界/心魔/惩罚倒计时是连续变化的，逐帧比上一次贵；这些字段量化后拼成 key，
+    // 只有真正看得出来的变化（灵力整数、速率、心魔千分位、剩余 0.1 秒、境界四件套、stall）才重渲染。
+    let lastHudKey = '';
     const loop = createLoop(runtime, (state) => {
       const qi = Math.floor(state.qi);
-      setHud((previous) =>
-        previous.qi === qi && previous.rate === state.rate && previous.stall === state.stall
-          ? previous
-          : { qi, rate: state.rate, errors: previous.errors, corrupt: previous.corrupt, stall: state.stall, save: previous.save, notices: previous.notices, book: previous.book }
-      );
+      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}`;
+      if (key === lastHudKey) return;
+      lastHudKey = key;
+      setHud((previous) => ({ ...previous, qi, rate: state.rate, stall: state.stall, realm: realmModel(state) }));
     });
     loop.start();
+
+    // D5：只读调试句柄。Vite 的类型入口没进本项目的 tsconfig types，所以显式取一次 import.meta.env：
+    // 构建时它会被换成字面量对象，正式构建里 DEV 就是 false，默认不挂；验收用 ?debug=1 打开。
+    const debugVisible = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true
+      || new URLSearchParams(window.location.search).has('debug');
+    if (debugVisible) window.__gongfa_debug = { state: () => runtime.state() };
 
     setHud((previous) => ({
       ...previous,
@@ -332,6 +376,8 @@ export function App() {
     return () => {
       loop.stop();
       detachBook();
+      breakthroughActionRef.current = null;
+      if (debugVisible) delete window.__gongfa_debug;
       // StrictMode 的双挂载与真实卸载都走这里：先落一次档再拆工作区，别把刚搭的程序丢在内存里
       controller.flush();
       detachSave();
@@ -343,7 +389,7 @@ export function App() {
   return (
     <div className="layout">
       <div className="canvas" ref={containerRef} />
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onBreakthrough={() => { breakthroughActionRef.current?.(); }} />
     </div>
   );
 }

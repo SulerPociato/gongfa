@@ -67,6 +67,79 @@ body {
   margin: 0 0 18px;
 }
 
+/* 任务 6：境界块。数字都在文案里，条只画比例 */
+.hud .realm {
+  margin: 0 0 18px;
+}
+
+.hud .realm-name {
+  font-size: 18px;
+  letter-spacing: 0.1em;
+  margin: 2px 0 6px;
+}
+
+.hud .bar {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--paper);
+  border-radius: 3px;
+  height: 8px;
+  margin: 0 0 6px;
+  overflow: hidden;
+}
+
+.hud .bar-fill {
+  background: var(--spirit);
+  height: 100%;
+}
+
+.hud .bar.demon .bar-fill {
+  background: var(--danger);
+}
+
+.hud .realm-text,
+.hud .demon-text {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin: 0 0 8px;
+  opacity: 0.85;
+}
+
+.hud .demon-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+  opacity: 0.6;
+}
+
+.hud .breakthrough {
+  background: rgba(53, 224, 200, 0.12);
+  border: 1px solid var(--spirit);
+  border-radius: 4px;
+  color: var(--spirit);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.hud .breakthrough:hover:not(:disabled) {
+  background: rgba(53, 224, 200, 0.22);
+}
+
+.hud .breakthrough:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* 走火入魔是正在生效的惩罚，不是提示：用危险色，倒计时留在文案里 */
+.hud .backlash {
+  color: var(--danger);
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+}
+
 .hud .book-text {
   font-size: 12px;
   line-height: 1.6;
