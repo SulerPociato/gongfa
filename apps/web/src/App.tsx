@@ -533,8 +533,8 @@ export function App() {
       }
     }
     // 读取暂存的离线报告（可能来自本次挂载，也可能来自 StrictMode 的第一次挂载）
+    // 不在这里清空：StrictMode 的第二次挂载还要读它。清空的活交给 cleanup。
     const offlineReport = pendingOfflineReport;
-    pendingOfflineReport = null;
 
     // 境界/心魔/惩罚倒计时是连续变化的，逐帧比上一次贵；这些字段量化后拼成 key，
     // 只有真正看得出来的变化（灵力整数、速率、心魔千分位、剩余 0.1 秒、境界四件套、stall）才重渲染。
