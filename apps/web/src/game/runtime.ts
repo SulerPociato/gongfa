@@ -10,6 +10,7 @@ import {
   BASE_BUDGET,
   bookSettleDeps,
   chargeRemainingMs,
+  demonlessSink,
   isChargeReady,
   isThresholdReached,
   loadContent,
@@ -20,6 +21,7 @@ import {
   reachesBacklash,
   resolveChallenge,
   Scheduler,
+  settleOffline,
   TICKS_PER_SEC,
   Vm,
   type ActionRequest,
@@ -29,6 +31,7 @@ import {
   type Clock,
   type GameState,
   type JadeCacheSpec,
+  type OfflineResult,
   type Program,
   type RealmDef,
   type SettleSink,
@@ -152,6 +155,11 @@ export interface Runtime {
    * 放手到点则由 run() 按托管 60% 自动结算。拒绝原因在 errors 里，空数组 = 这次点击被接受。
    */
   pressChallenge(): ChallengeResult;
+  /**
+   * 离线结算入口（任务 7B，契约 §7.2）：快进指定时长的 tick，按 0.6 折算入账，
+   * 期间心魔不涨、杂念不砍、走火不罚。返回结算结果（null = 没跑，例如 0 tick）。
+   */
+  settleOffline(input: { readonly lastSeenAt: number; readonly allowBreakthrough: boolean }): OfflineResult | null;
   state(): RuntimeState;
 }
 
@@ -268,6 +276,10 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 玉简的规格和书一样是「装上去就固定进 sink」的事实，卸下即 null；预算池另存在 VM 里，见 attachArtifacts。
   let currentJadeCache: JadeCacheSpec | null = null;
   let sink: SettleSink;
+  // 离线快进期间要静音事件（36 000 条 stall 会刷爆控制台），用这个标志位控制 onEvent
+  let offlineQuiet = false;
+  // demonlessSink 的包装实例：构造一次，离线期间通过 offlineQuiet 切换是否走它
+  const offlineWrapper = demonlessSink(() => sink);
 
   // realmIndex 只由 indexOfRealm（找不到退回首行）和渡劫成功（下一行必然存在才返回成功）改，
   // 所以永远落在表内；realms.json 非空由 loadContent 保证。
@@ -327,11 +339,14 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   const vm = new Vm({
     content,
     sink: {
-      execute: (request: ActionRequest) => sink.execute(request),
+      // 离线快进期间走 demonlessSink（心魔不涨），在线期间走原 sink
+      execute: (request: ActionRequest) => (offlineQuiet ? offlineWrapper.execute(request) : sink.execute(request)),
     },
     // VM 每 tick 开头读一次快照：宿主的 qi / demon 在这里进 LOAD，分支判断用的就是本 tick 起点的最新值。
     vars: (): VmSnapshot => ({ qi: state.qi, rate: state.rate, demon: state.demon, realm: state.realm, budget: state.budgetPool }),
     onEvent: (event) => {
+      // 离线快进一帧吐 3.6 万条事件，红字与 console 都会被刷爆
+      if (offlineQuiet) return;
       if (event.t === 'stall') state.stall = event;
       console.warn('[event]', event);
     },
@@ -386,6 +401,58 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     markDirty();
     state.lastChallenge = { errors: [], phase: 'settled', ok: outcome.ok, mode, attempt, rate: outcome.rate, roll: outcome.roll, forced: outcome.forced, qi: state.qi, realmName: currentRealm().name.zh };
     return state.lastChallenge;
+  };
+
+  // 任务 7B：离线结算（契约 §7.2）。快进指定时长的 tick，按 0.6 折算入账。
+  // 期间心魔不涨（demonlessSink）、杂念不砍（noiseGainMult 恒 1，因为 demon 不动）、走火不罚（宿主不调 applyBacklash）。
+  // 结算后更新 state（qi / realm / attempt / chargeReadyAt），并标脏让宿主落盘。
+  const settleOfflineMethod = (input: { readonly lastSeenAt: number; readonly allowBreakthrough: boolean }): OfflineResult | null => {
+    const now = clock.now();
+    const world = {
+      qi: state.qi,
+      demon: state.demon,
+      realmIndex,
+      chargeReadyAt: state.chargeReadyAt,
+      attempt: state.attempt,
+      seed: state.seed,
+    };
+    // 离线快进期间静音事件（36 000 条 stall 会刷爆控制台）
+    offlineQuiet = true;
+    try {
+      const result = settleOffline({
+        vm,
+        realms: content.realms,
+        world,
+        now,
+        lastSeenAt: input.lastSeenAt,
+        allowBreakthrough: input.allowBreakthrough,
+        chargeWindowMs: (realmIdx) => (demoMode || chargeSkipped() ? 0 : CHARGE_WINDOW_MS[realmIdx + 1] ?? 0),
+        onBreakthrough: (newRealmIndex) => {
+          // 境界已换成 newRealmIndex，宿主重建 sink（产出乘数链跟着境界走）
+          realmIndex = newRealmIndex;
+          resetSink();
+        },
+      });
+      // 结算成功：把 world 的终态写回 state
+      state.qi = result.finalQi;
+      state.demon = world.demon;  // 离线不涨心魔，但渡劫成功会涤清
+      realmIndex = world.realmIndex;
+      state.realm = content.realms[realmIndex]?.id ?? 0;
+      state.chargeReadyAt = world.chargeReadyAt;
+      state.attempt = world.attempt;
+      // 离线期间的产出计入 totalQi（credited 口径，与在线一致）
+      state.totalQi += result.creditedGained;
+      // 离线期间的 tick 数计入 ticks（与在线一致）
+      state.ticks += result.ran;
+      // 离线期间的 playMs 不计（契约 §5.1：playMs 只算在线操作时长）
+      // 境界变了要重建 sink（onBreakthrough 已经做了），但 chargeReadyAt 也变了，要标脏
+      if (result.breakthroughs.length > 0 || result.ran > 0) {
+        markDirty();
+      }
+      return result.ran > 0 ? result : null;
+    } finally {
+      offlineQuiet = false;
+    }
   };
 
   return {
@@ -547,6 +614,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       trialUntil = now + CHALLENGE_TRIAL_MS;
       return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh };
     },
+    settleOffline: settleOfflineMethod,
     state: () => ({ ...state, ...realmView() }),
   };
 }

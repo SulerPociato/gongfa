@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadContent } from '../content/loader';
 import type { Content } from '../content/schema';
 import { BASE_BUDGET, type Clock } from '../types';
-import { Vm, type ActionRequest, type ActionSink, type VmSnapshot } from './interpreter';
+import { Vm, type ActionRequest, type ActionSink, type TickResult, type VmSnapshot } from './interpreter';
 import type { StallEvent, VmEvent } from './events';
 import { MAX_LOOP_DEPTH, type Op, type Program } from './program';
 
@@ -560,5 +560,61 @@ describe('道具的两条 VM 口径（契约 §2.4，任务 7A）', () => {
     }
     vm.setBudget(0);
     expect(vm.budget).toBe(0);
+  });
+});
+
+describe('fastForward（任务 7B 离线快进）', () => {
+  // 让每个 tick 的产出与步数都不一样：sink 按调用序号给 qi，跨 tick 逐字段比对才有区分度。
+  function steppingSink(): ActionSink {
+    let n = 0;
+    return { execute: () => ({ qi: (n += 1) / 7, demonDelta: (n % 3) / 1000 }) };
+  }
+  function vmWith(code: readonly Op[]): Vm {
+    const vm = new Vm({ content: CONTENT, sink: steppingSink() });
+    vm.installUnchecked([program(code)]);
+    return vm;
+  }
+
+  it('与逐个 tick() 逐字段相等：连 steps 与 stall 都不许差', () => {
+    for (const code of [LOOP3, NESTED_LOOP, [BREATH, HALT]]) {
+      const oneByOne = vmWith(code);
+      const fast = vmWith(code);
+      const expected = Array.from({ length: 12 }, () => oneByOne.tick());
+      const seen: TickResult[] = [];
+      const ran = fast.fastForward(12, (result) => {
+        seen.push(result);
+      });
+
+      expect(ran).toBe(12);
+      expect(seen.length).toBe(12);
+      // toEqual 是逐字段深比较：tick / steps / gain / demonDelta / stall{pc,steps,tick,reason} 全在里面
+      expect(seen).toEqual(expected);
+      expect(fast.currentTick).toBe(oneByOne.currentTick);
+    }
+  });
+
+  it('早停后 ticksRun 等于已跑数，不是申请数（§7.2 停在阈值）', () => {
+    const vm = vmWith(LOOP3);
+    let seen = 0;
+    const ran = vm.fastForward(50, () => {
+      seen += 1;
+      return seen === 3 ? 'stop' : undefined;
+    });
+
+    expect(ran).toBe(3);
+    expect(seen).toBe(3);
+    expect(vm.currentTick).toBe(3);
+    // 计数器没有被早停打乱：下一次 tick 接着第 4 个走
+    expect(vm.tick().tick).toBe(4);
+  });
+
+  it('0 tick 什么都不做；负数、小数、NaN 一律 RangeError 且不推进计数器', () => {
+    const vm = vmWith(LOOP3);
+    expect(vm.fastForward(0)).toBe(0);
+    expect(vm.currentTick).toBe(0);
+    for (const bad of [-1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => vm.fastForward(bad)).toThrow(RangeError);
+      expect(vm.currentTick).toBe(0);
+    }
   });
 });

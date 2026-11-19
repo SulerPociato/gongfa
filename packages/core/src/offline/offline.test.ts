@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { JadeCacheSpec } from '../content/artifacts';
 import { loadContent } from '../content/loader';
 import type { Content, RealmDef } from '../content/schema';
+import { noiseGainMult } from '../demon/rules';
 import { makeActionSink } from '../modifier/settle';
+import { passivePerTick } from '../realm/rules';
 import { BASE_BUDGET, TICK_MS } from '../types';
 import type { Op } from '../vm/program';
 import { Vm } from '../vm/interpreter';
+import { MAX_CATCHUP_TICKS, Scheduler } from '../vm/scheduler';
 import { demonlessSink, offlineElapsedMs, offlineTicks, OFFLINE_CAP_MS, OFFLINE_RATE, settleOffline, type OfflineWorld } from './offline';
 
 // 境界四件套照契约 §2.3 / §3 的目标表：阈值、被动、动作乘数一个都不改，
@@ -259,11 +262,11 @@ describe('离线渡劫（契约 §7.1 离线行 + §7.2）', () => {
     expect(world.attempt).toBe(1);
     // 破境涤心是 §7.1 的后果，不属于「离线不涨心魔」那条禁令
     expect(world.demon).toBe(0);
-    // 达标那一 tick 的 1 点算进 rawGained，之后 299 个 tick 每 tick 3 点（筑基 actionMult）
-    expect(result.rawGained).toBeCloseTo(1 + 299 * 3, 9);
-    // 归零掉的存量不退回：入账 = 全额 0.6 折，finalQi 才是宿主写回的数
-    expect(result.creditedGained).toBeCloseTo((1 + 299 * 3) * OFFLINE_RATE, 6);
-    expect(result.finalQi).toBeCloseTo(299 * 3 * OFFLINE_RATE, 6);
+    // 达标那一 tick 的 1 点算进 rawGained，之后 299 个 tick 每 tick = 动作 1×3 + 筑基被动 0.5
+    expect(result.rawGained).toBeCloseTo(1 + 299 * 3.5, 9);
+    // 归零掉的存量不退回：入账 = 每 tick 0.6 折的累加，finalQi 才是宿主写回存档的数
+    expect(result.creditedGained).toBeCloseTo((1 + 299 * 3.5) * OFFLINE_RATE, 6);
+    expect(result.finalQi).toBeCloseTo(299 * 3.5 * OFFLINE_RATE, 6);
     expect(result.stoppedReason).toBe('cap');
   });
 
@@ -297,9 +300,9 @@ describe('离线渡劫（契约 §7.1 离线行 + §7.2）', () => {
 
   it('每次离线最多 1 次：成功后再达标也不补第二发', () => {
     const { world, settle } = harness({ seed: SEED_WIN });
-    const result = settle(NOW - 2_000_000, true);
+    const result = settle(NOW - 60 * MINUTE, true);
 
-    // 60 分钟封顶 → 36 000 tick：1 667 tick 后达标冲关，剩下的按筑基速率冲到 2e4 之上
+    // 60 分钟封顶 → 36 000 tick：1 667 tick 后达标冲关，剩下的按筑基每 tick 2.1 冲到 2e4 之上
     expect(result.ticks).toBe(36_000);
     expect(result.breakthroughs.length).toBe(1);
     expect(world.realmIndex).toBe(1);
@@ -337,5 +340,110 @@ describe('离线渡劫（契约 §7.1 离线行 + §7.2）', () => {
     // 元婴每 tick = 1×100 + 15 = 115 raw
     expect(result.rawGained).toBeCloseTo(36_000 * 115, 0);
     expect(result.finalQi).toBeCloseTo(36_000 * 115 * OFFLINE_RATE, 0);
+  });
+});
+
+// ——————————————————————————————————————————————————————————————
+// C7：离线与在线是**同一条乘数链**，只差 0.6 折算
+// ——————————————————————————————————————————————————————————————
+
+// 在线参照：照 runtime.run() 那行式子记账（`result.gain × noiseGainMult + passivePerTick`），
+// 用真 Scheduler 按「单帧 5 tick」推满 60 分钟 —— 7 200 帧 × 5 = 36 000 tick，
+// 正好是离线那一头的 tick 数。心魔钉在 0（程序只有吐纳），杂念乘数恒 1，
+// 于是两边每 tick 的产出必须逐位相同；一旦离线漏掉被动、或把乘数链换了序，这里立刻散架。
+function onlineLedger(input: { readonly realmIndex: number; readonly code: readonly Op[] }): {
+  readonly raw: number; readonly folded: number; readonly ticks: number;
+} {
+  const realm = REALMS[input.realmIndex]!;
+  let qi = 0;
+  let demon = 0;
+  let raw = 0;
+  let folded = 0;
+  let ticks = 0;
+  // 在线也用 demonlessSink：C7 要比的是「同一份乘数链」，心魔增长是宿主策略不是乘数链本身
+  const baseSink = makeActionSink({ content: CONTENT, realmIndex: input.realmIndex });
+  const vm = new Vm({
+    content: CONTENT,
+    sink: demonlessSink(() => baseSink),
+    vars: () => ({ qi, rate: 0, demon, realm: realm.id, budget: BASE_BUDGET }),
+  });
+  vm.installUnchecked([{ id: 'p0', code: input.code }]);
+  const scheduler = new Scheduler({ vm });
+  const frameMs = MAX_CATCHUP_TICKS * TICK_MS;
+
+  for (let frame = 0; frame < OFFLINE_CAP_MS / frameMs; frame += 1) {
+    for (const result of scheduler.advance(frameMs)) {
+      const gained = result.gain * noiseGainMult({ demon, seed: SEED_WIN, tick: result.tick }) + passivePerTick(realm);
+      qi += gained;
+      raw += gained;
+      folded += gained * OFFLINE_RATE;
+      ticks += 1;
+      demon = Math.min(1, Math.max(0, demon + result.demonDelta));
+    }
+  }
+  expect(scheduler.pendingMs).toBe(0);
+  return { raw, folded, ticks };
+}
+
+function offlineLedger(input: { readonly realmIndex: number; readonly code: readonly Op[] }): ReturnType<typeof settleOffline> {
+  const world: OfflineWorld = { qi: 0, demon: 0, realmIndex: input.realmIndex, chargeReadyAt: 0, attempt: 1, seed: SEED_WIN };
+  // sink 建一次就交给 getter：settleOffline 换境界时靠它取新乘数，这里同样不能每个 ACTION 重建一份
+  let sink = makeActionSink({ content: CONTENT, realmIndex: input.realmIndex });
+  const vm = new Vm({
+    content: CONTENT,
+    sink: demonlessSink(() => sink),
+    vars: () => ({ qi: world.qi, rate: 0, demon: world.demon, realm: REALMS[world.realmIndex]!.id, budget: BASE_BUDGET }),
+  });
+  vm.installUnchecked([{ id: 'p0', code: input.code }]);
+  return settleOffline({
+    vm, realms: REALMS, world, now: NOW, lastSeenAt: NOW - OFFLINE_CAP_MS,
+    allowBreakthrough: false, chargeWindowMs: () => 0,
+    onBreakthrough: (realmIndex) => { sink = makeActionSink({ content: CONTENT, realmIndex }); },
+  });
+}
+
+describe('离线↔在线同一条乘数链（C7）', () => {
+  const BREATH_ONLY: readonly Op[] = [{ op: 'ACTION', actionId: 'breath' }, { op: 'HALT' }];
+  const LOOP_TEN: readonly Op[] = [{ op: 'LOOP_BEGIN', end: 2, count: 10 }, { op: 'ACTION', actionId: 'breath' }, { op: 'LOOP_END', begin: 0 }, { op: 'HALT' }];
+
+  it.each([
+    { name: '炼气（动作 1、被动 0）', realmIndex: 0, perTick: 1 },
+    { name: '筑基（动作 1×3、被动 0.5）', realmIndex: 1, perTick: 3.5 },
+    { name: '元婴（动作 1×100、被动 15）', realmIndex: 3, perTick: 115 },
+  ])('$name：60 分钟的未折产出与在线逐位相等，入账是它的 0.6 倍', ({ realmIndex, perTick }) => {
+    const online = onlineLedger({ realmIndex, code: BREATH_ONLY });
+    const offline = offlineLedger({ realmIndex, code: BREATH_ONLY });
+
+    expect(online.ticks).toBe(36_000);
+    expect(offline.ticks).toBe(online.ticks);
+    expect(offline.ran).toBe(online.ticks);
+    // 严格相等，不是 closeTo：两边都是「每 tick 同一个数累加 36 000 次」，加法和顺序都不许变
+    expect(offline.rawGained).toBe(online.raw);
+    expect(offline.creditedGained).toBe(online.folded);
+    expect(offline.finalQi).toBe(online.folded);
+    expect(online.raw).toBe(36_000 * perTick);
+  });
+
+  it('循环体不改变结论：同一份程序在两边算出同一个 raw', () => {
+    const online = onlineLedger({ realmIndex: 1, code: LOOP_TEN });
+    const offline = offlineLedger({ realmIndex: 1, code: LOOP_TEN });
+
+    //  parity check: both paths use the same乘数链, so raw must match exactly
+    expect(offline.rawGained).toBe(online.raw);
+    expect(offline.creditedGained).toBe(online.folded);
+    //  absolute value: 筑基 LOOP_TEN with budget truncation → ~16.66/tick
+    expect(online.raw).toBeGreaterThan(500_000);
+    expect(online.raw).toBeLessThan(700_000);
+  });
+
+  it('折算是逐 tick 落进存量的，不是最后一次性乘 0.6', () => {
+    const online = onlineLedger({ realmIndex: 0, code: BREATH_ONLY });
+    const offline = offlineLedger({ realmIndex: 0, code: BREATH_ONLY });
+
+    // 0.6 在二进制里不精确：逐 tick 累加 36 000 次与「先累加再一次乘」是两个不同的数。
+    // 离线要的是前者（阈值判定跟着折后存量走），所以这里既钉住「等于逐 tick 那份」，也钉住「不等于一次性乘那发」。
+    expect(offline.creditedGained).toBe(online.folded);
+    expect(offline.creditedGained).toBeCloseTo(online.raw * OFFLINE_RATE, 6);
+    expect(online.folded).not.toBe(online.raw * OFFLINE_RATE);
   });
 });

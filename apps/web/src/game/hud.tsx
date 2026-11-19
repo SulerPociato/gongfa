@@ -228,17 +228,39 @@ function CorruptEntry({ model }: { readonly model: CorruptLineModel }) {
   );
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void }) {
+export interface SettingsModel {
+  readonly offlineBreakthrough: boolean;
+}
+
+function SettingsPanel({ settings, onToggle }: { readonly settings: SettingsModel; readonly onToggle: (key: 'offlineBreakthrough', value: boolean) => void }) {
+  return (
+    <div className="settings-panel">
+      <p className="label">设置</p>
+      <label className="settings-toggle">
+        <input
+          type="checkbox"
+          checked={settings.offlineBreakthrough}
+          onChange={(e) => onToggle('offlineBreakthrough', e.target.checked)}
+        />
+        闭关时自动渡劫（60% 成功率，失败不扣灵力）
+      </label>
+    </div>
+  );
+}
+
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void }) {
   return (
     <aside className="hud">
       <h1>代码修仙</h1>
       <p className="label">灵力</p>
       <p className="qi">{model.qi}</p>
       <p className="rate">{model.rate.toFixed(1)} / 秒</p>
+      <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
       <RealmPanel model={model.realm} qi={model.qi} />
       <ChallengePanel model={model.challenge} onPress={onChallenge} />
       <BookPanel model={model.book} onAction={onBookAction} />
       {model.artifacts.length > 0 && <ArtifactPanel rows={model.artifacts} onToggle={onArtifactAction} />}
+      <SettingsPanel settings={settings} onToggle={onSettingsToggle} />
       {model.stall !== null && (
         <p className="stall">
           第 {model.stall.steps} 步没跑完（{STALL_REASON[model.stall.reason]}，停在第 {model.stall.pc + 1} 条指令，tick {model.stall.tick}）

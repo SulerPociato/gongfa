@@ -10,7 +10,7 @@ import {
   STARTER_WORKSPACE_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, bookEvent, derivePhase, loadGame, newGameState, type BookDef, type BookEvent, type BookPhase, type GameState, type LoadResult, type Program, type SaveStorage } from '@gongfa/core';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage } from '@gongfa/core';
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -98,6 +98,10 @@ function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
 // 每次 state() 都要重建整份 HudModel：book / corrupt / save / notices 这些跟帧无关的视图存在 view 里，
 // 帧只换 qi / rate / stall / realm / challenge / toolHint 六件套。
 // artifacts 也属于「跟帧无关」那一类：只有点开关时才变，所以由 syncArtifacts 直接写进 view，不走这里。
+
+// 离线结算报告暂存：StrictMode 双挂载时，第一次挂载的结算结果要在第二次挂载时显示。
+// 模块级变量在两次挂载之间存活，第二次挂载读取后清空。
+let pendingOfflineReport: OfflineResult | null = null;
 function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts'>): HudModel {
   return {
     qi: Math.floor(state.qi),
@@ -175,6 +179,7 @@ export function App() {
   if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [] }));
+  const [settings, setSettings] = useState(readSettings());
 
   useEffect(() => {
     const container = containerRef.current;
@@ -507,6 +512,25 @@ export function App() {
     workspace.addChangeListener(compile);
     compile();
 
+    // 任务 7B：离线结算触发。条件：有存档 && 有程序 && 本会话首次。
+    // StrictMode 双挂载时，第一次挂载的结算结果暂存在 pendingOfflineReport，第二次挂载读取后清空。
+    const hasSave = loaded.state !== null;
+    const hasProgram = cache.length > 0;
+    const alreadySettled = pendingOfflineReport !== null;
+    if (hasSave && hasProgram && !alreadySettled) {
+      const settings = readSettings();
+      const result = runtime.settleOffline({
+        lastSeenAt: loaded.state.lastSeenAt,
+        allowBreakthrough: settings.offlineBreakthrough,
+      });
+      if (result !== null) {
+        pendingOfflineReport = result;
+      }
+    }
+    // 读取暂存的离线报告（可能来自本次挂载，也可能来自 StrictMode 的第一次挂载）
+    const offlineReport = pendingOfflineReport;
+    pendingOfflineReport = null;
+
     // 境界/心魔/惩罚倒计时是连续变化的，逐帧比上一次贵；这些字段量化后拼成 key，
     // 只有真正看得出来的变化（灵力整数、速率、心魔千分位、剩余 0.1 秒、境界四件套、stall）才重渲染。
     // 渡劫三件套按秒量化：蓄势 15 分钟不需要 60 次/秒的重渲染，剩余 1 秒一跳就够玩家看清。
@@ -541,13 +565,30 @@ export function App() {
       || new URLSearchParams(window.location.search).has('debug');
     if (debugVisible) window.__gongfa_debug = { state: () => runtime.state() };
 
-    setHud((previous) => ({
-      ...previous,
-      notices: noticeList,
-      corrupt: corrupted,
-      // 损坏那句在红字里（含备份 key），灰字只标这一次装载的来历，不重复两遍
-      save: loaded.fresh ? ['新档 · 尚未落盘'] : ['档已装载'],
-    }));
+    setHud((previous) => {
+      // 如果有离线结算报告，加入通知列表
+      const offlineNotices: string[] = [];
+      if (offlineReport !== null) {
+        const durationMin = Math.floor(offlineReport.elapsedMs / 60000);
+        const durationSec = Math.floor((offlineReport.elapsedMs % 60000) / 1000);
+        offlineNotices.push(`闭关 ${durationMin}分${durationSec}秒，获得 ${Math.floor(offlineReport.creditedGained)} 灵力`);
+        if (offlineReport.breakthroughs.length > 0) {
+          const breakthrough = offlineReport.breakthroughs[0];
+          if (breakthrough.ok) {
+            offlineNotices.push(`渡劫成功！进入${content.realms[breakthrough.realmIndex]?.name.zh ?? '未知境界'}`);
+          } else {
+            offlineNotices.push(`渡劫失败，停在${content.realms[breakthrough.realmIndex - 1]?.name.zh ?? '未知境界'}`);
+          }
+        }
+      }
+      return {
+        ...previous,
+        notices: [...noticeList, ...offlineNotices],
+        corrupt: corrupted,
+        // 损坏那句在红字里（含备份 key），灰字只标这一次装载的来历，不重复两遍
+        save: loaded.fresh ? ['新档 · 尚未落盘'] : ['档已装载'],
+      };
+    });
 
     return () => {
       loop.stop();
@@ -563,10 +604,16 @@ export function App() {
     };
   }, []);
 
+  const handleSettingsToggle = (key: 'offlineBreakthrough', value: boolean): void => {
+    const next = { ...settings, [key]: value };
+    setSettings(next);
+    writeSettings(next);
+  };
+
   return (
     <div className="layout">
       <div className="canvas" ref={containerRef} />
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} />
     </div>
   );
 }

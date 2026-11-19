@@ -314,4 +314,24 @@ export class Vm {
 
     return { tick, steps, gain, demonDelta, stall: firstStall };
   }
+
+  /**
+   * 离线快进（架构 §七）：把 tick() 原样跑 ticks 遍，每跑完一个交给 afterTick 记账。
+   * 这里一条游戏规则都不放（阈值、心魔、道具全在调用方），VM 只保证「与逐次 tick() 逐字段相同」，
+   * 包括 ticksRun 照常递增 —— 杂念按 (seed, tick) 取骰（mulberry32.ts 的无状态设计），
+   * 快进若不走同一个计数器，同一种子在在线与离线两条路上就会掷出不同的点。
+   * afterTick 返回 'stop' 立即收尾：契约 §7.2 渡劫失败「剩余 tick 不再产出」。
+   */
+  fastForward(ticks: number, afterTick?: (result: TickResult) => 'stop' | void): number {
+    if (!Number.isInteger(ticks) || ticks < 0) {
+      throw new RangeError(`fastForward 需要非负整数 tick 数，收到 ${ticks}`);
+    }
+    let ran = 0;
+    for (let index = 0; index < ticks; index += 1) {
+      const result = this.tick();
+      ran += 1;
+      if (afterTick?.(result) === 'stop') break;
+    }
+    return ran;
+  }
 }

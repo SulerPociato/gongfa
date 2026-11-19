@@ -188,9 +188,6 @@ export function settleOffline(input: OfflineInput): OfflineResult {
     return;
   });
 
-  // 防御性收口：afterTick 不该能让 ran 超过申请数（真出现说明 fastForward 的早停语义破了）
-  if (ranTicks > ran) ran = ranTicks;
-
   return {
     elapsedMs,
     ticks,
