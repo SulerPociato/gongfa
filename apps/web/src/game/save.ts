@@ -5,7 +5,7 @@ import { SAVE_SCHEMA_VERSION, writeSave, type Clock, type GameState, type Progra
 export const AUTOSAVE_DEBOUNCE_MS = 1000;
 export const AUTOSAVE_INTERVAL_MS = 30_000;
 
-// 只有这些字段由运行时决定，其余（owned/equipped/speed/offlineRate/chargeReadyAt…）
+// 只有这些字段由运行时决定，其余（speed/offlineRate/chargeReadyAt…）
 // 以上一次成功落盘的 GameState 为基线原样带过去。
 export interface SaveSnapshot {
   readonly workspace: unknown;
@@ -18,6 +18,9 @@ export interface SaveSnapshot {
   readonly totalQi: number;
   readonly breakthroughs: number;
   readonly playMs: number;
+  /** 任务 5B：持有与装备会随「装载 / 卸下 / 固化」当场变，属于运行时事实，不能只靠基线带 */
+  readonly ownedBooks: readonly string[];
+  readonly equippedBook: string | null;
 }
 
 export interface SaveStatus {
@@ -72,6 +75,9 @@ export function createSaveController(deps: {
       budgetPool: snapshot.budgetPool,
       stats: { totalQi: String(snapshot.totalQi), breakthroughs: snapshot.breakthroughs, playMs: snapshot.playMs },
       lastSeenAt: now,
+      // 任务 5B：持有与装备会随装载/卸下当场变，落盘前都要重校验（equipped ⊆ owned，改档照样挡）
+      ownedBooks: [...snapshot.ownedBooks],
+      equippedBook: snapshot.equippedBook,
     };
     const save: SaveFile = { schemaVersion: SAVE_SCHEMA_VERSION, savedAt: now, state: next };
     const result = writeSave(deps.storage, save, deps.clock);

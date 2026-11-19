@@ -2,6 +2,7 @@ import actionsJson from '../../../../content/actions.json';
 import realmsJson from '../../../../content/realms.json';
 import {
   BASE_BUDGET,
+  bookSettleDeps,
   makeActionSink,
   Qi,
   Scheduler,
@@ -9,8 +10,10 @@ import {
   Vm,
   loadContent,
   type ActionRequest,
+  type BookDef,
   type GameState,
   type Program,
+  type SettleSink,
   type StallEvent,
   type TickResult,
   type VmSnapshot,
@@ -31,6 +34,12 @@ export interface RuntimeState {
   readonly totalQi: number;
   readonly breakthroughs: number;
   readonly playMs: number;
+  /** 当前装备的书 id（null = 未装备）。HUD 的按钮可见性看它，结算看下面三个乘数。 */
+  readonly bookId: string | null;
+  /** 结算真正吃进去的三个乘数：卸下或固化后必须回到中性（1 / 1 / 1），这是「成对移除」的可观察面。 */
+  readonly bookDecay: number;
+  readonly rateMult: number;
+  readonly demonMult: number;
 }
 
 export interface Runtime {
@@ -39,6 +48,8 @@ export interface Runtime {
   load(program: Program): readonly string[];
   /** 用存档的数值状态覆盖运行时；返回内容表承接不了的项。 */
   restore(state: GameState): readonly string[];
+  /** 装备或卸下（含固化）功法书：衰减与 modifiers 成对装卸。 */
+  attachBook(book: BookDef | null): void;
   state(): RuntimeState;
 }
 
@@ -54,6 +65,10 @@ const DEFAULTS: Omit<RuntimeState, 'stall'> = {
   totalQi: 0,
   breakthroughs: 0,
   playMs: 0,
+  bookId: null,
+  bookDecay: 1,
+  rateMult: 1,
+  demonMult: 1,
 };
 
 // debug only：?demon=0.49 把心魔种子挪到 0.5 附近，方便当场看分支切换；正式 UI 不出现这个参数。
@@ -63,14 +78,44 @@ function seedDemon(): number {
   return Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0;
 }
 
+// debug only：?realm=1 把境界挪到筑基，当场看衰减（§2.2）与境界乘数（§2.1）；正式 UI 不出现这个参数。
+function seedRealm(): number {
+  const raw = Number(new URLSearchParams(window.location.search).get('realm'));
+  return Number.isInteger(raw) && raw >= 0 ? raw : 0;
+}
+
+// 境界 id → realms.json 下标。表里没有就不静默：退回首境并说明，宁可少算也不拿 undefined 当乘数。
+function indexOfRealm(id: number): number {
+  const index = content.realms.findIndex((realm) => realm.id === id);
+  if (index < 0) {
+    console.warn(`[境界] 表里没有 id ${id}（现有 ${content.realms.map((realm) => realm.id).join('/')}），先按境界 ${content.realms[0]?.id ?? 0} 算`);
+    return 0;
+  }
+  return index;
+}
+
 // RuntimeState 对外只读，内部要逐 tick 累加，所以剥掉 readonly 另建一份可变类型。
 type MutableState = { -readonly [K in keyof RuntimeState]: RuntimeState[K] };
 
 export function createRuntime(): Runtime {
   const state: MutableState = { ...DEFAULTS, demon: seedDemon(), stall: null };
-  // sink 在构造时就把 realm.actionMult 固定住了，境界一变就要换一份。
-  // 所以传给 VM 的是一层转发：restore 之后新 sink 立刻生效，不用重建 VM。
-  let sink = makeActionSink({ content, realmIndex: state.realm });
+  // sink 在构造时就把 realm.actionMult、书衰减与 modifiers 固定住了，境界或装备一变就要换一份。
+  // 所以传给 VM 的是一层转发：attachBook / restore 之后新 sink 立刻生效，不用重建 VM。
+  let realmIndex = indexOfRealm(seedRealm());
+  state.realm = content.realms[realmIndex]?.id ?? 0;
+  let currentBook: BookDef | null = null;
+  let sink: SettleSink;
+
+  // 唯一的 sink 出口：衰减（§2.2）与 modifiers（§4）都从 bookSettleDeps 成对进出，
+  // 卸下或固化时传 null 就得到完全中性的 1 / []，不可能只剩一半。
+  const resetSink = (): void => {
+    sink = makeActionSink({ content, realmIndex, ...bookSettleDeps(currentBook, state.realm) });
+    state.bookId = currentBook?.id ?? null;
+    state.bookDecay = sink.mults.bookDecay;
+    state.rateMult = sink.mults.rateMult;
+    state.demonMult = sink.mults.demonMult;
+  };
+  resetSink();
 
   const vm = new Vm({
     content,
@@ -132,13 +177,20 @@ export function createRuntime(): Runtime {
       // 存档里的境界没有对应产出表时明说，不静默用炼气的乘数算出个偏低速率。
       const index = content.realms.findIndex((realm) => realm.id === saved.realm);
       const fallback = index < 0;
-      const realmIndex = fallback ? 0 : index;
+      realmIndex = fallback ? 0 : index;
       state.realm = content.realms[realmIndex]?.id ?? 0;
-      sink = makeActionSink({ content, realmIndex });
+      // 装备位由宿主在 restore 之后 attachBook 回来（runtime 不查目录）：这里先清成中性，
+      // 免得上一份会话的书衰减残留在 sink 里。
+      currentBook = null;
+      resetSink();
       if (fallback) {
         errors.push(`存档境界 ${saved.realm} 在 content/realms.json 里还没有产出表（现有 ${content.realms.map((realm) => realm.id).join('/')}），先按境界 ${state.realm} 算`);
       }
       return errors;
+    },
+    attachBook: (book) => {
+      currentBook = book;
+      resetSink();
     },
     state: () => ({ ...state }),
   };

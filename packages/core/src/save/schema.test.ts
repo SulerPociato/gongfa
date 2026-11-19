@@ -127,4 +127,18 @@ describe('SaveFile / GameState 校验（契约 §5.1 + §5.2 第 3 步）', () =
     });
     expect(validateGameState(state).ok).toBe(true);
   });
+
+  it('开局赠书（D3）：ownedBooks 可注入，equippedBook 仍为 null —— 拥有 ≠ 装备（契约 §5.1）', () => {
+    const granted = newGameState({ seed: 7, workspace: WORKSPACE, now: 0, ownedBooks: ['book_zhoutian'] });
+
+    expect(granted.ownedBooks).toEqual(['book_zhoutian']);
+    expect(granted.equippedBook).toBeNull();
+    expect(validateGameState(granted).ok).toBe(true);
+    // 赠书不能放宽「装备 ⊆ 拥有」这条不变量
+    const tampered = { ...granted, ownedBooks: [], equippedBook: 'book_zhoutian' };
+    expect(pathsOf(validateGameState(tampered).errors)).toContain('state.equippedBook');
+    // 不传 / 传空数组都保持 5A 的默认口径
+    expect(newGameState({ seed: 7, workspace: WORKSPACE, now: 0 }).ownedBooks).toEqual([]);
+    expect(newGameState({ seed: 7, workspace: WORKSPACE, now: 0, ownedBooks: [] }).ownedBooks).toEqual([]);
+  });
 });

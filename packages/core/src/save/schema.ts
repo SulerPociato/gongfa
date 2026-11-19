@@ -247,7 +247,8 @@ export function parseEnvelope(text: string): EnvelopeResult {
 
 // 新档的 18 个字段一个都不能缺。seed 由调用方注入（web 侧 crypto.getRandomValues）：
 // 写死 0 会让接上 RNG 之后所有玩家共用同一随机序列，是埋在未来的坑。
-export function newGameState(input: { seed: number; workspace: unknown; now: number }): GameState {
+// ownedBooks 是开局赠书（任务 5B：《周天吐纳诀》）；装备位仍然留空，拥有 ≠ 装备（契约 §5.1）。
+export function newGameState(input: { seed: number; workspace: unknown; now: number; ownedBooks?: readonly string[] | undefined }): GameState {
   return {
     schemaVersion: SAVE_SCHEMA_VERSION,
     seed: input.seed,
@@ -258,7 +259,7 @@ export function newGameState(input: { seed: number; workspace: unknown; now: num
     programs: [],
     budgetPool: BASE_BUDGET,
     computeLimit: null,
-    ownedBooks: [],
+    ownedBooks: [...(input.ownedBooks ?? [])],
     equippedBook: null,
     ownedArtifacts: [],
     equippedArtifacts: [],
@@ -270,7 +271,7 @@ export function newGameState(input: { seed: number; workspace: unknown; now: num
   };
 }
 
-export function newSave(input: { seed: number; workspace: unknown; now: number }): SaveFile {
+export function newSave(input: { seed: number; workspace: unknown; now: number; ownedBooks?: readonly string[] | undefined }): SaveFile {
   return newEnvelope(input.now, newGameState(input));
 }
 

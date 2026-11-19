@@ -63,6 +63,43 @@ body {
   margin: 0 0 20px;
 }
 
+.hud .book {
+  margin: 0 0 18px;
+}
+
+.hud .book-text {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 8px;
+  opacity: 0.85;
+}
+
+.hud .book-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hud .book-actions button {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--paper);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.hud .book-actions button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.hud .book-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .hud .hint {
   font-size: 12px;
   line-height: 1.7;

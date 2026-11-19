@@ -1,0 +1,38 @@
+{
+  "id": "book_zhoutian",
+  "tier": 1,
+  "realm": 0,
+  "name": {
+    "zh": "周天吐纳诀"
+  },
+  "workspace": {
+    "blocks": {
+      "languageVersion": 0,
+      "blocks": [
+        {
+          "type": "tick_hat",
+          "id": "zh_hat",
+          "x": 32,
+          "y": 32,
+          "inputs": {
+            "BODY": {
+              "block": {
+                "type": "breath",
+                "id": "zh_breath"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "modifiers": [
+    {
+      "id": "zhoutian_demon",
+      "target": "demonRate",
+      "kind": "mul",
+      "value": 0.95
+    }
+  ],
+  "decayCoefficient": 0.5
+}
