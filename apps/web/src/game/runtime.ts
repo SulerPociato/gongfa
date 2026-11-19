@@ -154,7 +154,7 @@ export function createRuntime(): Runtime {
     load: (program) => {
       const result = vm.loadPrograms([program]);
       if (!result.ok) {
-        // core 的口径是「装载失败则一批都不装」，会把已装程序清空；宿主在这里退回上一份，玩家拖坏一块不该让数字停住。
+        // VM 装载失败会清空已装程序，这里保留上一份可用程序是为了不让数字停住，不是 VM 的 bug。
         if (lastGood !== null) vm.loadPrograms([lastGood]);
         return result.errors.map((issue) => issue.message);
       }
