@@ -30,7 +30,10 @@ type SaveBridge = ReturnType<typeof createSaveController>;
 // 只在 DEV 或 ?debug=1 时挂，正式构建默认不挂；卸载时删掉，不留上一份会话的 runtime。
 declare global {
   interface Window {
-    __gongfa_debug?: { readonly state: () => RuntimeState } | undefined;
+    __gongfa_debug?: {
+      readonly state: () => RuntimeState;
+      readonly settleOffline?: (lastSeenAt: number) => OfflineResult | null;
+    } | undefined;
   }
 }
 
@@ -565,7 +568,16 @@ export function App() {
     // 构建时它会被换成字面量对象，正式构建里 DEV 就是 false，默认不挂；验收用 ?debug=1 打开。
     const debugVisible = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true
       || new URLSearchParams(window.location.search).has('debug');
-    if (debugVisible) window.__gongfa_debug = { state: () => runtime.state() };
+    if (debugVisible) {
+      window.__gongfa_debug = {
+        state: () => runtime.state(),
+        // 验收用：手动触发离线结算，绕过 localStorage 读取
+        settleOffline: (lastSeenAt: number) => runtime.settleOffline({
+          lastSeenAt,
+          allowBreakthrough: readSettings(storage).settings.offlineBreakthrough,
+        }),
+      };
+    }
 
     setHud((previous) => {
       // 如果有离线结算报告，转换为 RetreatReport 放入 retreat 字段

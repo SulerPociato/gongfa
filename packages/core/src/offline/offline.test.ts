@@ -447,3 +447,24 @@ describe('离线↔在线同一条乘数链（C7）', () => {
     expect(online.folded).not.toBe(online.raw * OFFLINE_RATE);
   });
 });
+
+describe('时钟回拨（lastSeenAt 在未来）', () => {
+  it('lastSeenAt > now → elapsed=0、不出报告、成功次数 0', () => {
+    const now = NOW;
+    const futureLastSeenAt = now + 5 * MINUTE; // 5 分钟后
+    const result = settleOffline({
+      vm: new Vm({ content: CONTENT, sink: makeActionSink({ content: CONTENT, realmIndex: 0 }), vars: () => ({ qi: 0, rate: 0, demon: 0, realm: 0, budget: BASE_BUDGET }) }),
+      realms: CONTENT.realms,
+      world: { qi: 100, demon: 0.2, realmIndex: 0, chargeReadyAt: 0, attempt: 1, seed: SEED_WIN },
+      now,
+      lastSeenAt: futureLastSeenAt,
+      allowBreakthrough: false,
+      chargeWindowMs: () => 0,
+    });
+    expect(result.ran).toBe(0);
+    expect(result.elapsedMs).toBe(0);
+    expect(result.creditedGained).toBe(0);
+    expect(result.rawGained).toBe(0);
+    expect(result.breakthroughs).toEqual([]);
+  });
+});
