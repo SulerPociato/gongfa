@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "savedAt": 1795067733325,
+  "state": {
+    "schemaVersion": 1,
+    "seed": 201159834,
+    "realm": 0,
+    "qi": "3993.566666666691",
+    "demon": 0.38179999999998615,
+    "workspace": {
+      "blocks": {
+        "languageVersion": 0,
+        "blocks": [
+          {
+            "type": "tick_hat",
+            "id": "hat1",
+            "x": 32,
+            "y": 32,
+            "inputs": {
+              "BODY": {
+                "block": {
+                  "type": "gongfa_if",
+                  "id": "if1",
+                  "inputs": {
+                    "CONDITION": {
+                      "block": {
+                        "type": "gongfa_compare",
+                        "id": "cmp1",
+                        "fields": {
+                          "LEFT": "demon",
+                          "OP": ">",
+                          "THRESHOLD": 0.5
+                        }
+                      }
+                    },
+                    "IF": {
+                      "block": {
+                        "type": "calm",
+                        "id": "calm1"
+                      }
+                    },
+                    "ELSE": {
+                      "block": {
+                        "type": "gongfa_repeat",
+                        "id": "rep1",
+                        "fields": {
+                          "NUM": 3
+                        },
+                        "inputs": {
+                          "DO": {
+                            "block": {
+                              "type": "breath",
+                              "id": "br1"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "programs": [
+      {
+        "id": "gongfa",
+        "code": [
+          { "op": "LOAD", "key": "demon" },
+          { "op": "PUSH", "value": 0.5 },
+          { "op": "CMP", "arg": ">" },
+          { "op": "JMP_IF_FALSE", "target": 6 },
+          { "op": "ACTION", "actionId": "calm" },
+          { "op": "JMP", "target": 9 },
+          { "op": "LOOP_BEGIN", "end": 8, "count": 3 },
+          { "op": "ACTION", "actionId": "breath" },
+          { "op": "LOOP_END", "begin": 6 },
+          { "op": "HALT" }
+        ]
+      }
+    ],
+    "budgetPool": 200,
+    "computeLimit": null,
+    "ownedBooks": [],
+    "equippedBook": null,
+    "ownedArtifacts": [],
+    "equippedArtifacts": [],
+    "offlineRate": 0.6,
+    "stats": {
+      "totalQi": "3993.566666666691",
+      "breakthroughs": 0,
+      "playMs": 480847.5999999938
+    },
+    "lastSeenAt": 1795067733325,
+    "speed": 1,
+    "chargeReadyAt": 0
+  }
+}

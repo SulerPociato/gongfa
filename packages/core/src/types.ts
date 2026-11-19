@@ -19,3 +19,8 @@ export interface Clock {
 export interface Rng {
   next(): number;
 }
+
+// 存档类型定义在 save/schema.ts、端口定义在 save/storage.ts，这里只做聚合出口（架构 §2.6），
+// 别在别处再抄一份字段表——契约 §5.1 改字段时只有一处要动。
+export type { GameState, SaveFile, SaveIssue } from './save/schema';
+export type { SaveStorage } from './save/storage';

@@ -246,7 +246,8 @@ interface GameState {
   realm: 0 | 1 | 2 | 3
   qi: string                 // BigNumber 序列化
   demon: number              // 0..1
-  programs: Program[]        // P0 只用 [0]；类型固定为数组，为多功法留口
+  workspace: unknown         // 真相源：Blockly save() 原样 JSON；加载时用它重编译
+  programs: Program[]        // 编译缓存，可存可不读；P0 只用 [0]，类型固定为数组
   budgetPool: number         // 每 tick 总预算；P0 = 200，全部给 programs[0]
   computeLimit: number | null // 占位：算力/频率限制，P0 恒为 null（不启用）
   ownedBooks: string[]       // 已拥有

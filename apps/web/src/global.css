@@ -83,3 +83,22 @@ body {
   line-height: 1.7;
   margin: 0 0 14px;
 }
+
+/* 存档那一行是状态不是故障：靠下、弱显，落档时间用等宽字体 */
+.hud .save {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 18px 0 0;
+  padding-left: 16px;
+  opacity: 0.55;
+}
+
+/* 可继续但玩家该知道：回退备用槽、功法降级停用 */
+.hud .notices {
+  color: #e8b45a;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 8px 0 0;
+  padding-left: 16px;
+}

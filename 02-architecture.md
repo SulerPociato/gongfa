@@ -60,12 +60,20 @@ apps/web ──▶ packages/blocks ──▶ packages/core
 ### 2.6 注入接口（core 的唯一外部通道）
 
 ```ts
+interface Clock { now(): number }                    // 毫秒时间戳
+interface Rng   { next(): number }                   // [0,1)，种子由调用方持有
 interface Storage { load(): string | null; save(s: string): void; clear(): void }
-interface Clock   { now(): number }                  // 毫秒时间戳
-interface Rng     { next(): number }                 // [0,1)，种子由调用方持有
+
+// 存档用按 key 访问的端口（双槽 + 指针 + 损坏备份都需要多个 key）
+interface SaveStorage {
+  read(key: string): string | null
+  write(key: string, value: string): boolean         // 失败返回 false，不抛
+  remove(key: string): void
+  keys(): string[]
+}
 ```
 
-`core` 只通过这三个接口访问外部；`Program` / `GameState` / `SaveFile` 的形状以 `00-contracts` §5 为准，`core/src/types.ts` 是它们的唯一代码出处。
+`core` 只通过这四个接口访问外部；`Program` / `GameState` / `SaveFile` 的**类型定义在 `core/src/save/schema.ts`**，`core/src/types.ts` 只做 re-export 聚合。
 
 ---
 

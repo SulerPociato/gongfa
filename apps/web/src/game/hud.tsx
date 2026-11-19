@@ -5,6 +5,10 @@ export interface HudModel {
   readonly rate: number;
   readonly errors: readonly string[];
   readonly stall: StallEvent | null;
+  /** 存档这条档是怎么来的：加载结果 + 每次落盘回报 */
+  readonly save: readonly string[];
+  /** 可继续但玩家该知道（回退备用槽、降级空程序），不挡玩法 */
+  readonly notices: readonly string[];
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -28,6 +32,20 @@ export function Hud({ model }: { readonly model: HudModel }) {
       {model.errors.length > 0 && (
         <ul className="errors">
           {model.errors.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      )}
+      {model.save.length > 0 && (
+        <ul className="save">
+          {model.save.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      )}
+      {model.notices.length > 0 && (
+        <ul className="notices">
+          {model.notices.map((message) => (
             <li key={message}>{message}</li>
           ))}
         </ul>
