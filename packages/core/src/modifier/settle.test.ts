@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { loadContent } from '../content/loader';
+import type { JadeCacheSpec } from '../content/artifacts';
 import type { Modifier } from '../content/books';
 import type { ActionRequest } from '../vm/interpreter';
 import { actionMult, makeActionSink, resolveModifiers } from './settle';
+
+// 契约 §2.4 的玉简：数值一律来自 content/artifacts.json，这里同值内联，避免测试依赖表文件。
+const JADE: JadeCacheSpec = { sameActionId: true, hitGainMultiplier: 0.7, hitStepCost: 0 };
 
 const CONTENT = loadContent({
   actions: [
@@ -44,8 +48,8 @@ describe('makeActionSink（契约 §2.1 / §2.2）', () => {
     expect(plain.execute(req('breath', 2)).qi).toBeCloseTo(0.8, 12);
     expect(plain.observed.repeats).toBe(1);
 
-    const jade = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: true });
-    jade.execute(req('breath', 1));
+    const jade = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE });
+    expect(jade.execute(req('breath', 1)).qi).toBe(1);
     expect(jade.execute(req('breath', 2)).qi).toBeCloseTo(0.8 * 0.7, 12);
     expect(jade.observed.repeats).toBe(1);
   });
@@ -173,5 +177,96 @@ describe('功法书结算（契约 §6 + 架构 §4「先加后乘」，任务 5
     ] as never);
     expect(bad.rateMult).toBeCloseTo(1.5, 12);
     expect(bad.ignored).toEqual(['x', 'y', 'z']);
+  });
+});
+
+// 契约 §2.4：同一次缓存命中同时决定「产出 ×hitGainMultiplier」和「该步计 hitStepCost」，
+// 两件事必须来自同一个判断，不允许出现产出按命中打折、步数按未命中收的裂口径。
+describe('玉简的产出与步数同源（契约 §2.4，任务 7A）', () => {
+  it('命中才返回 stepCost，未命中不返回该字段（VM 缺省即 1）', () => {
+    const jade = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE });
+    expect(jade.execute(req('breath', 1))).toEqual({ qi: 1, demonDelta: 0.00005 });
+    const hit = jade.execute(req('breath', 2));
+    expect(hit.stepCost).toBe(0);
+    expect(hit.qi).toBeCloseTo(0.8 * 0.7, 12);
+  });
+
+  it('两个表值各自独立：×1 计 0 步 / ×0.7 计 1 步都能单独表达', () => {
+    const onlySteps = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: { sameActionId: true, hitGainMultiplier: 1, hitStepCost: 0 } });
+    onlySteps.execute(req('breath', 1));
+    expect(onlySteps.execute(req('breath', 2)).qi).toBeCloseTo(0.8, 12);
+    expect(onlySteps.observed.repeats).toBe(1);
+
+    const onlyGain = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: { sameActionId: true, hitGainMultiplier: 0.7, hitStepCost: 1 } });
+    onlyGain.execute(req('breath', 1));
+    const costed = onlyGain.execute(req('breath', 2));
+    expect(costed.qi).toBeCloseTo(0.8 * 0.7, 12);
+    expect(costed.stepCost).toBe(1);
+  });
+
+  it('链序不动：baseGain × actionMult(k) × cacheHitMult × realmActionMult × bookDecay × rateMult', () => {
+    const sink = makeActionSink({
+      content: CONTENT,
+      realmIndex: 1,
+      jadeCache: JADE,
+      bookDecay: 0.5,
+      modifiers: [{ id: 'shuang', target: 'rate', kind: 'mul', value: 2 }],
+    });
+    sink.execute(req('breath', 1));
+    const hit = sink.execute(req('breath', 2));
+    // 按 §2.1 的书写顺序逐步相乘，结果必须逐位相同：换序就是另一条平衡口径（TS↔Python 严格相等）
+    const expected = (((1 * actionMult(2)) * JADE.hitGainMultiplier) * 3) * 0.5 * 2;
+    expect(hit.qi).toBe(expected);
+    expect(hit.qi).toBeCloseTo(1.68, 12);
+  });
+
+  it('命中仍照常增长心魔（§2.2.1 按执行计，不因缓存减免）', () => {
+    const plain = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    const jade = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE });
+    plain.execute(req('breath', 1, 1));
+    jade.execute(req('breath', 1, 1));
+    const miss = plain.execute(req('breath', 2, 1));
+    const hit = jade.execute(req('breath', 2, 1));
+
+    expect(hit.demonDelta).toBe(miss.demonDelta);
+    expect(hit.demonDelta).toBeCloseTo(0.000075, 12);
+    expect(hit.qi).toBeCloseTo(miss.qi * 0.7, 12);
+  });
+
+  it('observed 交出四个计数：executed / repeats / distinct / stepCostTotal', () => {
+    const jade = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE });
+    jade.execute(req('breath', 1));
+    jade.execute(req('breath', 2));
+    jade.execute(req('calm', 3));
+
+    expect(jade.observed).toEqual({ repeats: 1, executed: 3, distinct: 2, stepCostTotal: 2 });
+    // k 回到 1 = 新 tick：distinct 跟着 seen 一起清零，repeats 是累计观察不清
+    jade.execute(req('breath', 1));
+    expect(jade.observed.distinct).toBe(1);
+    expect(jade.observed.repeats).toBe(1);
+    expect(jade.observed.executed).toBe(4);
+  });
+
+  it('卸下玉简与不装完全一致：产出不打折、stepCost 不出现（成对装卸）', () => {
+    const worn = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE });
+    worn.execute(req('breath', 1));
+    const hit = worn.execute(req('breath', 2));
+
+    const off = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: null });
+    off.execute(req('breath', 1));
+    const same = off.execute(req('breath', 2));
+
+    const unworn = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    unworn.execute(req('breath', 1));
+
+    expect(hit.stepCost).toBe(0);
+    // 显式传 null（卸下）与根本不传这个入参（不装）必须逐字段相同，否则「成对移除」只是名义上移除
+    expect(same).toEqual(unworn.execute(req('breath', 2)));
+    expect(same.qi).toBeCloseTo(0.8, 12);
+  });
+
+  it('budget 类 modifier 由道具侧消费，books 侧的 resolveModifiers 口径不变', () => {
+    const mods: Modifier[] = [{ id: 'abacus_budget', target: 'budget', kind: 'add', value: 50 }];
+    expect(resolveModifiers(mods).add.budget).toBe(50);
   });
 });

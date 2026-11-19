@@ -17,8 +17,9 @@ import { createSaveController, type SaveSnapshot } from './game/save';
 import { createRuntime, urlSeed, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
+import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { Hud, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
+import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -83,9 +84,21 @@ function toolHintOf(state: RuntimeState): string {
   return `工具箱 · ${state.realmName}还差 ${locked} 块（筑基起给「如果 / 循环」）`;
 }
 
+// 道具面板的行 = 目录里的每一件 × 当前装备位。数值全靠 describeArtifact 从表里拼，
+// 这里不另写 0.7 / +50：表改了面板还在说旧数，就是第二份口径。
+function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
+  return ARTIFACT_CATALOGUE.artifacts.map((artifact) => ({
+    id: artifact.id,
+    name: artifact.name.zh,
+    effect: describeArtifact(artifact),
+    equipped: equippedIds.includes(artifact.id),
+  }));
+}
+
 // 每次 state() 都要重建整份 HudModel：book / corrupt / save / notices 这些跟帧无关的视图存在 view 里，
 // 帧只换 qi / rate / stall / realm / challenge / toolHint 六件套。
-function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices'>): HudModel {
+// artifacts 也属于「跟帧无关」那一类：只有点开关时才变，所以由 syncArtifacts 直接写进 view，不走这里。
+function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -93,6 +106,7 @@ function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'e
     realm: realmModel(state),
     challenge: challengeModel(state),
     toolHint: toolHintOf(state),
+    artifacts: extra.artifacts,
     book,
     errors: extra.errors,
     corrupt: extra.corrupt,
@@ -152,13 +166,15 @@ export function App() {
   const bookActionRef = useRef<((action: BookAction) => void) | null>(null);
   // 「可渡劫」按钮同理：runtime 在 useEffect 里才和存档控制器配上，这里只留转发口。
   const challengeActionRef = useRef<(() => void) | null>(null);
+  // 道具开关同理：装备要当场重算 sink 与预算池，只有 useEffect 里才摸得到 runtime 与控制器。
+  const artifactActionRef = useRef<((id: string) => void) | null>(null);
   // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
   // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
   // markDirty 走 saveRef 现取：控制器要到 useEffect 里才建出来，构造时只能留一个晚绑定的闭包。
   // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 15 分钟。
   if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [] }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [] }));
 
   useEffect(() => {
     const container = containerRef.current;
@@ -234,6 +250,9 @@ export function App() {
         // 任务 5B：持有与装备随时会被四个按钮改写，必须跟着快照走，不能只靠基线带
         ownedBooks: game.ownedBooks,
         equippedBook: game.equippedBook,
+        // 任务 7A：道具同理。budgetPool 虽然也落盘（§5.1 面值），但读回来不采信 —— 真池由 attachArtifacts 现算。
+        ownedArtifacts: game.ownedArtifacts,
+        equippedArtifacts: game.equippedArtifacts,
       };
     };
 
@@ -255,7 +274,7 @@ export function App() {
     // ② 存档损坏：HUD 只留 corrupted 那一行，逐字段明细由 corruptReport 打进 console.group('save:corrupt')。
     // 回退备用槽成功时 loaded.errors 本来就是空（core 只在读不到可用档时才填明细），灰字 notice 说一句即可。
     const archiveErrors = blockErrors.length > 0 || corrupted !== null ? [] : loaded.errors;
-    const hardErrors = [...BOOK_CATALOGUE.errors, ...blockErrors, ...restoreErrors, ...archiveErrors];
+    const hardErrors = [...BOOK_CATALOGUE.errors, ...ARTIFACT_CATALOGUE.errors, ...blockErrors, ...restoreErrors, ...archiveErrors];
     // 装备与持有是 GameState 的字段，也是玩家随时会改的东西，所以前台拿一份可变的档面走：
     // 装载/卸下/固化改写它，落盘由 snapshot 带出去，读写两端各校验一次（契约 §5.2）。
     // 新档直接带开局书（D3）；5A 落盘的旧档里 ownedBooks 是空的，靠 grantStarterBook 当场补发一次。
@@ -392,6 +411,44 @@ export function App() {
       bookActionRef.current = null;
     };
 
+    // ---- 任务 7A：道具（玉简 + 算盘）----
+    // 装备位是唯一真相：sink 里的玉简规格与 VM 的预算池都由它当场现算，所以读档后、每次开关后都重跑一遍。
+    // 这里不采信 state.budgetPool 那个面值（决策 2：改档不能凭空扩池 —— 把 250 写进档再读回来就白得 50 步）。
+    const syncArtifacts = (): void => {
+      const equipment = equipmentFor(ARTIFACT_CATALOGUE, game.equippedArtifacts);
+      runtime.attachArtifacts(equipment);
+      pushActionErrors(equipment.errors);
+      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts) }));
+    };
+    syncArtifacts();
+
+    let artifactNotice: string | null = null;
+    // 换道具的灰字只留最新一条：pushNotice 是去重累加的，来回开关会攒出一串同义的提示。
+    const setArtifactNotice = (message: string): void => {
+      noticeList = [...noticeList.filter((line) => line !== artifactNotice), message];
+      artifactNotice = message;
+      setHud((previous) => ({ ...previous, notices: noticeList }));
+    };
+
+    // 「装备即拥有」（决策 1）：P0 没有解锁来源，点亮一件才补 owned，
+    // 否则 equipped ⊄ owned，下一次落盘会被 §5.1 的校验整份打回。卸下只清装备位、保留持有。
+    artifactActionRef.current = (id: string): void => {
+      const name = ARTIFACT_CATALOGUE.artifacts.find((artifact) => artifact.id === id)?.name.zh ?? id;
+      const wearing = !game.equippedArtifacts.includes(id);
+      game = {
+        ...game,
+        ownedArtifacts: wearing ? [...new Set([...game.ownedArtifacts, id])] : game.ownedArtifacts,
+        equippedArtifacts: wearing ? [...game.equippedArtifacts, id] : game.equippedArtifacts.filter((worn) => worn !== id),
+      };
+      syncArtifacts();
+      // 同 §4.4「限时改功法」那条口径：装备改的是接下来每个 tick 的步数与产出，已经攒下的数字不动。
+      setArtifactNotice(`《${name}》${wearing ? '已装备' : '已卸下'}：只改接下来的产出与预算，不改已攒下的数字`);
+      controller.markDirty();
+    };
+    const detachArtifacts = (): void => {
+      artifactActionRef.current = null;
+    };
+
     // HUD 的渲染闸门：逐帧把看得出来的变化量化成 key，key 不变就不重渲染。
     // 声明在这里是因为渡劫回调点完要把它清空 —— 结算改了 chargeReadyAt / attempt / insight，
     // 那三个字段不在 key 里，不清就会等下一次数字变化才刷新按钮。
@@ -495,6 +552,7 @@ export function App() {
     return () => {
       loop.stop();
       detachBook();
+      detachArtifacts();
       challengeActionRef.current = null;
       if (debugVisible) delete window.__gongfa_debug;
       // StrictMode 的双挂载与真实卸载都走这里：先落一次档再拆工作区，别把刚搭的程序丢在内存里
@@ -508,7 +566,7 @@ export function App() {
   return (
     <div className="layout">
       <div className="canvas" ref={containerRef} />
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} />
     </div>
   );
 }

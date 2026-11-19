@@ -16,6 +16,11 @@ export interface ActionRequest {
 export interface ActionOutcome {
   readonly qi: Qi;
   readonly demonDelta: number;
+  /**
+   * 契约 §2.4：玉简命中的那一次 ACTION 计 hitStepCost 步。缺省（不返回该字段）就是 1，
+   * 也就是说 VM 的步数口径与道具无关时逐字节不变。
+   */
+  readonly stepCost?: number | undefined;
 }
 
 // VM 只负责解析 ACTION 并把 k 传下去；契约 §2.1 的六个乘数由实现方在此结算，避免与 balance-sim 出现两份口径。
@@ -61,6 +66,14 @@ interface LoopFrame {
 
 const ZERO_SNAPSHOT: VmSnapshot = { qi: 0, rate: 0, demon: 0, realm: 0, budget: BASE_BUDGET };
 
+// 构造参数与 setBudget 共用一条校验：预算池是「每 tick 总预算」的整数步数，小数或负数没有意义。
+function checkBudget(value: number): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`budgetPool 需要非负整数，收到 ${value}`);
+  }
+  return value;
+}
+
 function readVar(key: LoadKey, vars: VmSnapshot, remainingBudget: number): Qi {
   switch (key) {
     case 'qi':
@@ -85,20 +98,17 @@ function compare(arg: CmpArg, left: Qi, right: Qi): 1 | 0 {
 export class Vm {
   private readonly content: Content;
   private readonly sink: ActionSink;
-  private readonly budgetPool: number;
+  // 可变：契约 §2.4 的算盘装备/卸下要在不重建 VM 的前提下换池（重建会丢 ticksRun，确定性回放就散了）。
+  private budgetPool: number;
   private readonly vars: () => VmSnapshot;
   private readonly onEvent: ((event: VmEvent) => void) | undefined;
   private installed: readonly Program[] = [];
   private ticksRun = 0;
 
   constructor(deps: VmDeps) {
-    const budgetPool = deps.budgetPool ?? BASE_BUDGET;
-    if (!Number.isInteger(budgetPool) || budgetPool < 0) {
-      throw new RangeError(`budgetPool 需要非负整数，收到 ${budgetPool}`);
-    }
     this.content = deps.content;
     this.sink = deps.sink;
-    this.budgetPool = budgetPool;
+    this.budgetPool = checkBudget(deps.budgetPool ?? BASE_BUDGET);
     this.vars = deps.vars ?? (() => ZERO_SNAPSHOT);
     this.onEvent = deps.onEvent;
   }
@@ -113,6 +123,14 @@ export class Vm {
 
   get budget(): number {
     return this.budgetPool;
+  }
+
+  /**
+   * 契约 §2.4 的预算加成入口。只在两次 tick 之间调用（装备/卸下发生在 rAF 回调里）：
+   * 本 tick 已计出的 steps 与已发出去的 stall 不回溯，新池从下一次 tick 的预算检查起生效。
+   */
+  setBudget(budgetPool: number): void {
+    this.budgetPool = checkBudget(budgetPool);
   }
 
   // 校验不通过则一个程序都不装载，错误按 [programId] 前缀汇总。
@@ -244,6 +262,9 @@ export class Vm {
           case 'ACTION': {
             actionSeq += 1;
             const outcome = this.sink.execute({ actionId: op.actionId, k: actionSeq, pc, loopDepth: frames.length });
+            // 缺省 1 步：dispatch 前已收过这一步，这里按 sink 报的实际成本补差（契约 §2.4 的命中免步就是 -1）。
+            // 回边指令（LOOP_END / JMP）不在这里改，所以 0 步的 ACTION 再密也逃不出预算检查。
+            steps += (outcome.stepCost ?? 1) - 1;
             gain = Qi.add(gain, Qi.of(outcome.qi));
             demonDelta = Qi.add(demonDelta, Qi.of(outcome.demonDelta));
             pc += 1;

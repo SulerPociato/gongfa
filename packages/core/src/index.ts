@@ -3,6 +3,7 @@ export * from './number/bignum';
 export * from './content/schema';
 export { loadContent } from './content/loader';
 export * from './content/books';
+export * from './content/artifacts';
 export * from './book/machine';
 export * from './vm';
 export * from './modifier/settle';

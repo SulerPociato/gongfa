@@ -28,6 +28,12 @@ export interface SaveSnapshot {
    * 不落盘的话刷一次页面就从零再等一遍，时间墙会变成「必须一直开着页面」。
    */
   readonly chargeReadyAt: number;
+  /**
+   * 任务 7A：道具的持有与装备。P0 没有解锁来源，所以「装备即拥有」——点亮一件时两个数组一起写，
+   * 卸下只清 equippedArtifacts、保留 ownedArtifacts，否则 §5.1 的 equipped ⊆ owned 会被自己判成坏档。
+   */
+  readonly ownedArtifacts: readonly string[];
+  readonly equippedArtifacts: readonly string[];
 }
 
 export interface SaveStatus {
@@ -89,6 +95,8 @@ export function createSaveController(deps: {
       // 蓄势时刻由 runtime 逐 tick 起算、渡劫成功时清零，属于运行时事实：漏了这一行就永远抄基线，
       // 刷新后 15 分钟从头再等。
       chargeReadyAt: snapshot.chargeReadyAt,
+      ownedArtifacts: [...snapshot.ownedArtifacts],
+      equippedArtifacts: [...snapshot.equippedArtifacts],
     };
     const save: SaveFile = { schemaVersion: SAVE_SCHEMA_VERSION, savedAt: now, state: next };
     const result = writeSave(deps.storage, save, deps.clock);

@@ -218,6 +218,47 @@ body {
   opacity: 0.4;
 }
 
+/* 任务 7A：道具面板。数值都在 artifacts.json 里，面板只转述，不另写一份 */
+.hud .artifacts {
+  margin: 0 0 18px;
+}
+
+.hud .artifact {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.hud .artifact-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--paper);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.hud .artifact-toggle:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* 装上的那件换成灵光色描边：截图、读屏、扫一眼三种看法都能指出哪件正在生效 */
+.hud .artifact-toggle[aria-pressed='true'] {
+  border-color: var(--spirit);
+  color: var(--spirit);
+}
+
+.hud .artifact-effect {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0;
+  opacity: 0.7;
+}
+
 .hud .hint {
   font-size: 12px;
   line-height: 1.7;

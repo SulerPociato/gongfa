@@ -1,0 +1,35 @@
+[
+  {
+    "id": "jade",
+    "name": {
+      "zh": "玉简"
+    },
+    "effects": [
+      {
+        "type": "cache",
+        "cache": {
+          "sameActionId": true,
+          "hitGainMultiplier": 0.7,
+          "hitStepCost": 0
+        }
+      }
+    ]
+  },
+  {
+    "id": "abacus",
+    "name": {
+      "zh": "算盘"
+    },
+    "effects": [
+      {
+        "type": "modifier",
+        "modifier": {
+          "id": "abacus_budget",
+          "target": "budget",
+          "kind": "add",
+          "value": 50
+        }
+      }
+    ]
+  }
+]

@@ -23,10 +23,12 @@ import {
   TICKS_PER_SEC,
   Vm,
   type ActionRequest,
+  type ArtifactEquipment,
   type BookDef,
   type ChallengeMode,
   type Clock,
   type GameState,
+  type JadeCacheSpec,
   type Program,
   type RealmDef,
   type SettleSink,
@@ -139,6 +141,12 @@ export interface Runtime {
   restore(state: GameState): readonly string[];
   /** 装备或卸下（含固化）功法书：衰减与 modifiers 成对装卸。 */
   attachBook(book: BookDef | null): void;
+  /**
+   * 装备或卸下道具（契约 §2.4，任务 7A）：与 attachBook 同一套成对装卸 ——
+   * 玉简换 sink（命中折扣与免步都取自规格本身），算盘换 VM 的预算池。
+   * 传全中性（jadeCache: null、budgetBonus: 0）就是两件都卸下。
+   */
+  attachArtifacts(equipment: Pick<ArtifactEquipment, 'jadeCache' | 'budgetBonus'>): void;
   /**
    * 「可渡劫」按钮的唯一入口（契约 §7.1）：蓄势就绪时开启 10 秒挑战，挑战中再点一次按手动 85% 当场结算，
    * 放手到点则由 run() 按托管 60% 自动结算。拒绝原因在 errors 里，空数组 = 这次点击被接受。
@@ -257,6 +265,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let realmIndex = indexOfRealm(seedRealm());
   state.realm = content.realms[realmIndex]?.id ?? 0;
   let currentBook: BookDef | null = null;
+  // 玉简的规格和书一样是「装上去就固定进 sink」的事实，卸下即 null；预算池另存在 VM 里，见 attachArtifacts。
+  let currentJadeCache: JadeCacheSpec | null = null;
   let sink: SettleSink;
 
   // realmIndex 只由 indexOfRealm（找不到退回首行）和渡劫成功（下一行必然存在才返回成功）改，
@@ -304,8 +314,9 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
 
   // 唯一的 sink 出口：衰减（§2.2）与 modifiers（§4）都从 bookSettleDeps 成对进出，
   // 卸下或固化时传 null 就得到完全中性的 1 / []，不可能只剩一半。
+  // 玉简（§2.4）挤在同一个 sink 里：命中折扣与命中步数都来自 currentJadeCache，null = 两样都不生效。
   const resetSink = (): void => {
-    sink = makeActionSink({ content, realmIndex, ...bookSettleDeps(currentBook, state.realm) });
+    sink = makeActionSink({ content, realmIndex, jadeCache: currentJadeCache, ...bookSettleDeps(currentBook, state.realm) });
     state.bookId = currentBook?.id ?? null;
     state.bookDecay = sink.mults.bookDecay;
     state.rateMult = sink.mults.rateMult;
@@ -452,7 +463,9 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       state.totalQi = Qi.parse(saved.stats.totalQi);
       state.demon = Math.min(1, Math.max(0, saved.demon));
       state.seed = saved.seed;
-      state.budgetPool = saved.budgetPool;
+      // §5.1 的 budgetPool 照样落盘（schema 兼容），但它只是上一次算出来的面值：
+      // 真正的池由 attachArtifacts 按 equippedArtifacts 现算，改档把 200 改成 2000 不会凭空多预算。
+      state.budgetPool = BASE_BUDGET;
       state.breakthroughs = saved.stats.breakthroughs;
       state.playMs = saved.stats.playMs;
       // 每个会话的 tick 计数与事件列表从头开始（存档里没有它们），惩罚期也不跨会话带走。
@@ -477,9 +490,11 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 蓄势时刻优先读档面：任务 5 落的 v1 档没这个字段（undefined），补一次 arm 而不是报错，
       // 否则「刷新继续等剩余窗口」这条验收会读回 NaN 比较（undefined >= number 恒 false → 按钮永远灰）。
       state.chargeReadyAt = Number.isFinite(saved.chargeReadyAt) ? saved.chargeReadyAt : 0;
-      // 装备位由宿主在 restore 之后 attachBook 回来（runtime 不查目录）：这里先清成中性，
-      // 免得上一份会话的书衰减残留在 sink 里。
+      // 装备位由宿主在 restore 之后 attachBook / attachArtifacts 回来（runtime 不查目录）：这里先清成中性，
+      // 免得上一份会话的书衰减或玉简规格残留在 sink 里。
       currentBook = null;
+      currentJadeCache = null;
+      vm.setBudget(BASE_BUDGET);
       resetSink();
       // 存量已经达标却还没有蓄势时刻（离线达标、或读的是任务 5 那份没有该字段的档）：从这一帧补起算点。
       // 拿当前时刻而不是达标时刻，是因为契约没存达标时刻；宁可多等，也不给玩家一个假就绪。
@@ -496,6 +511,19 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     attachBook: (book) => {
       currentBook = book;
       resetSink();
+    },
+    attachArtifacts: (equipment) => {
+      currentJadeCache = equipment.jadeCache;
+      resetSink();
+      // 池 = BASE_BUDGET + 道具加成（契约 §2.4「预算 = BASE_BUDGET(200) + 算盘加成」）。
+      // 只换池不重建 VM：重建会把 ticksRun 归零，同种子回放就此散架。
+      const pool = BASE_BUDGET + equipment.budgetBonus;
+      vm.setBudget(pool);
+      state.budgetPool = pool;
+      // 道具变更会让上一 tick 的 stall 失效：红字描述的是「按旧预算跑出来的执行状态」，
+      // 池或命中步价一变，那一 tick 的截断点就不成立了，留着等于告诉玩家一个已经不存在故障。
+      // 换程序时同样清（见 load）；stall 只在 stall 事件里写，所以不主动清就会一直挂到下一次真截断。
+      state.stall = null;
     },
     pressChallenge: () => {
       const now = clock.now();

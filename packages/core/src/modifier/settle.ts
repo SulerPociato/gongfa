@@ -1,3 +1,4 @@
+import type { JadeCacheSpec } from '../content/artifacts';
 import type { Modifier, ModifierTarget } from '../content/books';
 import type { Content } from '../content/schema';
 import { DEMON_BASE_PER_ACTION } from '../types';
@@ -23,7 +24,7 @@ export interface ResolvedModifiers {
   readonly rateMult: number;
   /** 作用在 demonDelta 上的心魔乘数（已含 demonRate 的 add 项与夹取）。 */
   readonly demonMult: number;
-  /** 按 target 分组的 add 项原值：budget / offlineRate / slot 留给任务 8 的结算层读，这里不消费。 */
+  /** 按 target 分组的 add 项原值：budget 由 content/artifacts.ts 的 equipArtifacts 汇算（任务 7A），offlineRate / slot 留给离线结算，这里都不消费。 */
   readonly add: Readonly<Record<ModifierTarget, number>>;
   /** 被丢弃的 modifier id（未消费的 target、非法 kind、非有限或负的 mul），供 HUD 与单测观察。 */
   readonly ignored: readonly string[];
@@ -72,8 +73,11 @@ export function resolveModifiers(modifiers: readonly Modifier[]): ResolvedModifi
 export interface SettleDeps {
   readonly content: Content;
   readonly realmIndex: number;
-  /** 任务 8 装备玉简后传 true；未装备时重复 actionId 只被观察，不改产出。 */
-  readonly jadeCache?: boolean | undefined;
+  /**
+   * 契约 §2.4 的玉简规格（数值来自 content/artifacts.json）：null / 不传 = 没装备，
+   * 重复 actionId 只被观察，产出不打折、步数照收。equipArtifacts 交的就是 `| null`，宿主可以原样转进来。
+   */
+  readonly jadeCache?: JadeCacheSpec | null | undefined;
   /** 心魔基线，默认契约 §2.2.1 的 0.00005；任务 10 用它跑 0.00004/0.00005 两档。 */
   readonly demonBase?: number | undefined;
   /** 契约 §2.2 的书衰减，默认 1（无书或已固化）。只作用动作 qi，不碰心魔（§6）。 */
@@ -83,42 +87,57 @@ export interface SettleDeps {
 }
 
 export interface SettleSink extends ActionSink {
-  /** 本 tick 起累计的「同 actionId 重复执行」次数（第 2 次起计 1），用于 UI 与单测观察。 */
-  readonly observed: { readonly repeats: number };
+  /**
+   * executed / repeats / stepCostTotal 自 sink 建立起累计（卸下玉简不清零，卸下动作另有 mults 负责核对）；
+   * distinct 是「本 tick 起算的不同 actionId 数」，跟着 seen 集合一起在 k===1 时清零。
+   * 验收 3 的断言用的是 steps = steps₀ − (executed − distinct)，两个量必须同时可观察才验得到。
+   */
+  readonly observed: {
+    readonly repeats: number;
+    readonly executed: number;
+    readonly distinct: number;
+    readonly stepCostTotal: number;
+  };
   /** 结算实际吃到的乘数，卸下书后应当回到 1 / 1，供 HUD 与单测观察。 */
   readonly mults: { readonly bookDecay: number; readonly rateMult: number; readonly demonMult: number };
 }
 
-// 契约 §2.1 的单动作产出：baseAction × actionMult(k) × cacheHitMult × realmActionMult × bookDecay × rateMult。
-// artifactMult（任务 8）在这条链的末尾等着。
+// 契约 §2.1 的单动作产出：baseGain × actionMult(k) × cacheHitMult × realmActionMult × bookDecay × rateMult。
+// 顺序是写死的：浮点乘法不满足结合律，换序就是另一条平衡口径，TS↔Python 对不上。
 export function makeActionSink(deps: SettleDeps): SettleSink {
   const realm = deps.content.realms[deps.realmIndex];
   if (realm === undefined) throw new RangeError(`realmIndex ${deps.realmIndex} 不在 realms.json 中`);
   const actions = new Map(deps.content.actions.map((action) => [action.id, action]));
-  const jadeCache = deps.jadeCache ?? false;
+  const jade = deps.jadeCache ?? null;
   const demonBase = deps.demonBase ?? DEMON_BASE_PER_ACTION;
   const bookDecay = deps.bookDecay ?? 1;
   if (!Number.isFinite(bookDecay) || bookDecay < 0) throw new RangeError(`bookDecay 需要 ≥ 0 的有限数，收到 ${String(deps.bookDecay)}`);
   const mods = resolveModifiers(deps.modifiers ?? []);
   const seen = new Set<string>();
-  const observed = { repeats: 0 };
+  const observed = { repeats: 0, executed: 0, distinct: 0, stepCostTotal: 0 };
 
   return {
     observed,
     mults: { bookDecay, rateMult: mods.rateMult, demonMult: mods.demonMult },
     execute(request: ActionRequest): ActionOutcome {
       // VM 只传 k：actionSeq 每 tick 从 1 重新计数，所以 k===1 就是 tick 边界，sink 不必额外挂 tick 钩子。
+      // 集合跨程序共享（同一 tick 里前一个程序跑过的 actionId，后一个程序再跑就算命中）。
       if (request.k === 1) seen.clear();
       const def = actions.get(request.actionId);
       if (def === undefined) throw new RangeError(`actionId "${request.actionId}" 不在 actions.json 中`);
       const repeat = seen.has(def.id);
       if (repeat) observed.repeats += 1;
       seen.add(def.id);
-      const qi = def.baseGain * actionMult(request.k) * (jadeCache && repeat ? 0.7 : 1) * realm.actionMult * bookDecay * mods.rateMult;
-      // 累加后的 demon 由调用方夹到 0..1；demon >= 1.0 的走火入魔惩罚（qi ×0.7、心魔归 0）在任务 6 实现，
-      // 本轮不静默：增长照算，只是不触发惩罚。
+      // 产出与步数同源：一次命中判断同时决定打折和免步，不会出现「按命中打折、按未命中计步」的裂口径。
+      const hit = jade !== null && repeat;
+      observed.executed += 1;
+      observed.distinct = seen.size;
+      observed.stepCostTotal += hit ? jade.hitStepCost : 1;
+      const qi = def.baseGain * actionMult(request.k) * (hit ? jade.hitGainMultiplier : 1) * realm.actionMult * bookDecay * mods.rateMult;
+      // 累加后的 demon 由调用方夹到 0..1；契约 §2.4 明确写了缓存命中不减免心魔：§2.2.1 的增长按「执行」计。
       // 架构 §4 的先加后乘（O1）：心魔乘数作用在「表值 + 增长项」整体之上，负 demonDelta（调息）同样被缩放。
-      return { qi, demonDelta: (def.demonDelta + demonGrowth(demonBase, def.kind, request.loopDepth)) * mods.demonMult };
+      const demonDelta = (def.demonDelta + demonGrowth(demonBase, def.kind, request.loopDepth)) * mods.demonMult;
+      return hit ? { qi, demonDelta, stepCost: jade.hitStepCost } : { qi, demonDelta };
     },
   };
 }

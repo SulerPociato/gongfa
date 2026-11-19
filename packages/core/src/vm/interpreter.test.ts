@@ -41,7 +41,7 @@ function program(code: readonly Op[], id = 'p0'): Program {
   return { id, code };
 }
 
-function recorder(produce: (request: ActionRequest) => { qi: number; demonDelta: number }): {
+function recorder(produce: (request: ActionRequest) => { qi: number; demonDelta: number; stepCost?: number }): {
   calls: ActionRequest[];
   sink: ActionSink;
 } {
@@ -448,5 +448,117 @@ describe('吞吐（连跑 3 次取中位数）', () => {
     expect(lastTick).toBe(10000);
     expect(lastSteps).toBe(8);
     expect(median).toBeLessThan(150);
+  });
+});
+
+// 契约 §2.4：玉简把命中的那次 ACTION 计 0 步；算盘把每 tick 预算池抬高。
+// 两条都必须在不装道具时一个字节都不改现有口径，所以先钉「缺省等价」，再钉「0 步不等于免死」。
+describe('道具的两条 VM 口径（契约 §2.4，任务 7A）', () => {
+  function bareVm(sink: ActionSink, code: readonly Op[], budgetPool?: number): Vm {
+    const vm = new Vm({ content: CONTENT, sink, budgetPool });
+    vm.installUnchecked([program(code)]);
+    return vm;
+  }
+
+  it('stepCost 缺省与显式 1 逐字段一致：不装道具就是今天的 VM', () => {
+    const absent = recorder(() => ({ qi: 1, demonDelta: 0.00005 }));
+    const explicit = recorder(() => ({ qi: 1, demonDelta: 0.00005, stepCost: 1 }));
+    const a = bareVm(absent.sink, LOOP3).tick();
+    const b = bareVm(explicit.sink, LOOP3).tick();
+
+    expect(b).toEqual(a);
+    expect(b.steps).toBe(8);
+    expect(a.steps).toBe(8);
+  });
+
+  it('stepCost=0 只免 ACTION 那一步：循环 3 次从 8 步降到 5 步', () => {
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0, stepCost: 0 }));
+    const result = bareVm(rec.sink, LOOP3).tick();
+
+    // LB + 3×(ACTION 0 步 + LOOP_END 1 步) + HALT = 1 + 3 + 1
+    expect(result.steps).toBe(5);
+    expect(rec.calls.length).toBe(3);
+    expect(result.gain).toBe(3);
+    console.log(`0 步 ACTION 实测：steps=${result.steps}（全额 8）动作=${rec.calls.length}`);
+  });
+
+  it('stepCost=0 掐不死 10^3 循环：回边 LOOP_END 照收 1 步，仍在 200 步截断', () => {
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0, stepCost: 0 }));
+    const result = bareVm(rec.sink, NESTED_LOOP).tick();
+
+    expect(result.stall?.reason).toBe('budget');
+    expect(result.stall?.steps).toBe(BASE_BUDGET);
+    // 全额时 90 次动作（现有那条口径不变），每步都免费的极端值是 163 次：多出来的全是回边买的单
+    expect(rec.calls.length).toBe(163);
+    expect(result.stall?.pc).toBe(3);
+    console.log(`免费 ACTION 的预算截断实测：steps=${result.stall?.steps} 动作=${rec.calls.length} pc=${result.stall?.pc}`);
+  });
+
+  it('连循环结构都没有的后向 JMP：唯一收费的是 JMP 本身，动作 600 次照样停在 200 步', () => {
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0, stepCost: 0 }));
+    const code: readonly Op[] = [BREATH, BREATH, BREATH, { op: 'JMP', target: 0 }];
+    const result = bareVm(rec.sink, code).tick();
+
+    expect(result.stall?.reason).toBe('budget');
+    expect(result.stall?.steps).toBe(BASE_BUDGET);
+    expect(rec.calls.length).toBe(600);
+    expect(result.stall?.pc).toBe(0);
+  });
+
+  it('setBudget 换池不换 VM：ticksRun 连续，截断点从 200 步挪到 250 步', () => {
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0 }));
+    const vm = bareVm(rec.sink, NESTED_LOOP);
+    const first = vm.tick();
+    expect(vm.budget).toBe(BASE_BUDGET);
+    expect(first.stall?.steps).toBe(200);
+    expect(rec.calls.length).toBe(90);
+
+    vm.setBudget(BASE_BUDGET + 50);
+    expect(vm.budget).toBe(250);
+    rec.calls.length = 0;
+    const second = vm.tick();
+
+    expect(second.stall?.steps).toBe(250);
+    expect(second.stall?.pc).toBe(4);
+    expect(rec.calls.length).toBe(112);
+    // 重建 VM 会把 ticksRun 归零，确定性回放就散了：这里必须是同一个实例连着数
+    expect(second.tick).toBe(2);
+    expect(vm.currentTick).toBe(2);
+    console.log(`算盘预算实测：200 步 → 动作 90 ｜ 250 步 → 动作 112（+22）`);
+  });
+
+  it('LOAD budget 读的是 setBudget 之后的实时剩余预算', () => {
+    // 剩余预算 > 240 才跑那一次动作：池 200 时第 1 步之后只剩 199（不进），池 250 时剩 249（进）
+    const code: readonly Op[] = [
+      { op: 'LOAD', key: 'budget' },
+      { op: 'PUSH', value: 240 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 6 },
+      BREATH,
+      HALT,
+      HALT,
+    ];
+    const rec = recorder(() => ({ qi: 1, demonDelta: 0 }));
+    const vm = bareVm(rec.sink, code);
+    const tight = vm.tick();
+    expect(tight.gain).toBe(0);
+    expect(tight.steps).toBe(5);
+
+    vm.setBudget(250);
+    rec.calls.length = 0;
+    const wide = vm.tick();
+    expect(wide.gain).toBe(1);
+    expect(wide.steps).toBe(6);
+    expect(wide.stall).toBeNull();
+  });
+
+  it('setBudget 的校验与构造参数同一条：非负整数，否则 RangeError 且池不变', () => {
+    const vm = bareVm(UNIT_SINK, LOOP3);
+    for (const bad of [2.5, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => vm.setBudget(bad)).toThrow(RangeError);
+      expect(vm.budget).toBe(BASE_BUDGET);
+    }
+    vm.setBudget(0);
+    expect(vm.budget).toBe(0);
   });
 });

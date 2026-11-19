@@ -17,6 +17,18 @@ export interface BookModel {
   readonly loadable: number;
 }
 
+/**
+ * 道具面板（任务 7A，契约 §2.4）：一行一件，按钮只管装备/卸下。
+ * name 与 effect 都由宿主从 content/artifacts.json 拼出来，HUD 不写死数值——
+ * 表改成 ×0.6 而面板还写着 ×0.7 就是第二份口径。
+ */
+export interface ArtifactRow {
+  readonly id: string;
+  readonly name: string;
+  readonly effect: string;
+  readonly equipped: boolean;
+}
+
 /** 境界面板（任务 6）：名字、阈值、被动全部来自 realms.json 当前行，HUD 不自己算数。 */
 export interface RealmModel {
   readonly name: string;
@@ -61,6 +73,8 @@ export interface HudModel {
   /** 可继续但玩家该知道（回退备用槽、降级空程序），不挡玩法 */
   readonly notices: readonly string[];
   readonly book: BookModel;
+  /** 道具面板（任务 7A）：目录读不起来时宿主给空数组，红字里已经有那句原因。 */
+  readonly artifacts: readonly ArtifactRow[];
   readonly realm: RealmModel;
   /** 渡劫面板（任务 6.5）：按钮相位、10 秒倒计时、保底与悟道全由 runtime 算好交过来。 */
   readonly challenge: ChallengeModel;
@@ -99,6 +113,23 @@ function BookPanel({ model, onAction }: { readonly model: BookModel; readonly on
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// 装备状态用 aria-pressed 表达：读屏和截图都能拿到「这件现在生效」，不靠按钮变色暗示。
+function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow[]; readonly onToggle: (id: string) => void }) {
+  return (
+    <div className="artifacts">
+      <p className="label">道具</p>
+      {rows.map((row) => (
+        <div className="artifact" key={row.id}>
+          <button className="artifact-toggle" type="button" aria-pressed={row.equipped} onClick={() => onToggle(row.id)}>
+            {row.equipped ? `卸下${row.name}` : `装备${row.name}`}
+          </button>
+          <p className="artifact-effect">{row.effect}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -197,7 +228,7 @@ function CorruptEntry({ model }: { readonly model: CorruptLineModel }) {
   );
 }
 
-export function Hud({ model, onBookAction, onChallenge }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void }) {
   return (
     <aside className="hud">
       <h1>代码修仙</h1>
@@ -207,6 +238,7 @@ export function Hud({ model, onBookAction, onChallenge }: { readonly model: HudM
       <RealmPanel model={model.realm} qi={model.qi} />
       <ChallengePanel model={model.challenge} onPress={onChallenge} />
       <BookPanel model={model.book} onAction={onBookAction} />
+      {model.artifacts.length > 0 && <ArtifactPanel rows={model.artifacts} onToggle={onArtifactAction} />}
       {model.stall !== null && (
         <p className="stall">
           第 {model.stall.steps} 步没跑完（{STALL_REASON[model.stall.reason]}，停在第 {model.stall.pc + 1} 条指令，tick {model.stall.tick}）
