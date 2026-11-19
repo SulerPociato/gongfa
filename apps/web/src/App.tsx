@@ -19,7 +19,7 @@ import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel } from './game/hud';
+import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel, type RetreatReport } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -102,7 +102,7 @@ function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
 // 离线结算报告暂存：StrictMode 双挂载时，第一次挂载的结算结果要在第二次挂载时显示。
 // 模块级变量在两次挂载之间存活，第二次挂载读取后清空。
 let pendingOfflineReport: OfflineResult | null = null;
-function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts'>): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -116,6 +116,7 @@ function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'e
     corrupt: extra.corrupt,
     save: extra.save,
     notices: extra.notices,
+    retreat: extra.retreat,
   };
 }
 
@@ -178,8 +179,9 @@ export function App() {
   // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 15 分钟。
   if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [] }));
-  const [settings, setSettings] = useState(readSettings());
+  const initialSettings = readSettings(createLocalStorageSaveStorage());
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null }));
+  const [settings, setSettings] = useState(initialSettings.settings);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -517,11 +519,11 @@ export function App() {
     const hasSave = loaded.state !== null;
     const hasProgram = cache.length > 0;
     const alreadySettled = pendingOfflineReport !== null;
-    if (hasSave && hasProgram && !alreadySettled) {
-      const settings = readSettings();
+    if (hasSave && hasProgram && !alreadySettled && loaded.state !== null) {
+      const currentSettings = readSettings(storage);
       const result = runtime.settleOffline({
         lastSeenAt: loaded.state.lastSeenAt,
-        allowBreakthrough: settings.offlineBreakthrough,
+        allowBreakthrough: currentSettings.settings.offlineBreakthrough,
       });
       if (result !== null) {
         pendingOfflineReport = result;
@@ -566,27 +568,26 @@ export function App() {
     if (debugVisible) window.__gongfa_debug = { state: () => runtime.state() };
 
     setHud((previous) => {
-      // 如果有离线结算报告，加入通知列表
-      const offlineNotices: string[] = [];
+      // 如果有离线结算报告，转换为 RetreatReport 放入 retreat 字段
+      let retreat: RetreatReport | null = null;
       if (offlineReport !== null) {
-        const durationMin = Math.floor(offlineReport.elapsedMs / 60000);
-        const durationSec = Math.floor((offlineReport.elapsedMs % 60000) / 1000);
-        offlineNotices.push(`闭关 ${durationMin}分${durationSec}秒，获得 ${Math.floor(offlineReport.creditedGained)} 灵力`);
-        if (offlineReport.breakthroughs.length > 0) {
-          const breakthrough = offlineReport.breakthroughs[0];
-          if (breakthrough.ok) {
-            offlineNotices.push(`渡劫成功！进入${content.realms[breakthrough.realmIndex]?.name.zh ?? '未知境界'}`);
-          } else {
-            offlineNotices.push(`渡劫失败，停在${content.realms[breakthrough.realmIndex - 1]?.name.zh ?? '未知境界'}`);
-          }
-        }
+        retreat = {
+          elapsedMs: offlineReport.elapsedMs,
+          creditedGained: offlineReport.creditedGained,
+          rawGained: offlineReport.rawGained,
+          realmName: runtime.state().realmName,
+          breakthrough: offlineReport.breakthroughs.length > 0
+            ? { realm: offlineReport.breakthroughs[0]!.realm, ok: offlineReport.breakthroughs[0]!.ok }
+            : null,
+        };
       }
       return {
         ...previous,
-        notices: [...noticeList, ...offlineNotices],
+        notices: noticeList,
         corrupt: corrupted,
         // 损坏那句在红字里（含备份 key），灰字只标这一次装载的来历，不重复两遍
         save: loaded.fresh ? ['新档 · 尚未落盘'] : ['档已装载'],
+        retreat,
       };
     });
 
@@ -607,13 +608,17 @@ export function App() {
   const handleSettingsToggle = (key: 'offlineBreakthrough', value: boolean): void => {
     const next = { ...settings, [key]: value };
     setSettings(next);
-    writeSettings(next);
+    writeSettings(createLocalStorageSaveStorage(), next);
+  };
+
+  const handleCloseRetreat = (): void => {
+    setHud((previous) => ({ ...previous, retreat: null }));
   };
 
   return (
     <div className="layout">
       <div className="canvas" ref={containerRef} />
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} onCloseRetreat={handleCloseRetreat} />
     </div>
   );
 }

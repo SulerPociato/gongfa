@@ -62,6 +62,14 @@ export interface ChallengeModel {
   readonly demo: boolean;
 }
 
+export interface RetreatReport {
+  readonly elapsedMs: number;
+  readonly creditedGained: number;
+  readonly rawGained: number;
+  readonly realmName: string;
+  readonly breakthrough: { readonly realm: number; readonly ok: boolean } | null;
+}
+
 export interface HudModel {
   readonly qi: number;
   readonly rate: number;
@@ -80,6 +88,8 @@ export interface HudModel {
   readonly challenge: ChallengeModel;
   /** 工具箱这一栏给到哪一境（契约 §4.3 门控的可观察面）：文案由宿主按境界算好，HUD 不判断。 */
   readonly toolHint: string;
+  /** 闭关报告（任务 7B）：离线结算后显示，玩家点「知道了」关闭 */
+  readonly retreat: RetreatReport | null;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -214,6 +224,29 @@ export function ChallengePanel({ model, onPress }: { readonly model: ChallengeMo
   );
 }
 
+// 闭关报告面板（任务 7B）：离线结算后显示，玩家点「知道了」关闭
+function RetreatPanel({ report, onClose }: { readonly report: RetreatReport; readonly onClose: () => void }) {
+  const durationMin = Math.floor(report.elapsedMs / 60000);
+  const durationSec = Math.floor((report.elapsedMs % 60000) / 1000);
+  return (
+    <div className="retreat">
+      <p className="retreat-title">闭关报告</p>
+      <p className="retreat-line">闭关 {durationMin}分{durationSec}秒 ｜ 灵力 +{Math.floor(report.creditedGained)}（离线效率 60%）</p>
+      <p className="retreat-line">同期在线口径约 +{Math.floor(report.rawGained)}（未扣心魔、杂念与走火损失）</p>
+      <p className="retreat-line">当前境界：{report.realmName}</p>
+      {report.breakthrough !== null && (
+        <p className={`retreat-breakthrough ${report.breakthrough.ok ? '' : 'failed'}`}>
+          {report.breakthrough.ok ? `渡劫成功：进入${report.realmName}` : '渡劫失败：停在阈值'}
+        </p>
+      )}
+      <p className="retreat-note">离线期间心魔不增长，杂念与走火入魔不生效。</p>
+      <button className="retreat-close" type="button" onClick={onClose}>
+        知道了
+      </button>
+    </div>
+  );
+}
+
 function CorruptEntry({ model }: { readonly model: CorruptLineModel }) {
   // 默认收起：玩家先要看得见「档还在、已备份」，不是 18 条字段路径
   const [open, setOpen] = useState(false);
@@ -248,7 +281,7 @@ function SettingsPanel({ settings, onToggle }: { readonly settings: SettingsMode
   );
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void; readonly onCloseRetreat: () => void }) {
   return (
     <aside className="hud">
       <h1>代码修仙</h1>
@@ -256,6 +289,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settin
       <p className="qi">{model.qi}</p>
       <p className="rate">{model.rate.toFixed(1)} / 秒</p>
       <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+      {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
       <RealmPanel model={model.realm} qi={model.qi} />
       <ChallengePanel model={model.challenge} onPress={onChallenge} />
       <BookPanel model={model.book} onAction={onBookAction} />
