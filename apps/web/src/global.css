@@ -3,6 +3,7 @@
   --spirit: #35e0c8;
   --paper: #1c2228;
   --danger: #e04b3a;
+  --gold: #e8c978;
 }
 
 * {
@@ -120,6 +121,33 @@ body {
   opacity: 0.6;
 }
 
+/* 任务 8 试炼（契约 §7.1.1）：60 秒滑窗进度 + 一句常驻文案。
+   达成后填色从主色转强调金，让「这一格已经结清」在还没读字之前就能看出来。 */
+.hud .sprint {
+  margin: 0 0 18px;
+}
+
+.hud .bar.sprint .bar-fill {
+  background: var(--spirit);
+}
+
+.hud .sprint.is-reached .bar-fill {
+  background: var(--gold);
+}
+
+.hud .sprint-text {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0 0 4px;
+}
+
+.hud .sprint-progress {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin: 0;
+  opacity: 0.75;
+}
+
 /* 任务 6.5：渡劫面板。按钮灰不灰只看 canChallenge，相位只决定说哪句话 */
 .hud .challenge {
   margin: 0 0 18px;
@@ -150,6 +178,13 @@ body {
   border-left: 2px solid var(--spirit);
   margin: 8px 0 0;
   padding-left: 8px;
+}
+
+.hud .trial-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin: 0 0 4px;
+  opacity: 0.7;
 }
 
 .hud .trial-rule {

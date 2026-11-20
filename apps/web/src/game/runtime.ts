@@ -22,6 +22,11 @@ import {
   resolveChallenge,
   Scheduler,
   settleOffline,
+  shiftChargeReadyAt,
+  SprintWindow,
+  sprintGoalQi,
+  halveChargeWindowMs,
+  SPRINT_WINDOW_MS,
   TICKS_PER_SEC,
   Vm,
   type ActionRequest,
@@ -64,7 +69,7 @@ export interface RuntimeState {
   readonly canBreakthrough: boolean;
   /**
    * 蓄势完成时刻（契约 §5.1 的 chargeReadyAt，真实时间毫秒）：0 = 本境界从未达标。
-   * 这是落盘字段：每次 arm 出非零值都要标脏，否则浏览器刷新后会重新等 15 分钟。
+   * 这是落盘字段：每次 arm 出非零值都要标脏，否则浏览器刷新后会重新等 2 分钟。
    */
   readonly chargeReadyAt: number;
   /** 本境界内第几次渡劫（§7.1 的 N，从 1 起）：只活内存，刷新回到 1 = 「连续失败」清零。 */
@@ -101,6 +106,17 @@ export interface RuntimeState {
   /** ?demo=1：跳过蓄势与 10 秒，HUD 要写明当前是演示模式。 */
   readonly demo: boolean;
   /**
+   * 试炼（契约 §7.1.1）：本境界 60 秒滑动窗口的目标产出。
+   * 表里没有这一行时给 null，HUD 整行不显示——画一条「/0」的假进度比不画更糟。
+   */
+  readonly sprintGoalQi: number | null;
+  /** 当前 60 秒窗口内已产出（含境界被动，与 HUD 的「/ 秒」同口径）。 */
+  readonly sprintProgressQi: number;
+  /** 窗口长度（毫秒）：HUD 写「/60秒」用的是这个数，不自己写死 60。 */
+  readonly sprintWindowMs: number;
+  /** 本境界是否已拿到「蓄势减半」：换境界后回到 false（§7.1.1 只生效一次、不可叠加）。 */
+  readonly sprintReached: boolean;
+  /**
    * 最近一次「结算」（10 秒到点的托管、挑战中的手动确认、演示模式的当场结算都算，拒绝也算）：
    * 托管那一发是 run() 里结算的，没有按钮可挂回调，所以结果放在状态里由宿主逐帧观察，
    * 否则玩家只看见数字跳了一下，不知道这局是成是败、骰了多少。
@@ -115,7 +131,8 @@ export interface RuntimeState {
  */
 type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
-  | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo';
+  | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
+  | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -220,7 +237,7 @@ export interface RuntimeDeps {
   readonly seed?: number;
   /**
    * 「有字段要落盘了」的通知。runtime 不认存档控制器（构造时控制器还没建），宿主给一个闭包就行。
-   * 渡劫结算与蓄势起算都会调它：chargeReadyAt 是 §5.1 的存档字段，漏标一次刷新就重新等 15 分钟。
+   * 渡劫结算与蓄势起算都会调它：chargeReadyAt 是 §5.1 的存档字段，漏标一次刷新就重新等 2 分钟。
    */
   readonly markDirty?: (() => void) | undefined;
 }
@@ -233,7 +250,7 @@ export function urlDemo(): boolean {
   return raw !== null && raw !== '0' && raw.toLowerCase() !== 'false';
 }
 
-// debug only：?debug=1 且 ?charge=0 时把蓄势窗口强行设成 0（立刻可冲关），当场验 15/60 分钟的算术。
+// debug only：?debug=1 且 ?charge=0 时把蓄势窗口强行设成 0（立刻可冲关），当场验 2/5 分钟的算术。
 // 和 ?demo=1 分开：演示模式是一揽子开关，这个只动蓄势，心魔、杂念、离线照旧。
 function chargeSkipped(): boolean {
   const query = new URLSearchParams(window.location.search);
@@ -294,9 +311,21 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let trialUntil = 0;
   let cooldownUntil = 0;
 
+  // 试炼（契约 §7.1.1）：60 秒滑动窗口只统计在线逐 tick 产出，达成一次就把本境界正在等的蓄势窗口减半。
+  // sprintReachedRealm 记的是「哪一境拿到过减半」，所以下标相等才算已达成：换境后自然失效，
+  // 一条比较同时管住「只生效一次」与「不可叠加」。与 attempt / insight 同族：只在内存、刷新重置、不入档。
+  const sprint = new SprintWindow();
+  let sprintReachedRealm: number | null = null;
+
   // 宿主策略决定窗口：演示模式与 ?charge=0 把窗口设成 0，核心只做「首次达标 + 窗口」这一条加法。
   // 窗口按【目标境界】下标取：筑基存量首次达标要冲的是金丹 → CHARGE_WINDOW_MS[realmIndex + 1]。
-  const chargeWindowMs = (): number => (demoMode || chargeSkipped() ? 0 : CHARGE_WINDOW_MS[realmIndex + 1] ?? 0);
+  // 离线快进要按它自己推进到的境界问一遍（realmIdx 由 core 传进来），不能沿用当前境的判断。
+  const chargeWindowFor = (index: number): number =>
+    halveChargeWindowMs(demoMode || chargeSkipped() ? 0 : CHARGE_WINDOW_MS[index + 1] ?? 0, sprintReachedRealm === index);
+  const chargeWindowMs = (): number => chargeWindowFor(realmIndex);
+  // 试炼是在「已经 arm 出整窗完成时刻」之后才达成时，要前移的是那个整窗的一半，
+  // 所以这里另开一个不减半的口径：拿 chargeWindowMs() 自己的一半去挪，等于把半窗再砍一次。
+  const fullChargeWindowMs = (): number => (demoMode || chargeSkipped() ? 0 : CHARGE_WINDOW_MS[realmIndex + 1] ?? 0);
 
   const realmView = (): Pick<RuntimeState, DerivedField> => {
     const realm = currentRealm();
@@ -319,6 +348,12 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       trialRemainingMs: active ? trialUntil - now : 0,
       cooldownRemainingMs: Math.max(0, cooldownUntil - now),
       demo: demoMode,
+      // 试炼这一行的四个数：目标、窗口、此刻窗口内已产出、本境是否已拿到减半。
+      // 表里没有目标（末境之后新加的境界行）时给 null，HUD 整行不显示，而不是画一条 0/0 的假进度。
+      sprintGoalQi: sprintGoalQi(realmIndex) ?? null,
+      sprintProgressQi: sprint.total(),
+      sprintWindowMs: SPRINT_WINDOW_MS,
+      sprintReached: sprintReachedRealm === realmIndex,
       noiseTicks,
       backlashTicks,
     };
@@ -394,6 +429,9 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 新境界的蓄势从「本境界从未达标」重新起算（§7.3），不带着上一境的完成时刻；
       // 失败则原样保留 —— §7.3「同一境界内重复挑战不重置蓄势」。
       state.chargeReadyAt = 0;
+      // 试炼窗口跟着境界走：上一境那 60 秒的产出与新境的目标毫无关系，
+      // 不清空会让刚破境的玩家立刻「达成」下一境的试炼（契约 §7.1.1 是每境界各自一条）。
+      sprint.reset();
       state.breakthroughs += 1;
       resetSink();
     }
@@ -426,10 +464,12 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
         now,
         lastSeenAt: input.lastSeenAt,
         allowBreakthrough: input.allowBreakthrough,
-        chargeWindowMs: (realmIdx) => (demoMode || chargeSkipped() ? 0 : CHARGE_WINDOW_MS[realmIdx + 1] ?? 0),
+        chargeWindowMs: (realmIdx) => chargeWindowFor(realmIdx),
         onBreakthrough: (newRealmIndex) => {
           // 境界已换成 newRealmIndex，宿主重建 sink（产出乘数链跟着境界走）
           realmIndex = newRealmIndex;
+          // 离线渡劫也换境界：窗口属于「刚才那一境」，不留给下一境白拿减半（离线产出本就不计窗口）。
+          sprint.reset();
           resetSink();
         },
       });
@@ -489,8 +529,22 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
         const armed = armCharge({ realm: currentRealm(), windowMs: chargeWindowMs(), qi: state.qi, chargeReadyAt: state.chargeReadyAt, now });
         if (armed !== state.chargeReadyAt) {
           state.chargeReadyAt = armed;
-          // chargeReadyAt 是 §5.1 的存档字段：不标脏就永远写不进档，刷新后 15 分钟从头再等。
+          // chargeReadyAt 是 §5.1 的存档字段：不标脏就永远写不进档，刷新后 2 分钟从头再等。
           markDirty();
+        }
+        // 试炼（§7.1.1）：逐 tick 喂 60 秒窗口，达标那一刻把本境界标记立起来。
+        // 顺序要紧 —— 先 armCharge 再判试炼：这一 tick 若同时是「首次达标」，用的是上一 tick 为止的窗口，
+        // 下一 tick 才享受减半；反过来会让同一 tick 既 arm 出整窗、又立刻挪半窗，两个口径叠一处说不清。
+        sprint.push(gained);
+        const goal = sprintGoalQi(realmIndex);
+        if (goal !== undefined && sprintReachedRealm !== realmIndex && sprint.isAtOrAbove(goal)) {
+          sprintReachedRealm = realmIndex;
+          // 另一种时序（先达标、后试炼）：chargeReadyAt 已按整窗写好且 armCharge 幂等，只能在这里前移半窗。
+          const shifted = shiftChargeReadyAt(state.chargeReadyAt, fullChargeWindowMs());
+          if (shifted !== state.chargeReadyAt) {
+            state.chargeReadyAt = shifted;
+            markDirty();
+          }
         }
         const demonBefore = state.demon;
         // 心魔夹在 0..1（契约 §1）；走火判据看夹紧之前的和，这一 tick 的账先记完再罚（01-design §4.4）。
@@ -546,6 +600,10 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       cooldownUntil = 0;
       state.attempt = 1;
       state.insight = 0;
+      // 试炼与 attempt / insight 同族：只在内存，换档 / 重载一律重新攒 60 秒。
+      // 不清 sprintReachedRealm 的话，「上一档在筑基拿到的减半」会跟着新档的筑基境界生效。
+      sprint.reset();
+      sprintReachedRealm = null;
       // 上一份会话的结算结果不带进这一局：否则刚刷新就看见一句陈年的「渡劫失败」。
       state.lastChallenge = null;
       // realms.json 现在有 4 行（炼气/筑基/金丹/元婴，契约 §2.3）：

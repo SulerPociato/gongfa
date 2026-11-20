@@ -70,6 +70,20 @@ export interface RetreatReport {
   readonly breakthrough: { readonly realm: number; readonly ok: boolean } | null;
 }
 
+/**
+ * 试炼面板（任务 8，契约 §7.1.1）：本境界 60 秒滑动窗口的产出进度。
+ * 四个数全部由 runtime 算好：HUD 只画进度、选文案，不做「还差多少」「减半成几秒」这类算术。
+ */
+export interface SprintModel {
+  /** 目标产出；null = 表里没有这一境，整行不显示（画一条 /0 的假进度比不画更糟）。 */
+  readonly goalQi: number | null;
+  readonly progressQi: number;
+  /** 窗口长度毫秒：文案里的「60 秒」从这里除，不写死。 */
+  readonly windowMs: number;
+  /** 本境界是否已拿到减半：只生效一次、不可叠加，所以达成后要换成完成态文案。 */
+  readonly reached: boolean;
+}
+
 export interface HudModel {
   readonly qi: number;
   readonly rate: number;
@@ -84,6 +98,8 @@ export interface HudModel {
   /** 道具面板（任务 7A）：目录读不起来时宿主给空数组，红字里已经有那句原因。 */
   readonly artifacts: readonly ArtifactRow[];
   readonly realm: RealmModel;
+  /** 试炼（任务 8）：紧挨渡劫面板，因为它的唯一后果就是「蓄势减半」。 */
+  readonly sprint: SprintModel;
   /** 渡劫面板（任务 6.5）：按钮相位、10 秒倒计时、保底与悟道全由 runtime 算好交过来。 */
   readonly challenge: ChallengeModel;
   /** 工具箱这一栏给到哪一境（契约 §4.3 门控的可观察面）：文案由宿主按境界算好，HUD 不判断。 */
@@ -145,7 +161,7 @@ function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow
 }
 
 // 进度条只画比例，数字照样写在文案里：放大镜、纯文本截图、读屏都能拿到同一份数据。
-function Bar({ value, of, label, kind }: { readonly value: number; readonly of: number; readonly label: string; readonly kind: 'qi' | 'demon' }) {
+function Bar({ value, of, label, kind }: { readonly value: number; readonly of: number; readonly label: string; readonly kind: 'qi' | 'demon' | 'sprint' }) {
   const percent = Math.min(100, Math.max(0, (value / of) * 100));
   return (
     <div className={`bar ${kind}`} role="progressbar" aria-label={label} aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
@@ -175,6 +191,23 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
   );
 }
 
+// 试炼（契约 §7.1.1）：一句常驻文案 + 一条实时进度。秒数从 windowMs 除出来，
+// 目标由 runtime 从表里给 —— 面板不自己写 480，否则表改了这里就是第二份口径。
+// 只有一种完成态（reached），因为「减半」这件事不可叠加，玩家不需要知道第二次。
+// 达成态故意不写「已减半」：炼气→筑基 的窗口本来就是 0（§7.3），那一境没有东西可减，说了就是假话。
+function SprintPanel({ model }: { readonly model: SprintModel }) {
+  if (model.goalQi === null) return null;
+  const seconds = (model.windowMs / 1000).toFixed(0);
+  return (
+    <div className={`sprint${model.reached ? ' is-reached' : ''}`}>
+      <p className="label">试炼</p>
+      <Bar value={model.progressQi} of={model.goalQi} label="试炼进度" kind="sprint" />
+      <p className="sprint-text">试炼 {model.goalQi}/{seconds}秒 · {model.reached ? '本境试炼已达成（只生效一次）' : '达成后蓄势减半'}</p>
+      <p className="sprint-progress">{seconds} 秒内已产出 {Math.floor(model.progressQi)} / {model.goalQi}</p>
+    </div>
+  );
+}
+
 // 按钮文案按相位给，六态互斥：HUD 不做任何比较运算，phase 是宿主从 runtime 字段推出来的。
 const BUTTON_TEXT: Record<ChallengePhase, string> = {
   threshold: '先攒存量',
@@ -185,7 +218,7 @@ const BUTTON_TEXT: Record<ChallengePhase, string> = {
   final: '已至末境',
 };
 
-// mm:ss：15 / 60 分钟的蓄势用分秒，不用「900 秒」让玩家自己除。
+// mm:ss：2 / 5 分钟的蓄势用分秒，不用「120 秒」让玩家自己除。
 // 名字带 remain：App.tsx 另有一个把 epoch 毫秒印成 HH:MM:SS 的 clockText，两者口径不同。
 function remainText(ms: number): string {
   const total = Math.ceil(ms / 1000);
@@ -207,6 +240,8 @@ export function ChallengePanel({ model, onPress }: { readonly model: ChallengeMo
       </button>
       {model.phase === 'trial' && (
         <div className="trial">
+          {/* 命名（任务 8）：10 秒这一格叫「渡劫挑战」，60 秒那一格叫「试炼」——同一屏两个「试炼」玩家会分不清在等哪个。 */}
+          <p className="trial-title">渡劫挑战</p>
           {/* 01-design §4.4 的「限时改功法」：改的是产出，不是概率 —— 这句必须写死，不然玩家会以为磨得越久越容易。 */}
           <p className="trial-rule">改功法只改接下来的产出，不改成功率。</p>
           <p className="trial-odds">
@@ -291,6 +326,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settin
       <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
       {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
       <RealmPanel model={model.realm} qi={model.qi} />
+      <SprintPanel model={model.sprint} />
       <ChallengePanel model={model.challenge} onPress={onChallenge} />
       <BookPanel model={model.book} onAction={onBookAction} />
       {model.artifacts.length > 0 && <ArtifactPanel rows={model.artifacts} onToggle={onArtifactAction} />}

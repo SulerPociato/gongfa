@@ -44,7 +44,7 @@ describe('content/realms.json 逐字段对契约（§2.3 表 + §3 阈值，不�
   it('四个境界，id 0..3，名字与阈值/被动/倍率一字不差', () => {
     expect(REALMS.map((realm) => realm.id)).toEqual([0, 1, 2, 3]);
     expect(REALMS.map((realm) => realm.name.zh)).toEqual(['炼气', '筑基', '金丹', '元婴']);
-    expect(REALMS.map((realm) => realm.threshold)).toEqual([1e3, 2e4, 4e5, 2.5e6]);
+    expect(REALMS.map((realm) => realm.threshold)).toEqual([1e3, 1e4, 1.2e5, 8e5]);
     expect(REALMS.map((realm) => realm.passivePerSec)).toEqual([0, 5, 30, 150]);
     expect(REALMS.map((realm) => realm.actionMult)).toEqual([1, 3, 25, 100]);
   });
@@ -91,8 +91,8 @@ describe('突破门槛（任务 6 的简化路径仍要成立：阈值等号算�
   it('阈值等号算达标，差一点都不算', () => {
     expect(isThresholdReached(1000, REALMS[0]!)).toBe(true);
     expect(isThresholdReached(999.999, REALMS[0]!)).toBe(false);
-    expect(isThresholdReached(20000, REALMS[1]!)).toBe(true);
-    expect(isThresholdReached(2_500_000, REALMS[3]!)).toBe(true);
+    expect(isThresholdReached(10_000, REALMS[1]!)).toBe(true);
+    expect(isThresholdReached(800_000, REALMS[3]!)).toBe(true);
   });
 });
 
@@ -166,11 +166,11 @@ const NOW = 1_795_000_000_000;
 const atRealm = (realmIndex: number, qi: number, demon = 0.5) => ({ qi, demon, realm: REALMS[realmIndex]!.id });
 
 describe('常量逐字对契约（§7.3 窗口 + §7.1 概率/时长/保底/索引）', () => {
-  it('窗口按【目标境界】下标取：进筑基 0、进金丹 15 分钟、进元婴 60 分钟；下标 0 是「炼气不是任何挑战的目标」', () => {
-    expect(CHARGE_WINDOW_MS).toEqual([0, 0, 15 * 60_000, 60 * 60_000]);
+  it('窗口按【目标境界】下标取：进筑基 0、进金丹 2 分钟、进元婴 5 分钟；下标 0 是「炼气不是任何挑战的目标」', () => {
+    expect(CHARGE_WINDOW_MS).toEqual([0, 0, 2 * 60_000, 5 * 60_000]);
     expect(CHARGE_WINDOW_MS[1]).toBe(0);
-    expect(CHARGE_WINDOW_MS[2]).toBe(900_000);
-    expect(CHARGE_WINDOW_MS[3]).toBe(3_600_000);
+    expect(CHARGE_WINDOW_MS[2]).toBe(120_000);
+    expect(CHARGE_WINDOW_MS[3]).toBe(300_000);
   });
 
   it('挑战 10 秒、冷却 60 秒、保底第 3 次、85%/60%、失败 ×0.85、索引基址 1e6', () => {
@@ -188,11 +188,11 @@ describe('armCharge：从存量首次达标那一刻起算（§7.3）', () => {
   const row = (realmIndex: number) => ({ realm: REALMS[realmIndex]!, windowMs: CHARGE_WINDOW_MS[realmIndex + 1]! });
 
   it('差 0.001 不写：chargeReadyAt 保持 0（0 = 本境界从未达标）', () => {
-    expect(armCharge({ ...row(1), qi: 19_999.999, chargeReadyAt: 0, now: NOW })).toBe(0);
+    expect(armCharge({ ...row(1), qi: 9_999.999, chargeReadyAt: 0, now: NOW })).toBe(0);
   });
 
-  it('首次达标 → now + 窗口（筑基起算 15 分钟）', () => {
-    expect(armCharge({ ...row(1), qi: 20_000, chargeReadyAt: 0, now: NOW })).toBe(NOW + 900_000);
+  it('首次达标 → now + 窗口（筑基起算 2 分钟）', () => {
+    expect(armCharge({ ...row(1), qi: 10_000, chargeReadyAt: 0, now: NOW })).toBe(NOW + 120_000);
   });
 
   it('炼气窗口 0 时写的是 now，不是 0：now 表示「立刻可渡」，0 专留给从未达标', () => {
@@ -203,19 +203,19 @@ describe('armCharge：从存量首次达标那一刻起算（§7.3）', () => {
   });
 
   it('重复挑战不重置（§7.3）：已 arm 之后哪怕存量掉回阈值下，也原样返回', () => {
-    const armed = NOW + 900_000;
-    expect(armCharge({ ...row(1), qi: 20_000, chargeReadyAt: armed, now: NOW + 60_000 })).toBe(armed);
+    const armed = NOW + 120_000;
+    expect(armCharge({ ...row(1), qi: 10_000, chargeReadyAt: armed, now: NOW + 60_000 })).toBe(armed);
     expect(armCharge({ ...row(1), qi: 1_000, chargeReadyAt: armed, now: NOW + 60_000 })).toBe(armed);
   });
 
   it('幂等：连调 50 次（每 tick 都会调）不会把窗口累加上去', () => {
     let value = 0;
-    for (let i = 0; i < 50; i++) value = armCharge({ ...row(2), qi: 4e5, chargeReadyAt: value, now: NOW + i * 1000 });
-    expect(value).toBe(NOW + 3_600_000);
+    for (let i = 0; i < 50; i++) value = armCharge({ ...row(2), qi: 1.2e5, chargeReadyAt: value, now: NOW + i * 1000 });
+    expect(value).toBe(NOW + 300_000);
   });
 
   it('窗口由宿主传进来：?demo=1 与 ?charge=0 的「跳过」是策略，核心只做加法', () => {
-    expect(armCharge({ realm: REALMS[2]!, windowMs: 0, qi: 4e5, chargeReadyAt: 0, now: NOW })).toBe(NOW);
+    expect(armCharge({ realm: REALMS[2]!, windowMs: 0, qi: 1.2e5, chargeReadyAt: 0, now: NOW })).toBe(NOW);
   });
 });
 
@@ -226,17 +226,17 @@ describe('chargeRemainingMs / isChargeReady（按钮灰态与剩余时间的数�
   });
 
   it('等号算就绪：恰好到点那一刻就能冲关', () => {
-    expect(isChargeReady(NOW + 900_000, NOW + 900_000)).toBe(true);
-    expect(chargeRemainingMs(NOW + 900_000, NOW + 900_000)).toBe(0);
+    expect(isChargeReady(NOW + 120_000, NOW + 120_000)).toBe(true);
+    expect(chargeRemainingMs(NOW + 120_000, NOW + 120_000)).toBe(0);
   });
 
   it('差一毫秒没就绪，剩余按毫秒给', () => {
-    expect(isChargeReady(NOW + 900_000, NOW + 899_999)).toBe(false);
-    expect(chargeRemainingMs(NOW + 900_000, NOW + 899_999)).toBe(1);
+    expect(isChargeReady(NOW + 120_000, NOW + 119_999)).toBe(false);
+    expect(chargeRemainingMs(NOW + 120_000, NOW + 119_999)).toBe(1);
   });
 
   it('过点之后剩余是 0，不返负数', () => {
-    expect(chargeRemainingMs(NOW + 900_000, NOW + 1_000_000)).toBe(0);
+    expect(chargeRemainingMs(NOW + 120_000, NOW + 1_000_000)).toBe(0);
   });
 });
 
@@ -319,10 +319,10 @@ describe('resolveChallenge：手动 85% / 托管 60% / 第 3 次必成（§7.1�
   });
 
   it('结算那刻存量已掉到阈值下（例如 10 秒里走了火）：报错、数字一动不动', () => {
-    const out = resolveChallenge({ realms: REALMS, realmIndex: 1, state: atRealm(1, 19_999), seed: 1, attempt: 1, mode: 'auto' });
+    const out = resolveChallenge({ realms: REALMS, realmIndex: 1, state: atRealm(1, 9_999), seed: 1, attempt: 1, mode: 'auto' });
     expect(out.ok).toBe(false);
     expect(out.errors.join(' ')).toContain('阈值');
-    expect(out.state).toEqual(atRealm(1, 19_999));
+    expect(out.state).toEqual(atRealm(1, 9_999));
     expect(out.insight).toBe(0);
     expect(out.realmIndex).toBe(1);
   });

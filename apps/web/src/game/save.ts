@@ -24,7 +24,7 @@ export interface SaveSnapshot {
   readonly ownedBooks: readonly string[];
   readonly equippedBook: string | null;
   /**
-   * 任务 6.5：蓄势完成时刻（契约 §5.1 的 chargeReadyAt）。15/60 分钟是真实时间，
+   * 任务 6.5：蓄势完成时刻（契约 §5.1 的 chargeReadyAt）。2/5 分钟是真实时间，
    * 不落盘的话刷一次页面就从零再等一遍，时间墙会变成「必须一直开着页面」。
    */
   readonly chargeReadyAt: number;
@@ -93,7 +93,7 @@ export function createSaveController(deps: {
       ownedBooks: [...snapshot.ownedBooks],
       equippedBook: snapshot.equippedBook,
       // 蓄势时刻由 runtime 逐 tick 起算、渡劫成功时清零，属于运行时事实：漏了这一行就永远抄基线，
-      // 刷新后 15 分钟从头再等。
+      // 刷新后 2 分钟从头再等。
       chargeReadyAt: snapshot.chargeReadyAt,
       ownedArtifacts: [...snapshot.ownedArtifacts],
       equippedArtifacts: [...snapshot.equippedArtifacts],

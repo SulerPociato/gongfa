@@ -13,7 +13,7 @@
     "name": {
       "zh": "筑基"
     },
-    "threshold": "2e4",
+    "threshold": "1e4",
     "passivePerSec": 5,
     "actionMult": 3
   },
@@ -22,7 +22,7 @@
     "name": {
       "zh": "金丹"
     },
-    "threshold": "4e5",
+    "threshold": "1.2e5",
     "passivePerSec": 30,
     "actionMult": 25
   },
@@ -31,7 +31,7 @@
     "name": {
       "zh": "元婴"
     },
-    "threshold": "2.5e6",
+    "threshold": "8e5",
     "passivePerSec": 150,
     "actionMult": 100
   }

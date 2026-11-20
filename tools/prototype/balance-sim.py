@@ -4,7 +4,7 @@ def am(k): return 1/(1+0.25*(k-1))
 
 def run(demon_base=0.00005, calm=True, cap_ticks=30000):
     plan=[(1,1,0,False),(3,3,5,True),(5,25,30,True),(8,100,150,True)]
-    depth=[0,1,1,1]; th=[1e3,2e4,4e5,2.5e6]
+    depth=[0,1,1,1]; th=[1e3,1e4,1.2e5,8e5]
     qi=0.0; demon=0.0; t=0.0; out=[]
     for i,(acts,rm,ps,jade) in enumerate(plan):
         st=t; fires=0; n=0

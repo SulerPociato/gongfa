@@ -19,7 +19,7 @@ import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel, type RetreatReport } from './game/hud';
+import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -51,7 +51,7 @@ function realmModel(state: RuntimeState): RealmModel {
 
 // 渡劫相位的推导顺序就是玩家看到的优先级（契约 §7.1 / §7.3）：
 // 挑战中 > 末境 > 存量没到 > 蓄势没到点 > 冷却没走完 > 可渡劫。
-// 冷却排在蓄势之后：60 秒远短于 15 分钟，先到期的那条才是玩家此刻该等的东西。
+// 冷却排在蓄势之后：60 秒短于最短的蓄势窗口（筑基起 2 分钟），先到期的那条才是玩家此刻该等的东西。
 function challengePhaseOf(state: RuntimeState): ChallengePhase {
   if (state.challengeActive) return 'trial';
   if (state.nextRealmName === null) return 'final';
@@ -59,6 +59,17 @@ function challengePhaseOf(state: RuntimeState): ChallengePhase {
   if (state.chargeRemainingMs > 0) return 'charge';
   if (state.cooldownRemainingMs > 0) return 'cooldown';
   return 'ready';
+}
+
+// 试炼（契约 §7.1.1）：四个数全部现取自 runtime —— 目标查表、进度是滑动窗口、reached 是本境界的一次性布尔。
+// 这里不做「还差多少」「减半成几秒」的算术，HUD 拿到什么就写什么。
+function sprintModel(state: RuntimeState): SprintModel {
+  return {
+    goalQi: state.sprintGoalQi,
+    progressQi: state.sprintProgressQi,
+    windowMs: state.sprintWindowMs,
+    reached: state.sprintReached,
+  };
 }
 
 function challengeModel(state: RuntimeState): ChallengeModel {
@@ -111,6 +122,7 @@ function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'e
     rate: state.rate,
     stall: state.stall,
     realm: realmModel(state),
+    sprint: sprintModel(state),
     challenge: challengeModel(state),
     toolHint: toolHintOf(state),
     artifacts: extra.artifacts,
@@ -179,7 +191,7 @@ export function App() {
   // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
   // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
   // markDirty 走 saveRef 现取：控制器要到 useEffect 里才建出来，构造时只能留一个晚绑定的闭包。
-  // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 15 分钟。
+  // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 2 分钟。
   if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
@@ -538,7 +550,7 @@ export function App() {
 
     // 境界/心魔/惩罚倒计时是连续变化的，逐帧比上一次贵；这些字段量化后拼成 key，
     // 只有真正看得出来的变化（灵力整数、速率、心魔千分位、剩余 0.1 秒、境界四件套、stall）才重渲染。
-    // 渡劫三件套按秒量化：蓄势 15 分钟不需要 60 次/秒的重渲染，剩余 1 秒一跳就够玩家看清。
+    // 渡劫三件套按秒量化：蓄势 2 分钟不需要 60 次/秒的重渲染，剩余 1 秒一跳就够玩家看清。
     const loop = createLoop(runtime, (state) => {
       // 结算结果每出现一份新的就播报一次：引用相同 = 还是那一发，不重复说。
       if (state.lastChallenge !== seenChallenge) {
@@ -547,7 +559,7 @@ export function App() {
         if (seenChallenge !== null) reportChallenge(seenChallenge);
       }
       const qi = Math.floor(state.qi);
-      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}`;
+      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}`;
       if (key === lastHudKey) return;
       lastHudKey = key;
       // 突破/渡劫成功之后工具箱跟着换（§4.3）：flyout 是打开时才渲染的，但已打开的面板要当场重建才看得见新块。
@@ -558,6 +570,7 @@ export function App() {
         rate: state.rate,
         stall: state.stall,
         realm: realmModel(state),
+        sprint: sprintModel(state),
         challenge: challengeModel(state),
         toolHint: toolHintOf(state),
       }));

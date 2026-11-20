@@ -62,7 +62,7 @@ function refused(input: BreakthroughInput, errors: readonly string[]): Breakthro
 
 // 下标 = 目标境界（要冲进的那一境），值 = 从「存量首次达标」到「可冲关」要等的真实毫秒（§7.3 表）。
 // 下标 0 那条从未被读：没有哪次渡劫会冲进炼气，填 0 只为了让数组和 realms.json 一一对齐。
-export const CHARGE_WINDOW_MS: readonly number[] = [0, 0, 15 * 60_000, 60 * 60_000];
+export const CHARGE_WINDOW_MS: readonly number[] = [0, 0, 2 * 60_000, 5 * 60_000];
 
 export interface ArmChargeInput {
   readonly realm: RealmDef;
