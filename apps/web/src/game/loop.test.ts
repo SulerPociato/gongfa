@@ -28,6 +28,14 @@ describe('clampFrameDt（rAF 帧值归范围）', () => {
     expect(clampFrameDt(20 * 60_000)).toBe(20 * 60_000);
   });
 
+  it('空窗放行也不设顶：时钟跳变造出的天文数字按 24 小时算', () => {
+    const DAY = 24 * 3600 * 1000;
+    expect(clampFrameDt(DAY)).toBe(DAY);
+    expect(clampFrameDt(DAY + 1)).toBe(DAY);
+    // 317 年的 gap：放行就等于让快进按这个数跑
+    expect(clampFrameDt(1e13)).toBe(DAY);
+  });
+
   it('非有限的 dt 当 0，不喂给 Scheduler', () => {
     expect(clampFrameDt(Number.NaN)).toBe(0);
     expect(clampFrameDt(Number.POSITIVE_INFINITY)).toBe(0);

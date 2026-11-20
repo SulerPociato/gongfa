@@ -18,13 +18,21 @@ export interface Loop {
 const FRAME_DT_MAX_MS = 250;
 
 /**
+ * 空窗的顶：24 小时。系统时钟跳变（手改时间、休眠唤醒、虚拟机漂移）能造出天文数字的 gap，
+ * 没有顶就等于让快进自己跑到死。真正的入账上限在 core（§7.2 离线 60 分钟封顶 + 60 秒保底），
+ * 这条只是不让一个来路不明的数字越过模块边界。
+ */
+const AWAY_GAP_MAX_MS = 24 * 3600 * 1000;
+
+/**
  * 一帧的合法区间 [0, 250]，负数与非有限值当 0。
- * 唯一例外是空窗：≥ 一帧预算（500ms）不叫长帧，原样放行给 run() 按契约 §1 R3 全额记账 ——
+ * 唯一例外是空窗：≥ 一帧预算（500ms）不叫长帧，放行给 run() 按契约 §1 R3 全额记账 ——
  * 窗口最小化、系统休眠这些不触发 visibilitychange 的空档只剩这一条路，夹成 250 就是静默丢弃。
+ * 放行也不不设顶：超过 24 小时按 24 小时算。
  */
 export function clampFrameDt(dt: number): number {
   if (!Number.isFinite(dt) || dt <= 0) return 0;
-  if (dt >= AWAY_FRAME_BUDGET_MS) return dt;
+  if (dt >= AWAY_FRAME_BUDGET_MS) return Math.min(dt, AWAY_GAP_MAX_MS);
   return Math.min(dt, FRAME_DT_MAX_MS);
 }
 
@@ -47,7 +55,8 @@ export function createLoop(runtime: Runtime, onState: (state: RuntimeState) => v
   const onVisibility = (): void => {
     if (document.visibilityState !== 'visible' || last === 0) return;
     const now = performance.now();
-    const gap = now - last;
+    // 这条路径不过 clampFrameDt，所以 24 小时的顶要在这里也上一次。
+    const gap = Math.min(now - last, AWAY_GAP_MAX_MS);
     if (gap < AWAY_FRAME_BUDGET_MS) return;
     last = now;
     runtime.run(gap);
