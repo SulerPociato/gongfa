@@ -44,6 +44,11 @@ pnpm build        # 构建生产产物到 apps/web/dist/（约 1MB，主要来�
 pnpm preview      # 预览构建产物
 ```
 
+### 字体
+
+构建用 `apps/web/public/fonts/`（`global.css` 的 `@font-face` 从这里取），仓库根的 `assets/fonts/` 保留为源文件。
+换字体时两处都要更新，否则 `assets/` 会变成一份没人读的旧副本。
+
 ### GitHub Pages 部署
 
 仓库为 private 时 Pages 不可用，需在比赛提交时转为 public。转换后：

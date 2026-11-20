@@ -5,6 +5,7 @@ import * as Blockly from 'blockly/core';
 import * as zhHans from 'blockly/msg/zh-hans';
 import {
   BLOCK_DEFINITIONS,
+  PROGRAM_ID,
   compileWorkspace,
   GONGFA_THEME,
   STARTER_WORKSPACE_JSON,
@@ -28,6 +29,9 @@ type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
 type SerializedState = Parameters<typeof Blockly.serialization.workspaces.load>[0];
 type SaveBridge = ReturnType<typeof createSaveController>;
+
+// 空画布装载的程序：与 compileWorkspace 对「空凹槽」的产物同形（只有一条 HALT）。
+const EMPTY_CANVAS_PROGRAM: Program = { id: PROGRAM_ID, code: [{ op: 'HALT' }] };
 
 // D5：验收与回放用的只读句柄（state() 的实时视图，含 noiseTicks / backlashTicks / tick）。
 // 只在 DEV 或 ?debug=1 时挂，正式构建默认不挂；卸载时删掉，不留上一份会话的 runtime。
@@ -759,9 +763,12 @@ export function App() {
       const blocks = Blockly.serialization.workspaces.save(workspace) as unknown as WorkspaceJson;
       saved = blocks;
       const result = compileWorkspace(blocks);
+      // 画布 0 块 = 玩家主动清空，装载一份只含 HALT 的空程序：数字与粒子当场停下。
+      // 「有块但编译失败」才保留 lastGood（不调 load），否则改坏一行就把在跑的程序抹了。
+      const loadedProgram = result.program ?? (workspace.getAllBlocks(false).length === 0 ? EMPTY_CANVAS_PROGRAM : null);
       cache = result.program === null ? [] : [result.program];
       // 去重：读档时的编译报错和当前工作区的编译报错常是同一句话，两条一样的红字既吵也会撞 React 的 key
-      playErrors = [...new Set([...result.errors, ...hardErrors, ...actionErrors, ...(result.program === null ? [] : runtime.load(result.program))])];
+      playErrors = [...new Set([...result.errors, ...hardErrors, ...actionErrors, ...(loadedProgram === null ? [] : runtime.load(loadedProgram))])];
       // 画布内容变了就可能 LOADED ↔ DIRTY（D1：dirty 不落库，每次都重新推导），顺带重算装备的乘数
       refreshBook(event !== undefined && event.group !== PROGRAMMATIC_GROUP);
       setHud((previous) => ({ ...previous, errors: [...playErrors, ...saveErrors] }));
@@ -927,7 +934,7 @@ export function App() {
 
   return (
     <div className={`layout${tutClass}`}>
-      <div style={{ position: 'relative', flex: 1, height: '100%' }}>
+      <div style={{ position: 'relative', height: '100%' }}>
         <div className="canvas" ref={containerRef} />
         <QiParticles rate={hud.rate} />
       </div>
