@@ -19,6 +19,13 @@ export const OFFLINE_RATE = 0.6;
 /** 契约 §7.1 离线行：「每次离线最多 1 次」。 */
 export const MAX_OFFLINE_BREAKTHROUGHS = 1;
 
+/**
+ * 契约 §7.2「下限 60 秒」：不足一分钟的离开不结算、不出闭关报告。
+ * 这一条必须在快进**之前**判：60 秒下限若只是「报告不显示」，0.3 秒的产出照样入账，
+ * 「切回来就回血」成立，玩家反复刷新即可白拿离线产出。
+ */
+export const OFFLINE_MIN_MS = 60_000;
+
 // 时钟被回拨、或 lastSeenAt 被改成未来：按「没离线」处理而不是倒扣，负 elapsed 会直接把存量吃出一个洞。
 export function offlineElapsedMs(now: number, lastSeenAt: number): number {
   if (!Number.isFinite(now) || !Number.isFinite(lastSeenAt)) return 0;
@@ -200,4 +207,14 @@ export function settleOffline(input: OfflineInput): OfflineResult {
     stoppedReason,
     stalledTicks,
   };
+}
+
+/**
+ * 宿主用的那一个入口：先按契约 §7.2 的下限判「这次离开值不值得结算」，不值得就 null，
+ * 连 `settleOffline` 都不进 —— 快进一旦跑起来就往 world.qi 里写钱，只看报告就不止住了。
+ * `settleOffline` 本身保持「给多少 tick 就跑多少 tick」的纯算术，短窗口用例不受这条下限影响。
+ */
+export function settleOfflineIfAway(input: OfflineInput): OfflineResult | null {
+  if (offlineElapsedMs(input.now, input.lastSeenAt) < OFFLINE_MIN_MS) return null;
+  return settleOffline(input);
 }

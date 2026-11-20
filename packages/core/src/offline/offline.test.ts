@@ -9,7 +9,7 @@ import { BASE_BUDGET, TICK_MS } from '../types';
 import type { Op } from '../vm/program';
 import { Vm } from '../vm/interpreter';
 import { MAX_CATCHUP_TICKS, Scheduler } from '../vm/scheduler';
-import { demonlessSink, offlineElapsedMs, offlineTicks, OFFLINE_CAP_MS, OFFLINE_RATE, settleOffline, type OfflineWorld } from './offline';
+import { demonlessSink, offlineElapsedMs, offlineTicks, OFFLINE_CAP_MS, OFFLINE_MIN_MS, OFFLINE_RATE, settleOffline, settleOfflineIfAway, type OfflineWorld } from './offline';
 
 // 境界四件套照契约 §2.3 / §3 的目标表：阈值、被动、动作乘数一个都不改，
 // 这样「1 小时闭关 = 36 000 tick」这类数字可以拿契约表反查。
@@ -57,6 +57,8 @@ interface HarnessOptions {
 interface Harness {
   readonly world: OfflineWorld;
   readonly settle: (lastSeenAt: number, allowBreakthrough: boolean) => ReturnType<typeof settleOffline>;
+  /** 宿主入口：§7.2 的 60 秒下限在这里判，不够就 null 且不碰 vm。 */
+  readonly settleAway: (lastSeenAt: number, allowBreakthrough: boolean) => ReturnType<typeof settleOfflineIfAway>;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -79,20 +81,24 @@ function harness(options: HarnessOptions = {}): Harness {
   });
   vm.installUnchecked([{ id: 'p0', code: options.code ?? ONE_BREATH }]);
 
+  // 两个入口共用同一份入参：下限那条只该差在「有没有进 settleOffline」，别在夹具里再抄一套口径。
+  const input = (lastSeenAt: number, allowBreakthrough: boolean) => ({
+    vm,
+    realms: REALMS,
+    world,
+    now: NOW,
+    lastSeenAt,
+    allowBreakthrough,
+    chargeWindowMs: () => options.windowMs ?? 0,
+    onBreakthrough: (realmIndex: number) => {
+      sink = makeActionSink({ content: CONTENT, realmIndex });
+    },
+  });
+
   return {
     world,
-    settle: (lastSeenAt, allowBreakthrough) => settleOffline({
-      vm,
-      realms: REALMS,
-      world,
-      now: NOW,
-      lastSeenAt,
-      allowBreakthrough,
-      chargeWindowMs: () => options.windowMs ?? 0,
-      onBreakthrough: (realmIndex) => {
-        sink = makeActionSink({ content: CONTENT, realmIndex });
-      },
-    }),
+    settle: (lastSeenAt, allowBreakthrough) => settleOffline(input(lastSeenAt, allowBreakthrough)),
+    settleAway: (lastSeenAt, allowBreakthrough) => settleOfflineIfAway(input(lastSeenAt, allowBreakthrough)),
   };
 }
 
@@ -445,6 +451,45 @@ describe('离线↔在线同一条乘数链（C7）', () => {
     expect(offline.creditedGained).toBe(online.folded);
     expect(offline.creditedGained).toBeCloseTo(online.raw * OFFLINE_RATE, 6);
     expect(online.folded).not.toBe(online.raw * OFFLINE_RATE);
+  });
+});
+
+// ——————————————————————————————————————————————————————————————
+// 契约 §7.2「下限 60 秒」：不到一分钟的离开连快进都不许跑
+// ——————————————————————————————————————————————————————————————
+describe('离线下限 60 秒（契约 §7.2）', () => {
+  it('59 999ms → null，且一帧都没算：存量不许被刷新白拿', () => {
+    // 挑一个「跑起来就一定有产出、还会冲关」的档：qi 差 0.5 达标 + 炼气每 tick 0.6
+    // 只要 settlement 真跑了，world.qi 就会涨过 1e3 并写出 breakthroughs，一眼能看出漏判。
+    const { world, settleAway } = harness({ qi: 999.5, demon: 0.42, seed: SEED_WIN });
+
+    expect(settleAway(NOW - (OFFLINE_MIN_MS - 1), true)).toBeNull();
+    expect(world.qi).toBe(999.5);
+    expect(world.realmIndex).toBe(0);
+    expect(world.chargeReadyAt).toBe(0);
+
+    // 对照：同一份夹具走 settleOffline（没有下限）照样产出，证明 null 来自下限而不是零产出
+    const control = harness({ qi: 999.5, demon: 0.42, seed: SEED_WIN });
+    expect(control.settle(NOW - (OFFLINE_MIN_MS - 1), true).ran).toBe(599);
+  });
+
+  it('60 000ms 正好到线 → 正常结算 600 tick', () => {
+    const { world, settleAway } = harness({ qi: 999.5, seed: SEED_WIN });
+    const result = settleAway(NOW - OFFLINE_MIN_MS, false);
+
+    expect(result).not.toBeNull();
+    expect(result?.elapsedMs).toBe(OFFLINE_MIN_MS);
+    expect(result?.ticks).toBe(600);
+    expect(result?.ran).toBe(600);
+    expect(world.qi).toBeCloseTo(999.5 + 600 * 0.6, 6);
+    expect(result?.stoppedReason).toBe('cap');
+  });
+
+  it('整分钟以上的离线照旧出报告（下限不是封顶）', () => {
+    const result = harness().settleAway(NOW - 30 * MINUTE, false);
+
+    expect(result?.ticks).toBe(18_000);
+    expect(result?.creditedGained).toBeCloseTo(10_800, 6);
   });
 });
 

@@ -21,7 +21,7 @@ import {
   reachesBacklash,
   resolveChallenge,
   Scheduler,
-  settleOffline,
+  settleOfflineIfAway,
   shiftChargeReadyAt,
   SprintWindow,
   sprintGoalQi,
@@ -457,7 +457,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     // 离线快进期间静音事件（36 000 条 stall 会刷爆控制台）
     offlineQuiet = true;
     try {
-      const result = settleOffline({
+      const result = settleOfflineIfAway({
         vm,
         realms: content.realms,
         world,
@@ -473,6 +473,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
           resetSink();
         },
       });
+      // 契约 §7.2「下限 60 秒」：没到一分钟连快进都没跑过，也就没有报告可出。
+      if (result === null) return null;
       // 结算成功：把 world 的终态写回 state
       state.qi = result.finalQi;
       state.demon = world.demon;  // 离线不涨心魔，但渡劫成功会涤清
@@ -489,7 +491,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       if (result.breakthroughs.length > 0 || result.ran > 0) {
         markDirty();
       }
-      return result.ran > 0 ? result : null;
+      return result;
     } finally {
       offlineQuiet = false;
     }
