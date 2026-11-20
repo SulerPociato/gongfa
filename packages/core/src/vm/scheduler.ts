@@ -4,6 +4,12 @@ import type { TickResult, Vm } from './interpreter';
 // 契约 §4.5 补帧：单帧最多追 5 个 tick，剩余交给离线结算（任务 7）。
 export const MAX_CATCHUP_TICKS = 5;
 
+/**
+ * 一帧的补帧预算（5 tick = 500ms 模拟时间）。契约 §1「后台恢复（R3）」拿它当分块单位：
+ * 空窗不是「一次要补 22 秒」，而是「这 22 秒里错过的每一帧各自补 ≤5 tick」。
+ */
+export const AWAY_FRAME_BUDGET_MS = MAX_CATCHUP_TICKS * TICK_MS;
+
 export interface SchedulerDeps {
   readonly vm: Vm;
   readonly onTick?: ((result: TickResult) => void) | undefined;

@@ -21,7 +21,7 @@ import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
+import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
 import { Hud, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { QiParticles } from './components/QiParticles';
 
@@ -126,10 +126,20 @@ function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
 // 模块级变量在两次挂载之间存活，第二次挂载读取后清空。
 let pendingOfflineReport: OfflineResult | null = null;
 
-// 引导的「无存档」判据也一样不能交给双挂载：第一次挂载卸载时 cleanup 会 flush 落盘，
-// 第二次读档就有档了。所以只认本次页面加载的第一次读档结果，后面每次挂载复用同一个值。
-// 刷新（新的 JS 上下文）会重置，正合「老玩家重进不该再走一遍引导」——那时第一次读档本来就是有档。
-let firstBootFresh: boolean | null = null;
+/**
+ * 结算结果 → 闭关报告。三处调用共用（启动、后台空窗 §1 R3、debug 句柄）。
+ * 境界名取当前 state()：离线突破成功时它已经是新境界，报告不能写结算前的旧名。
+ */
+function toRetreatReport(result: OfflineResult, realmName: string): RetreatReport {
+  const hit = result.breakthroughs[0];
+  return {
+    elapsedMs: result.elapsedMs,
+    creditedGained: result.creditedGained,
+    rawGained: result.rawGained,
+    realmName,
+    breakthrough: hit === undefined ? null : { realm: hit.realm, ok: hit.ok },
+  };
+}
 
 // 曲线预览的空视图：编译失败或凹槽空着时整块面板不出现 —— 画一条没在跑的曲线是假话。
 const NO_CURVE: CurveModel = { points: [], threshold: 0, etaSec: null, reachesInWindow: false, seconds: PREVIEW_SECONDS, compare: null, truncated: false };
@@ -230,9 +240,23 @@ export function App() {
   const tutorialSkipRef = useRef<(() => void) | null>(null);
   // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
   // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
-  // markDirty 走 saveRef 现取：控制器要到 useEffect 里才建出来，构造时只能留一个晚绑定的闭包。
   // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 2 分钟。
-  if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
+  // markDirty 走 saveRef 现取：控制器要到 useEffect 里才建出来，构造时只能留一个晚绑定的闭包。
+  // 空窗离线结算（契约 §1 R3）的回调也一样晚绑定：setHud / runtimeRef 在构造那一刻才刚就位，
+  // 但回调只在 run() 里触发，那时两者都已初始化。
+  // allowBreakthrough 每次现读设置：玩家中途关掉「离线渡劫」不该还按旧值掷骰。
+  if (runtimeRef.current === null) {
+    runtimeRef.current = createRuntime({
+      seed: urlSeed() ?? randomSeed(),
+      markDirty: () => saveRef.current?.markDirty(),
+      allowBreakthrough: () => readSettings(createLocalStorageSaveStorage()).settings.offlineBreakthrough,
+      onOfflineReport: (result) => {
+        const rt = runtimeRef.current;
+        // 用 state() 而不是 HUD 上一帧的境界名：离线突破成功时报告要显示新境界（契约 §7.2）
+        if (rt !== null) setHud((previous) => ({ ...previous, retreat: toRetreatReport(result, rt.state().realmName) }));
+      },
+    });
+  }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
@@ -372,22 +396,33 @@ export function App() {
     const blockErrors = loadBlocks(loaded.state?.workspace);
     const restoreErrors = loaded.state === null ? [] : runtime.restore(loaded.state);
 
-    // 引导激活（P0-C 第 1 项 + P0-D）：三个「第一次」的判据到这一刻才凑齐 —— 无存档、开局 5 秒内、
-    // 画布上还没有动作块。?demo=1 与「已跳过」都在这里一并挡掉（裁定 5：评审第一眼要看全量积木）。
+    // 引导激活（P0-C 第 1 项 + P0-D）：判据只剩「没永久关闭」与「不在演示模式」——
+    // 有没有存档、玩到第几步都不拦，刷新后由 resumeTutorialStep 从眼前的画布与存量接着走。
+    // （旧判据里的「无存档 + 开局 5 秒内 + 画布没动作块」就是真机 BUG 的根因：落过一次盘就再也不启动。）
     // 藏块要立刻生效，所以紧跟一次 applyToolbox：inject 那份是没藏的版本，重建一次才只留「吐纳」。
-    if (firstBootFresh === null) firstBootFresh = loaded.fresh;
-    tutActive = tutorialActiveAt({
-      done: readTutorialDone(storage),
-      fresh: firstBootFresh,
-      playMs: booted.playMs,
-      demo: booted.demo,
-      actionBlocks:
-        workspace.getBlocksByType('breath', false).length + workspace.getBlocksByType('calm', false).length,
-    });
+    const tutState = runtime.state();
+    const tutDoneAtBoot = readTutorialDone(storage);
+    // 老玩家保护：playMs（§5.1 只算在线，离线不进来）超过 15 分钟还没走完引导的人，
+    // 每次刷新都被打断也本来不会再回来看 —— 当场按已完成处理，写 done 之后不再启动。
+    if (!tutDoneAtBoot && tutState.playMs > TUTORIAL_PLAY_MS_MAX) writeTutorialDone(storage);
+    tutActive = tutorialActiveAt({ done: tutDoneAtBoot, demo: tutState.demo, playMs: tutState.playMs });
     if (tutActive) {
-      tutReleased = false;
+      const breathAtBoot = workspace.getBlocksByType('breath', false).length;
+      tutStep = resumeTutorialStep({
+        breath: breathAtBoot,
+        qi: tutState.qi,
+        demon: tutState.demon,
+        canBreakthrough: tutState.canBreakthrough,
+      });
+      // 画布上已经有吐纳 = 第 1 步早完成了：呼吸高亮该停。
+      // 放不藏两块：推导出的步骤已经 ≥ 3（批准过的边界），或画布上有吐纳（第 1 步的 3 秒计时器
+      // 只在「刚拖上第一块」那一次排程，刷新回来的老玩家等不到它，就会永远少「调息 / 比较」两块）。
+      tutBreathDragged = breathAtBoot >= 1;
+      tutReleased = breathAtBoot >= 1 || tutStep >= 3;
       tutStepAt = wallClock.now();
-      applyToolbox(runtime.state().realmIndex);
+      applyToolbox(tutState.realmIndex);
+      // 聚焦描边按推导出来的这一步给：不补这一下，刷新回来的人看到的是第 1 步在闪。
+      refreshFlyoutClasses();
     }
     // 损坏提示分层：HUD 那一行 + 控制台明细 + 「详情」展开区，都由这一次装载的结果决定
     const corrupted = corruptReport(storage, loaded);
@@ -856,19 +891,8 @@ export function App() {
             allowBreakthrough: readSettings(storage).settings.offlineBreakthrough,
           });
           if (result !== null) {
-            // 与 mount 路径共用同一个 setter：转换为 RetreatReport 并更新 HUD
-            setHud((previous) => ({
-              ...previous,
-              retreat: {
-                elapsedMs: result.elapsedMs,
-                creditedGained: result.creditedGained,
-                rawGained: result.rawGained,
-                realmName: runtime.state().realmName,
-                breakthrough: result.breakthroughs.length > 0
-                  ? { realm: result.breakthroughs[0]!.realm, ok: result.breakthroughs[0]!.ok }
-                  : null,
-              },
-            }));
+            // 与 mount / 空窗路径共用同一个转换器，避免三处各写一遍字段
+            setHud((previous) => ({ ...previous, retreat: toRetreatReport(result, runtime.state().realmName) }));
           }
           return result;
         },
@@ -876,26 +900,13 @@ export function App() {
     }
 
     setHud((previous) => {
-      // 如果有离线结算报告，转换为 RetreatReport 放入 retreat 字段
-      let retreat: RetreatReport | null = null;
-      if (offlineReport !== null) {
-        retreat = {
-          elapsedMs: offlineReport.elapsedMs,
-          creditedGained: offlineReport.creditedGained,
-          rawGained: offlineReport.rawGained,
-          realmName: runtime.state().realmName,
-          breakthrough: offlineReport.breakthroughs.length > 0
-            ? { realm: offlineReport.breakthroughs[0]!.realm, ok: offlineReport.breakthroughs[0]!.ok }
-            : null,
-        };
-      }
       return {
         ...previous,
         notices: noticeList,
         corrupt: corrupted,
         // 损坏那句在红字里（含备份 key），灰字只标这一次装载的来历，不重复两遍
         save: loaded.fresh ? ['新档 · 尚未落盘'] : ['档已装载'],
-        retreat,
+        retreat: offlineReport === null ? null : toRetreatReport(offlineReport, runtime.state().realmName),
       };
     });
 

@@ -8,8 +8,8 @@ import { passivePerTick } from '../realm/rules';
 import { BASE_BUDGET, TICK_MS } from '../types';
 import type { Op } from '../vm/program';
 import { Vm } from '../vm/interpreter';
-import { MAX_CATCHUP_TICKS, Scheduler } from '../vm/scheduler';
-import { demonlessSink, offlineElapsedMs, offlineTicks, OFFLINE_CAP_MS, OFFLINE_MIN_MS, OFFLINE_RATE, settleOffline, settleOfflineIfAway, type OfflineWorld } from './offline';
+import { AWAY_FRAME_BUDGET_MS, MAX_CATCHUP_TICKS, Scheduler } from '../vm/scheduler';
+import { demonlessSink, offlineElapsedMs, offlineTicks, OFFLINE_CAP_MS, OFFLINE_MIN_MS, OFFLINE_RATE, planAwayResume, settleOffline, settleOfflineIfAway, type OfflineWorld } from './offline';
 
 // 境界四件套照契约 §2.3 / §3 的目标表：阈值、被动、动作乘数一个都不改，
 // 这样「1 小时闭关 = 36 000 tick」这类数字可以拿契约表反查。
@@ -511,5 +511,54 @@ describe('时钟回拨（lastSeenAt 在未来）', () => {
     expect(result.creditedGained).toBe(0);
     expect(result.rawGained).toBe(0);
     expect(result.breakthroughs).toEqual([]);
+  });
+});
+
+// 契约 §1「后台恢复（R3）」：空窗 <60s 全额重放、≥60s 走离线公式，两种都不得静默丢弃。
+// 分流是纯函数，所以这里只判「该补几个 tick / 该不该走离线」；重放本身走真 VM，由浏览器验收 (a)(b)(c) 取证。
+describe('planAwayResume（契约 §1 R3）', () => {
+  it('分块单位就是一帧的补帧预算：5 tick = 500ms', () => {
+    expect(AWAY_FRAME_BUDGET_MS).toBe(MAX_CATCHUP_TICKS * TICK_MS);
+    expect(AWAY_FRAME_BUDGET_MS).toBe(500);
+  });
+
+  it('切走 3 秒 → 补 30 tick（不是过去那种只补 5 然后抹掉）', () => {
+    expect(planAwayResume({ gapMs: 3_000 })).toEqual({ kind: 'replay', ticks: 30, penaltyMs: 0 });
+  });
+
+  it('切走 70 秒 → 走离线结算，且带真实空窗时长给报告', () => {
+    expect(planAwayResume({ gapMs: 70_000 })).toEqual({ kind: 'offline', elapsedMs: 70_000 });
+  });
+
+  it('边界：500ms 补 5 tick；59_999ms 仍重放；60_000ms 起走离线（§7.2 下限不动）', () => {
+    expect(planAwayResume({ gapMs: 500 })).toEqual({ kind: 'replay', ticks: 5, penaltyMs: 0 });
+    expect(planAwayResume({ gapMs: 59_999 })).toEqual({ kind: 'replay', ticks: 599, penaltyMs: 0 });
+    expect(planAwayResume({ gapMs: 60_000 })).toEqual({ kind: 'offline', elapsedMs: 60_000 });
+  });
+
+  it('不足一个 tick 的零头不补（与 offlineTicks 同口径）', () => {
+    expect(planAwayResume({ gapMs: 1_099 }).kind).toBe('replay');
+    expect((planAwayResume({ gapMs: 1_099 }) as { ticks: number }).ticks).toBe(10);
+  });
+
+  it('走火惩罚期内切走 3 秒：先扣掉 2 秒惩罚，只付剩下的 10 tick', () => {
+    expect(planAwayResume({ gapMs: 3_000, penaltyMs: 2_000 })).toEqual({ kind: 'replay', ticks: 10, penaltyMs: 2_000 });
+  });
+
+  it('惩罚比空窗长 → 一个 tick 都不付，penaltyMs 只按实际扣到的部分报', () => {
+    expect(planAwayResume({ gapMs: 1_000, penaltyMs: 5_000 })).toEqual({ kind: 'replay', ticks: 0, penaltyMs: 1_000 });
+  });
+
+  it('倍速只放大重放（契约 §7.3「倍速只影响在线」）：3 秒 ×3 → 90 tick', () => {
+    expect(planAwayResume({ gapMs: 3_000, speed: 3 })).toEqual({ kind: 'replay', ticks: 90, penaltyMs: 0 });
+  });
+
+  it('≥60 秒那支不吃倍速：判定与时长都用真实墙钟', () => {
+    expect(planAwayResume({ gapMs: 70_000, speed: 3 })).toEqual({ kind: 'offline', elapsedMs: 70_000 });
+  });
+
+  it('脏输入（负数 / NaN）退化成「没空窗」，不会倒扣存量', () => {
+    expect(planAwayResume({ gapMs: -5_000 })).toEqual({ kind: 'replay', ticks: 0, penaltyMs: 0 });
+    expect(planAwayResume({ gapMs: Number.NaN })).toEqual({ kind: 'replay', ticks: 0, penaltyMs: 0 });
   });
 });

@@ -2,16 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { SaveStorage } from '@gongfa/core';
 import { compareParts } from './format';
 import {
+  DEMON_HINT,
   END_DWELL_MS,
-  FIRST_PLAY_MS,
   RELEASE_AFTER_DRAG_MS,
   STEP4_DWELL_MS,
   TUTORIAL_DONE,
   TUTORIAL_KEY,
+  TUTORIAL_PLAY_MS_MAX,
   flyoutFocusType,
   hiddenToolboxTypes,
   nextTutorialStep,
   readTutorialDone,
+  resumeTutorialStep,
   tutorialActiveAt,
   tutorialBar,
   tutorialText,
@@ -129,21 +131,80 @@ describe('工具箱临时隐藏与聚焦', () => {
   });
 });
 
-describe('引导只在第一次进游戏启动', () => {
-  const fresh = { done: false, fresh: true, playMs: 0, demo: false, actionBlocks: 0 };
-  it('五个条件缺一就不启动', () => {
-    expect(tutorialActiveAt(fresh)).toBe(true);
-    expect(tutorialActiveAt({ ...fresh, done: true })).toBe(false);
-    expect(tutorialActiveAt({ ...fresh, fresh: false })).toBe(false);
-    expect(tutorialActiveAt({ ...fresh, playMs: FIRST_PLAY_MS })).toBe(false);
-    expect(tutorialActiveAt({ ...fresh, demo: true })).toBe(false);
-    expect(tutorialActiveAt({ ...fresh, actionBlocks: 1 })).toBe(false);
+describe('引导启动判据（刷新后还要接着走）', () => {
+  const open = { done: false, demo: false, playMs: 0 };
+  it('只认 done 与演示模式：有没有存档、玩到哪一步都不拦', () => {
+    expect(tutorialActiveAt(open)).toBe(true);
+    expect(tutorialActiveAt({ ...open, playMs: 90_000 })).toBe(true);
+    expect(tutorialActiveAt({ ...open, done: true })).toBe(false);
+    expect(tutorialActiveAt({ ...open, demo: true })).toBe(false);
+  });
+
+  it('老玩家保护：操作时长超过 15 分钟就不再启动（离线不算，§5.1 的 playMs 只记在线）', () => {
+    expect(TUTORIAL_PLAY_MS_MAX).toBe(15 * 60_000);
+    expect(tutorialActiveAt({ ...open, playMs: TUTORIAL_PLAY_MS_MAX })).toBe(true);
+    expect(tutorialActiveAt({ ...open, playMs: TUTORIAL_PLAY_MS_MAX + 1 })).toBe(false);
+    expect(tutorialActiveAt({ ...open, playMs: 60 * 60_000 })).toBe(false);
   });
 
   it('放出与停留的时长是本轮定的那几个数', () => {
     expect(RELEASE_AFTER_DRAG_MS).toBe(3_000);
     expect(STEP4_DWELL_MS).toBe(5_000);
     expect(END_DWELL_MS).toBe(8_000);
+  });
+});
+
+// 进度不落盘（只有 done 落），所以刷新后要从「眼前画布与存量」倒推该从第几步接着走。
+describe('resumeTutorialStep：刷新后按状态续播', () => {
+  const empty = { breath: 0, qi: 0, demon: 0, canBreakthrough: false };
+  it('空画布、零存量 → 第 1 步', () => {
+    expect(resumeTutorialStep(empty)).toBe(1);
+  });
+
+  it('有灵力但没积木（产出来自离线或存档带入）→ 第 2 步', () => {
+    expect(resumeTutorialStep({ ...empty, qi: 5 })).toBe(2);
+    expect(resumeTutorialStep({ ...empty, qi: 0.001 })).toBe(2);
+  });
+
+  it('一块吐纳且已经在产出 → 第 3 步', () => {
+    expect(resumeTutorialStep({ ...empty, breath: 1, qi: 12 })).toBe(3);
+  });
+
+  it('一块吐纳但存量还是 0：第 3 步条件没满足，退回第 1 步，下一帧由状态机自己抬到 2', () => {
+    expect(resumeTutorialStep({ ...empty, breath: 1, qi: 0 })).toBe(1);
+  });
+
+  it('两块吐纳 → 第 4 步', () => {
+    expect(resumeTutorialStep({ ...empty, breath: 2, qi: 40 })).toBe(4);
+    expect(resumeTutorialStep({ ...empty, breath: 3, qi: 40 })).toBe(4);
+  });
+
+  it('心魔抬头 → 至少第 5 步', () => {
+    expect(resumeTutorialStep({ ...empty, breath: 2, qi: 40, demon: 0.11 })).toBe(5);
+    expect(resumeTutorialStep({ ...empty, breath: 0, qi: 0, demon: 0.5 })).toBe(5);
+  });
+
+  it('DEMON_HINT 是边界：正好 0.1 不抬', () => {
+    expect(resumeTutorialStep({ ...empty, breath: 2, qi: 40, demon: DEMON_HINT })).toBe(4);
+  });
+
+  it('可渡劫 → 第 6 步（压过其它所有条件）', () => {
+    expect(resumeTutorialStep({ ...empty, breath: 2, qi: 1_000, demon: 0.9, canBreakthrough: true })).toBe(6);
+    expect(resumeTutorialStep({ ...empty, canBreakthrough: true })).toBe(6);
+  });
+
+  it('推导出来的步骤喂回状态机不会倒退：同一批事实下 nextTutorialStep 只往前走', () => {
+    const cases = [
+      { breath: 0, qi: 0, demon: 0, canBreakthrough: false },
+      { breath: 1, qi: 12, demon: 0, canBreakthrough: false },
+      { breath: 2, qi: 40, demon: 0.3, canBreakthrough: false },
+      { breath: 2, qi: 40, demon: 0, canBreakthrough: true },
+    ];
+    for (const c of cases) {
+      const derived = resumeTutorialStep(c);
+      const sig: TutorialSignals = { breath: c.breath, calm: 0, qi: c.qi, demon: c.demon, hasCompare: true, pressedChallenge: false };
+      expect(Number(nextTutorialStep(derived, sig, STEP4_DWELL_MS + 1))).toBeGreaterThanOrEqual(derived);
+    }
   });
 });
 

@@ -224,7 +224,12 @@ interface StallEvent {
 acc += dt
 let n = 0
 while (acc >= 100 && n < 5) { vm.tick(); acc -= 100; n++ }
-if (n === 5 && acc >= 100) { acc = 0; scheduleOfflineSettle() }
+if (n === 5 && acc >= 100) {
+  // §1 R3：不丢弃。gap 判定在 run() 入口完成
+  //   gap < 60s  → planAwayResume 按错过帧分块重放（每块 ≤5 tick）
+  //   gap >= 60s → settleOffline（0.6，不吃倍速）
+  acc = 0; resumeAway(gapMs)
+}
 ```
 
 ---

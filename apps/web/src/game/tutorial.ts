@@ -11,8 +11,11 @@ import { compareParts } from './format';
 export const TUTORIAL_KEY = 'gongfa:tutorial';
 export const TUTORIAL_DONE = 'done';
 
-/** 「首次进游戏」的第三条判据：开局 5 秒内、且画布上没有动作块。 */
-export const FIRST_PLAY_MS = 5_000;
+/**
+ * 老玩家保护：操作时长（playMs，契约 §5.1 只算在线，离线不进来）超过它就不再启动引导，
+ * 并且当场写 done —— 玩了 15 分钟还没走完引导的人，本来也不会再回头看。
+ */
+export const TUTORIAL_PLAY_MS_MAX = 15 * 60_000;
 /** 裁定 1/2 之间的间隔：吐纳落地后 3 秒放出「调息」「比较」。 */
 export const RELEASE_AFTER_DRAG_MS = 3_000;
 /**
@@ -28,6 +31,8 @@ export const DEMON_HINT = 0.1;
 export const TUTORIAL_TOTAL = 6;
 
 export type TutorialStep = 1 | 2 | 3 | 4 | 5 | 6 | 'done';
+/** 推导与状态机的「还在走」那一段：'done' 只由走完或跳过产生，不从现场状态推出来。 */
+export type TutorialPlayStep = Exclude<TutorialStep, 'done'>;
 
 export interface TutorialSignals {
   /** 画布上的「吐纳」块数（flyout 里的那份不算） */
@@ -133,14 +138,40 @@ export function flyoutFocusType(step: TutorialStep): string | null {
   return null;
 }
 
+/**
+ * 启动判据只有两条：没永久关闭过、不在演示模式（裁定 5：评审第一眼要看全量积木）。
+ * 以前还要求「无存档 + 开局 5 秒内 + 画布没动作块」，结果就是真机 BUG：只要落过一次盘，
+ * 刷新就永远不再启动，六步引导直接消失 —— 而进度本来就不落盘，能接着走才是对的语义。
+ * playMs 这一条是反向的闸门：超过 15 分钟的人不再被打断（宿主同时把这个状态写成 done）。
+ */
 export function tutorialActiveAt(input: {
   readonly done: boolean;
-  readonly fresh: boolean;
-  readonly playMs: number;
   readonly demo: boolean;
-  readonly actionBlocks: number;
+  readonly playMs: number;
 }): boolean {
-  return !input.done && input.fresh && input.playMs < FIRST_PLAY_MS && !input.demo && input.actionBlocks === 0;
+  return !input.done && !input.demo && input.playMs <= TUTORIAL_PLAY_MS_MAX;
+}
+
+/**
+ * 刷新后「接着走」的第几步：从眼前的画布与存量倒推，取满足条件的最大步骤。
+ * 这些条件与 nextTutorialStep 用的是同一批事实，所以推导出来的落点和一路走过来的结果一致。
+ * 画布上有「调息」不进步骤：第 5→6 的跨越靠点渡劫按钮，积木数说了不算（裁定里写死的 4 或 5）。
+ * canBreakthrough 是 nextTutorialStep 那份信号里没有的输入：内存里的「本会话点过渡劫」跨不过刷新，
+ * 但「存量已经满了」是存档里的事实，可以直接把人放到最后一步等着按按钮。
+ */
+export function resumeTutorialStep(input: {
+  readonly breath: number;
+  readonly qi: number;
+  readonly demon: number;
+  readonly canBreakthrough: boolean;
+}): TutorialPlayStep {
+  let step: TutorialPlayStep = 1;
+  if (input.qi > 0) step = 2;
+  if (input.breath >= 1 && input.qi > 0) step = 3;
+  if (input.breath >= 2) step = 4;
+  if (input.demon > DEMON_HINT && step < 5) step = 5;
+  if (input.canBreakthrough) step = 6;
+  return step;
 }
 
 // 只有「永久关闭」这一个状态要落盘：进度本身是内存态（和 attempt / insight 同一类，刷新清零）。

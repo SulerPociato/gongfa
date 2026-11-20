@@ -218,3 +218,34 @@ export function settleOfflineIfAway(input: OfflineInput): OfflineResult | null {
   if (offlineElapsedMs(input.now, input.lastSeenAt) < OFFLINE_MIN_MS) return null;
   return settleOffline(input);
 }
+
+/** 契约 §1「后台恢复（R3）」的分流结果。`replay` = 全额重放错过的帧，`offline` = 走 §7.2 的 0.6 折算。 */
+export type AwayPlan =
+  | { readonly kind: 'replay'; readonly ticks: number; readonly penaltyMs: number }
+  | { readonly kind: 'offline'; readonly elapsedMs: number };
+
+/**
+ * 空窗该怎么补：契约 §1 的 R3 口径，两种都不得静默丢弃。
+ *
+ * - `gapMs ≥ offlineMinMs` → 离线公式。判定用**真实**空窗：§7.2 的 60 秒下限与 0.6 系数都是真实时间口径，
+ *   不吃倍速；这一段也不扣走火惩罚 —— 离线本来就不罚走火，是契约给的，不是补帧丢的。
+ * - 否则 → 重放 `floor((gap - 惩罚剩余) × speed / TICK_MS)` 个 tick，全额入账（心魔照涨、走火照罚），
+ *   所以「切标签页」相对「挂机」不占便宜，也就不会重开 R2 那个反复切 5 秒的洞。
+ *
+ * 惩罚剩余必须先从**头部**扣掉：否则「走火后立刻切走 3 秒」= 把 5 秒惩罚换成 30 tick 产出。
+ * `ticks` 只给到整 tick，不足一个 tick 的零头不补 —— 与 §7.2 的 `offlineTicks` 同一个口径。
+ */
+export function planAwayResume(input: {
+  readonly gapMs: number;
+  readonly penaltyMs?: number;
+  readonly speed?: number;
+  readonly offlineMinMs?: number;
+}): AwayPlan {
+  const gapMs = Number.isFinite(input.gapMs) ? Math.max(0, input.gapMs) : 0;
+  const offlineMinMs = input.offlineMinMs ?? OFFLINE_MIN_MS;
+  if (gapMs >= offlineMinMs) return { kind: 'offline', elapsedMs: gapMs };
+  const speed = input.speed === undefined || !Number.isFinite(input.speed) || input.speed <= 0 ? 1 : input.speed;
+  const penaltyMs = Number.isFinite(input.penaltyMs) ? Math.min(gapMs, Math.max(0, input.penaltyMs ?? 0)) : 0;
+  const payableMs = gapMs - penaltyMs;
+  return { kind: 'replay', ticks: Math.floor((payableMs * speed) / TICK_MS), penaltyMs };
+}

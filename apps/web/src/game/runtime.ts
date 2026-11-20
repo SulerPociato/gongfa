@@ -6,6 +6,7 @@ import {
   CHARGE_WINDOW_MS,
   applyBacklash,
   armCharge,
+  AWAY_FRAME_BUDGET_MS,
   BACKLASH_PAUSE_MS,
   BASE_BUDGET,
   bookSettleDeps,
@@ -15,8 +16,10 @@ import {
   isThresholdReached,
   loadContent,
   makeActionSink,
+  MAX_CATCHUP_TICKS,
   noiseGainMult,
   passivePerTick,
+  planAwayResume,
   previewCurve,
   Qi,
   reachesBacklash,
@@ -28,6 +31,7 @@ import {
   sprintGoalQi,
   halveChargeWindowMs,
   SPRINT_WINDOW_MS,
+  TICK_MS,
   TICKS_PER_SEC,
   Vm,
   type ActionRequest,
@@ -265,6 +269,16 @@ export interface RuntimeDeps {
    * 渡劫结算与蓄势起算都会调它：chargeReadyAt 是 §5.1 的存档字段，漏标一次刷新就重新等 2 分钟。
    */
   readonly markDirty?: (() => void) | undefined;
+  /**
+   * 离线渡劫开关（契约 §7.2 / 设置项 offlineBreakthrough）。用懒调用而不是值：
+   * runtime 在 render 期构造，那时 settings 的 state 还没定；切标签页回来这一支才读得到当前值。
+   */
+  readonly allowBreakthrough?: (() => boolean) | undefined;
+  /**
+   * 空窗 ≥60 秒走了离线公式之后，把结果交给宿主弹「闭关报告」（任务 7B 那个面板）。
+   * 只在后台恢复路径回调：boot 路径的报告由 App 自己塞 hudModel，两条共用同一个转换函数。
+   */
+  readonly onOfflineReport?: ((result: OfflineResult) => void) | undefined;
 }
 
 // 演示模式（01-design §十 / 契约 §7.3「演示模式可跳过蓄势」）：?demo=1 开，
@@ -413,8 +427,10 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   });
   const scheduler = new Scheduler({
     vm,
-    // 契约 §1：单帧最多补 5 tick，剩余转离线结算（任务 8 接入），这里只报告，不静默快进。
-    onOverflowToOffline: (pendingMs) => console.warn(`[补帧溢出] 未补 ${Math.round(pendingMs)} ms，转离线结算`),
+    // 原来那句「转离线结算」是假日志：没有任何人调 settleOffline，玩家看到它以为空窗有兜底，其实时间已经抹掉了。
+    // 契约 §1 R3 之后，超过一帧预算的 dt 在 run() 开头就被 resumeAway 接走，所以这条只剩防呆作用。
+    onOverflowToOffline: (pendingMs) =>
+      console.warn(`[补帧丢弃] 丢弃 ${Math.round(pendingMs)} ms（超过单帧补帧上限 ${MAX_CATCHUP_TICKS} tick）`),
   });
   let lastGood: Program | null = null;
 
@@ -522,77 +538,120 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     }
   };
 
-  return {
-    run: (dtMs) => {
-      const now = clock.now();
-      // 挑战的 10 秒是墙钟，和走火惩罚期并行：暂停只冻 tick 产出，不该把渡劫拖长。
-      // 放在函数开头，惩罚期那一帧也能按托管结算 —— 玩家「放手」的语义就是到点必出结果。
-      if (trialUntil !== 0 && now >= trialUntil) settle('auto');
-      const remaining = pausedUntil - now;
-      if (remaining > 0) {
-        // 惩罚期：不跑 tick、不计 playMs（D3），accumulator 也清掉。
-        // 必须 reset：攒着 dt 的话恢复瞬间 5 秒会排成 50 tick 突发，Scheduler 只补 MAX_CATCHUP_TICKS=5，
-        // 剩下的转 onOverflowToOffline —— 任务 8 接上离线结算后，这段惩罚会被当成离线产出付钱，反向变成赚钱。
-        scheduler.reset();
-        state.pauseRemainingMs = remaining;
-        return [];
+  // 一帧的真实推进。scaledMs 是喂给 Scheduler 的模拟时间（已含倍速），realMs 是对应的真实墙钟
+  // —— playMs 只认后者（契约 §5.1「在线操作时长」不能被 3× 吹大）。后台空窗由 run() 分流到 resumeAway。
+  const step = (scaledMs: number, realMs: number): TickResult[] => {
+    const now = clock.now();
+    // 挑战的 10 秒是墙钟，和走火惩罚期并行：暂停只冻 tick 产出，不该把渡劫拖长。
+    // 放在函数开头，惩罚期那一帧也能按托管结算 —— 玩家「放手」的语义就是到点必出结果。
+    if (trialUntil !== 0 && now >= trialUntil) settle('auto');
+    const remaining = pausedUntil - now;
+    if (remaining > 0) {
+      // 惩罚期：不跑 tick、不计 playMs（D3），accumulator 也清掉。
+      // 必须 reset：攒着 dt 的话恢复瞬间 5 秒会排成 50 tick 突发，而这段惩罚本该一分钱不产出。
+      // 空窗路径不受影响 —— planAwayResume 先把 pausedUntil 的剩余从 gap 头部扣掉，
+      // 所以「走火后立刻切标签页」换不来产出，只会白白让惩罚期走完。
+      scheduler.reset();
+      state.pauseRemainingMs = remaining;
+      return [];
+    }
+    state.pauseRemainingMs = 0;
+    // 倍速已经在 run() 里乘进 scaledMs（任务 9 裁定 3：只改「这一帧真实时间里跑几个 tick」），
+    // 超过一帧预算的 dt 也已经在 run() 分流给 resumeAway，所以这里正常不会再撞 Scheduler 的溢出。
+    // playMs 在函数末尾加的是 realMs —— 契约 §5.1 的在线操作时长不能被倍速吹大。
+    const results = scheduler.advance(scaledMs);
+    let processed = 0;
+    for (const result of results) {
+      processed += 1;
+      state.tick = result.tick;
+      // 杂念只砍程序产出 result.gain（D2）：契约 §2.3 把境界被动列为独立加法项，不参与这一刀。
+      const mult = noiseGainMult({ demon: state.demon, seed: state.seed, tick: result.tick });
+      if (mult < 1) noteTick(noiseTicks, result.tick);
+      const gained = result.gain * mult + passivePerTick(currentRealm());
+      state.qi += gained;
+      state.rate = gained * TICKS_PER_SEC;
+      state.ticks += 1;
+      if (gained > 0) state.totalQi += gained;
+      // 蓄势起算点（§7.3「存量首次达到阈值的那一刻」）：逐 tick 判，armCharge 自己幂等。
+      // 走火那一 tick 也记：arm 之后掉回阈值下不清零，重复挑战不重置蓄势。
+      const armed = armCharge({ realm: currentRealm(), windowMs: chargeWindowMs(), qi: state.qi, chargeReadyAt: state.chargeReadyAt, now });
+      if (armed !== state.chargeReadyAt) {
+        state.chargeReadyAt = armed;
+        // chargeReadyAt 是 §5.1 的存档字段：不标脏就永远写不进档，刷新后 2 分钟从头再等。
+        markDirty();
       }
-      state.pauseRemainingMs = 0;
-      // 演示倍速（任务 9 裁定 3）：只改「这一帧真实时间里跑几个 tick」，上限仍归 Scheduler 的 MAX_CATCHUP_TICKS，
-      // 溢出照旧只 warn 不付离线。playMs 在函数末尾加的是真实 dtMs —— 契约 §5.1 的在线操作时长不能被倍速吹大。
-      const results = scheduler.advance(dtMs * demoSpeed(demoMode));
-      let processed = 0;
-      for (const result of results) {
-        processed += 1;
-        state.tick = result.tick;
-        // 杂念只砍程序产出 result.gain（D2）：契约 §2.3 把境界被动列为独立加法项，不参与这一刀。
-        const mult = noiseGainMult({ demon: state.demon, seed: state.seed, tick: result.tick });
-        if (mult < 1) noteTick(noiseTicks, result.tick);
-        const gained = result.gain * mult + passivePerTick(currentRealm());
-        state.qi += gained;
-        state.rate = gained * TICKS_PER_SEC;
-        state.ticks += 1;
-        if (gained > 0) state.totalQi += gained;
-        // 蓄势起算点（§7.3「存量首次达到阈值的那一刻」）：逐 tick 判，armCharge 自己幂等。
-        // 走火那一 tick 也记：arm 之后掉回阈值下不清零，重复挑战不重置蓄势。
-        const armed = armCharge({ realm: currentRealm(), windowMs: chargeWindowMs(), qi: state.qi, chargeReadyAt: state.chargeReadyAt, now });
-        if (armed !== state.chargeReadyAt) {
-          state.chargeReadyAt = armed;
-          // chargeReadyAt 是 §5.1 的存档字段：不标脏就永远写不进档，刷新后 2 分钟从头再等。
+      // 试炼（§7.1.1）：逐 tick 喂 60 秒窗口，达标那一刻把本境界标记立起来。
+      // 顺序要紧 —— 先 armCharge 再判试炼：这一 tick 若同时是「首次达标」，用的是上一 tick 为止的窗口，
+      // 下一 tick 才享受减半；反过来会让同一 tick 既 arm 出整窗、又立刻挪半窗，两个口径叠一处说不清。
+      sprint.push(gained);
+      const goal = sprintGoalQi(realmIndex);
+      if (goal !== undefined && sprintReachedRealm !== realmIndex && sprint.isAtOrAbove(goal)) {
+        sprintReachedRealm = realmIndex;
+        // 另一种时序（先达标、后试炼）：chargeReadyAt 已按整窗写好且 armCharge 幂等，只能在这里前移半窗。
+        const shifted = shiftChargeReadyAt(state.chargeReadyAt, fullChargeWindowMs());
+        if (shifted !== state.chargeReadyAt) {
+          state.chargeReadyAt = shifted;
           markDirty();
         }
-        // 试炼（§7.1.1）：逐 tick 喂 60 秒窗口，达标那一刻把本境界标记立起来。
-        // 顺序要紧 —— 先 armCharge 再判试炼：这一 tick 若同时是「首次达标」，用的是上一 tick 为止的窗口，
-        // 下一 tick 才享受减半；反过来会让同一 tick 既 arm 出整窗、又立刻挪半窗，两个口径叠一处说不清。
-        sprint.push(gained);
-        const goal = sprintGoalQi(realmIndex);
-        if (goal !== undefined && sprintReachedRealm !== realmIndex && sprint.isAtOrAbove(goal)) {
-          sprintReachedRealm = realmIndex;
-          // 另一种时序（先达标、后试炼）：chargeReadyAt 已按整窗写好且 armCharge 幂等，只能在这里前移半窗。
-          const shifted = shiftChargeReadyAt(state.chargeReadyAt, fullChargeWindowMs());
-          if (shifted !== state.chargeReadyAt) {
-            state.chargeReadyAt = shifted;
-            markDirty();
-          }
-        }
-        const demonBefore = state.demon;
-        // 心魔夹在 0..1（契约 §1）；走火判据看夹紧之前的和，这一 tick 的账先记完再罚（01-design §4.4）。
-        if (reachesBacklash(demonBefore, result.demonDelta)) {
-          state.qi = applyBacklash(state.qi);
-          state.demon = 0;
-          pausedUntil = clock.now() + BACKLASH_PAUSE_MS;
-          noteTick(backlashTicks, result.tick);
-          // 本帧剩下的 tick 已经落进惩罚期，不再记账（记了就等于边罚边赚），accumulator 同理清零。
-          scheduler.reset();
-          break;
-        }
-        state.demon = Math.min(1, Math.max(0, demonBefore + result.demonDelta));
       }
-      // playMs 只算在线操作时长（契约 §5.1），离线路由任务 8 单独累加。
-      // 惩罚期内的帧在函数开头就 return 了；触发走火的那一帧最多多算一个 rAF（约 16 ms / 5000 ms）。
-      state.playMs += Math.max(0, dtMs);
-      state.pauseRemainingMs = Math.max(0, pausedUntil - clock.now());
-      return results.slice(0, processed);
+      const demonBefore = state.demon;
+      // 心魔夹在 0..1（契约 §1）；走火判据看夹紧之前的和，这一 tick 的账先记完再罚（01-design §4.4）。
+      if (reachesBacklash(demonBefore, result.demonDelta)) {
+        state.qi = applyBacklash(state.qi);
+        state.demon = 0;
+        pausedUntil = clock.now() + BACKLASH_PAUSE_MS;
+        noteTick(backlashTicks, result.tick);
+        // 本帧剩下的 tick 已经落进惩罚期，不再记账（记了就等于边罚边赚），accumulator 同理清零。
+        scheduler.reset();
+        break;
+      }
+      state.demon = Math.min(1, Math.max(0, demonBefore + result.demonDelta));
+    }
+    // playMs 只算在线操作时长（契约 §5.1）：R3 的重放算在线（心魔都在照涨），离线那一段则由 settleOffline 明确不计。
+    // 惩罚期内的帧在函数开头就 return 了；触发走火的那一帧最多多算一个 rAF（约 16 ms / 5000 ms）。
+    state.playMs += Math.max(0, realMs);
+    state.pauseRemainingMs = Math.max(0, pausedUntil - clock.now());
+    return results.slice(0, processed);
+  };
+
+  // 契约 §1「后台恢复（R3）」：<60 秒按「错过的帧」重放，≥60 秒才转离线公式，两种都不许静默丢弃。
+  // 重放调的是上面那个 step —— 同一个 VM、同一套逐 tick 记账，所以心魔照涨、杂念照砍、走火照罚：
+  // 切标签页相对挂机不占便宜，也就没把 §7.2 的 0.6 折扣变成收益（这正是 R2 被否掉的原因）。
+  const resumeAway = (gapMs: number, speed: number): TickResult[] => {
+    const plan = planAwayResume({ gapMs, penaltyMs: Math.max(0, pausedUntil - clock.now()), speed });
+    if (plan.kind === 'offline') {
+      // lastSeenAt 取真实空窗的头部：闭关报告上那「X 分 Y 秒」就是玩家离开的墙钟。
+      const result = settleOfflineMethod({
+        lastSeenAt: clock.now() - gapMs,
+        allowBreakthrough: deps.allowBreakthrough?.() ?? false,
+      });
+      if (result !== null) deps.onOfflineReport?.(result);
+      return [];
+    }
+    if (plan.penaltyMs > 0) console.info(`[空窗扣除] 走火惩罚期扣 ${Math.round(plan.penaltyMs)} ms（这一段不产出）`);
+    const out: TickResult[] = [];
+    for (let left = plan.ticks; left > 0; left -= MAX_CATCHUP_TICKS) {
+      const chunk = Math.min(left, MAX_CATCHUP_TICKS);
+      const simMs = chunk * TICK_MS;
+      out.push(...step(simMs, simMs / speed));
+      // 重放中途踩出走火：剩下的空窗归惩罚期，明说吃掉多少，而不是让 Scheduler 抹掉 accumulator。
+      if (state.pauseRemainingMs > 0 && left > chunk) {
+        console.warn(`[补帧中止] 走火惩罚期吃掉剩余 ${Math.round(((left - chunk) * TICK_MS) / speed)} ms（未入账）`);
+        break;
+      }
+    }
+    return out;
+  };
+
+  return {
+    run: (dtMs) => {
+      // 双保险：loop 已经夹过帧，但 run 是公开入口（visibilitychange、以后的测试都直接调它），
+      // 负数与非有限值在这里归 0，绝不把 RangeError 抛回宿主的 rAF 链。
+      const dt = Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 0;
+      // 分流阈值看模拟时间：倍速下 200ms 的真帧已经是 600ms 模拟，同样超出一帧预算（§1「倍速也受此上限约束」）。
+      const speed = demoSpeed(demoMode);
+      if (dt * speed >= AWAY_FRAME_BUDGET_MS) return resumeAway(dt, speed);
+      return step(dt * speed, dt);
     },
     load: (program) => {
       const result = vm.loadPrograms([program]);
