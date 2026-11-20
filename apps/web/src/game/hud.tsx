@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, type BookPhase, type StallEvent } from '@gongfa/core';
 import { compareParts } from './format';
+import { DEMO_SPEED } from './demo';
 import type { TutorialBarModel } from './tutorial';
 
 /** 存档损坏：HUD 只显示这一句，逐字段明细收在「详情」里 */
@@ -66,7 +67,6 @@ export interface ChallengeModel {
   /** 下一次冲关是本境界第几次（§7.1 的 N，从 1 起）；连续失败次数 = N - 1。 */
   readonly attempt: number;
   readonly insight: number;
-  readonly demo: boolean;
 }
 
 export interface RetreatReport {
@@ -146,6 +146,8 @@ export interface HudModel {
   readonly toast: string | null;
   /** 手把手引导的底部条（任务 8 P0-D）：null = 引导没启动或已永久关闭。 */
   readonly tutorial: TutorialBarModel | null;
+  /** ?demo=1：左上角常驻角标，以及渡劫面板要说「当场按 85% 结算」。整份模型只有这一个演示开关。 */
+  readonly demo: boolean;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -307,7 +309,7 @@ function remainText(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-export function ChallengePanel({ model, onPress }: { readonly model: ChallengeModel; readonly onPress: () => void }) {
+export function ChallengePanel({ model, demo, onPress }: { readonly model: ChallengeModel; readonly demo: boolean; readonly onPress: () => void }) {
   const sub =
     model.phase === 'charge' ? `还需 ${remainText(model.chargeRemainingMs)}`
       : model.phase === 'cooldown' ? `还剩 ${(model.cooldownRemainingMs / 1000).toFixed(1)} 秒`
@@ -337,12 +339,19 @@ export function ChallengePanel({ model, onPress }: { readonly model: ChallengeMo
           </p>
         </div>
       )}
+      {/* 演示模式根本没有 10 秒窗口（runtime 里 pressChallenge 直接按手动口径结算），
+          上面那一整块在演示下永远不出现 —— 于是这里补一句常驻的：按钮按下去会发生什么，
+          得有人说明白，否则「点一下就成了」看着像 bug。百分比同样从 MANUAL_RATE 拼。 */}
+      {demo && model.phase !== 'trial' && (
+        <div className="trial">
+          <p className="trial-first">演示模式：点「可渡劫」当场按 {(MANUAL_RATE * 100).toFixed(0)}% 结算</p>
+        </div>
+      )}
       {/* 保底与冷却都在内存里（§5.1 没这两个字段）：文案必须写明刷新清零，否则玩家以为攒到了第 2 次。 */}
       <p className="challenge-meta">
         本档连续失败 {model.attempt - 1} 次（刷新清零）· 第 {model.attempt} 次冲关{model.attempt >= GUARANTEE_ATTEMPT ? '（保底必成）' : ''} ·
         失败存量 ×{FAILURE_QI_MULT} · 悟道 {model.insight}（本档）
       </p>
-      {model.demo && <p className="demo-badge">演示模式：跳过蓄势与 10 秒渡劫</p>}
     </div>
   );
 }
@@ -424,6 +433,9 @@ function SettingsPanel({ settings, onToggle }: { readonly settings: SettingsMode
 export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void; readonly onCloseRetreat: () => void }) {
   return (
     <aside className="hud">
+      {/* 演示角标（任务 9）：HUD 的第一个子元素 —— 截图左上角一眼看出这不是正式玩法。
+          倍速写在这里而不是 HUD 的「/ 秒」旁边：那一行是每模拟秒速率（裁定 3），3× 只描述真实时间。 */}
+      {model.demo && <p className="demo-badge">演示模式 · {DEMO_SPEED}×</p>}
       <h1>代码修仙</h1>
       <p className="label">灵力</p>
       <p className="qi tut-target">{model.qi}</p>
@@ -434,7 +446,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settin
       <RealmPanel model={model.realm} qi={model.qi} />
       <CurvePanel model={model.curve} />
       <SprintPanel model={model.sprint} />
-      <ChallengePanel model={model.challenge} onPress={onChallenge} />
+      <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
       <BookPanel model={model.book} onAction={onBookAction} />
       {model.artifacts.length > 0 && <ArtifactPanel rows={model.artifacts} onToggle={onArtifactAction} />}
       <SettingsPanel settings={settings} onToggle={onSettingsToggle} />

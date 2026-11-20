@@ -47,6 +47,7 @@ import {
   type VmSnapshot,
 } from '@gongfa/core';
 import { wallClock } from '../adapters/storage';
+import { demoJumpTarget, demoSpeed, type DemoJumpTarget } from './demo';
 
 const content = loadContent({ actions: actionsJson, realms: realmsJson });
 
@@ -162,9 +163,13 @@ export interface ChallengeResult {
   readonly realmName: string;
 }
 
+/** 跳关的可观察面：境界、存量、该行阈值一起交出去，验收和 toast 都读它，不用调用方再查一遍表。 */
+export interface DemoJumpResult extends DemoJumpTarget {
+  readonly threshold: number;
+}
+
 export interface Runtime {
-  run(dtMs: number): TickResult[];
-  /** 装载一份程序；返回错误列表（空数组表示成功）。失败时回退到上一份可用程序。 */
+  run(dtMs: number): TickResult[];  /** 装载一份程序；返回错误列表（空数组表示成功）。失败时回退到上一份可用程序。 */
   load(program: Program): readonly string[];
   /** 用存档的数值状态覆盖运行时；返回内容表承接不了的项。 */
   restore(state: GameState): readonly string[];
@@ -181,6 +186,12 @@ export interface Runtime {
    * 放手到点则由 run() 按托管 60% 自动结算。拒绝原因在 errors 里，空数组 = 这次点击被接受。
    */
   pressChallenge(): ChallengeResult;
+  /**
+   * 演示跳关（任务 9，裁定 1）：一站落到「下一境＝元婴」的那一境（金丹），存量给到该行阈值的 95%。
+   * 只在 ?demo=1 下可用，且落点全部从 realms.json 现算；返回 null = 这次跳不了（非演示模式，
+   * 或表里根本没有元婴那一行），不静默退回首境。
+   */
+  jumpToDemoTarget(): DemoJumpResult | null;
   /**
    * 离线结算入口（任务 7B，契约 §7.2）：快进指定时长的 tick，按 0.6 折算入账，
    * 期间心魔不涨、杂念不砍、走火不罚。返回结算结果（null = 没跑，例如 0 tick）。
@@ -527,7 +538,9 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
         return [];
       }
       state.pauseRemainingMs = 0;
-      const results = scheduler.advance(dtMs);
+      // 演示倍速（任务 9 裁定 3）：只改「这一帧真实时间里跑几个 tick」，上限仍归 Scheduler 的 MAX_CATCHUP_TICKS，
+      // 溢出照旧只 warn 不付离线。playMs 在函数末尾加的是真实 dtMs —— 契约 §5.1 的在线操作时长不能被倍速吹大。
+      const results = scheduler.advance(dtMs * demoSpeed(demoMode));
       let processed = 0;
       for (const result of results) {
         processed += 1;
@@ -687,6 +700,27 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       if (demoMode) return settle('manual');
       trialUntil = now + CHALLENGE_TRIAL_MS;
       return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh };
+    },
+    jumpToDemoTarget: () => {
+      // 两道闸：URL 没开演示就不跳（裁定 2 同源的理由：这是改玩家数字的动作），表里查不到目标境也不跳。
+      if (!demoMode) return null;
+      const target = demoJumpTarget(content.realms);
+      if (target === null) return null;
+      realmIndex = target.realmIndex;
+      state.realm = currentRealm().id;
+      state.qi = target.qi;
+      // 后果照搬「渡劫成功刚落到这一境」那一套（§7.1）：心魔涤清、蓄势从头起算、试炼窗口清空，
+      // 挑战与冷却清零 —— 留着上一境的 60 秒窗口，玩家一落地就「达成」下一境的试炼。
+      state.demon = 0;
+      state.chargeReadyAt = 0;
+      state.attempt = 1;
+      sprint.reset();
+      trialUntil = 0;
+      cooldownUntil = 0;
+      resetSink();
+      scheduler.reset();
+      markDirty();
+      return { ...target, threshold: currentRealm().threshold };
     },
     settleOffline: settleOfflineMethod,
     preview: (program) => program === null

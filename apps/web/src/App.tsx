@@ -10,11 +10,12 @@ import {
   STARTER_WORKSPACE_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage } from '@gongfa/core';
-import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
 import { createRuntime, urlSeed, CALM_DEMON_DELTA, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
+import { clearGongfaKeys, consumeDemoReset, requestDemoReset } from './game/demo';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
@@ -87,7 +88,6 @@ function challengeModel(state: RuntimeState): ChallengeModel {
     cooldownRemainingMs: state.cooldownRemainingMs,
     attempt: state.attempt,
     insight: state.insight,
-    demo: state.demo,
   };
 }
 
@@ -164,6 +164,7 @@ function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'e
     retreat: extra.retreat,
     toast: extra.toast,
     tutorial: extra.tutorial,
+    demo: state.demo,
   };
 }
 
@@ -238,6 +239,13 @@ export function App() {
     if (container === null || runtime === null) return;
 
     const storage = createLocalStorageSaveStorage();
+    const demoFlags = createSessionFlagStore();
+
+    // R 键的清档走「写标记 + reload」，真正的删除发生在这里 —— 读存档之前。
+    // 晚一步就不干净：runtime 一旦把旧档读进内存，收尾的 controller.flush() 会原样写回去。
+    if (consumeDemoReset(demoFlags)) {
+      console.warn(`[演示重置] 已清掉 ${clearGongfaKeys(storage)} 个存档键`);
+    }
 
     // ---- 任务 8 P0-C / P0-D：引导 ----
     // 声明在 inject 之前：工具箱要不要藏块、flyout 上挂哪些 class，都由这几个量决定；
@@ -724,6 +732,27 @@ export function App() {
       setHud((previous) => ({ ...previous, tutorial: null }));
     };
 
+    // 演示快捷键（任务 9）：整段只在 ?demo=1 时挂监听。正式玩家不该有「按键刚好落到 F / R
+    // 就没掉整个档」这条路（裁定 2）；R 还额外要 confirm 一次，两个闸门叠在一起才算够。
+    const onDemoKey = (event: KeyboardEvent): void => {
+      if (!booted.demo || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      // Blockly 的字段编辑器就是 input：在「存量」两个字里打个 f，不能当成按了跳关。
+      if (target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (event.key === 'f' || event.key === 'F') {
+        const jumped = runtime.jumpToDemoTarget();
+        showToast(jumped === null
+          ? '跳关没生效：realms 表里找不到目标境界'
+          : `演示跳关 · ${jumped.realmName} · 存量 ${Qi.format(jumped.qi)} / 阈值 ${Qi.format(jumped.threshold)}`);
+        return;
+      }
+      if (event.key !== 'r' && event.key !== 'R') return;
+      if (!window.confirm('演示重置：清空本机全部修仙存档并回到新档？\n灵力、境界、心魔、功法书、道具、引导记录都会没。')) return;
+      requestDemoReset(demoFlags);
+      window.location.reload();
+    };
+    window.addEventListener('keydown', onDemoKey);
+
     // event 为空 = 挂载时那一次手动编译；组号是我们的程序化换画布 = 不是玩家编辑。
     const compile = (event?: ChangeEvent): void => {
       const blocks = Blockly.serialization.workspaces.save(workspace) as unknown as WorkspaceJson;
@@ -864,6 +893,7 @@ export function App() {
 
     return () => {
       loop.stop();
+      window.removeEventListener('keydown', onDemoKey);
       if (toastTimer !== null) clearTimeout(toastTimer);
       if (tutReleaseTimer !== null) clearTimeout(tutReleaseTimer);
       if (tutEndTimer !== null) clearTimeout(tutEndTimer);

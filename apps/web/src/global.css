@@ -280,13 +280,17 @@ body {
   opacity: 0.7;
 }
 
+/* 任务 9：演示角标。HUD 的第一个子元素（不是渡劫面板里的一行说明）——
+   截图左上角就写着「演示模式 · 3×」，评审不必先滚到面板底才知道这一屏的数字不是正式玩法跑出来的。 */
 .hud .demo-badge {
   border: 1px dashed #e8b45a;
   border-radius: 4px;
   color: #e8b45a;
-  font-size: 10px;
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
   line-height: 1.6;
-  margin: 8px 0 0;
+  margin: 0 0 14px;
   padding: 3px 6px;
 }
 
