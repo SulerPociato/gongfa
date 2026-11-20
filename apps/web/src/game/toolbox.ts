@@ -16,8 +16,12 @@ export interface ToolboxJson {
 }
 
 // 演示模式（?demo=1）全开：01-design §11.4「演示模式强制全开」，评审第一眼就能看到整套积木。
-export function toolboxForRealm(realmIndex: number, openAll: boolean): ToolboxJson {
-  const contents = TOOLBOX_JSON.contents.filter((item) => openAll || (MIN_REALM[item.type] ?? 0) <= realmIndex);
+// hidden 是任务 8 P0-C 的引导层：只在第一次进游戏的前几步临时藏掉「调息 / 比较」，
+// 它叠在境界门控之上、不替换境界门控 —— 藏的是 ToolboxJson 里的条目，画布上已有的积木一块不动。
+export function toolboxForRealm(realmIndex: number, openAll: boolean, hidden: readonly string[] = []): ToolboxJson {
+  const contents = TOOLBOX_JSON.contents.filter(
+    (item) => (openAll || (MIN_REALM[item.type] ?? 0) <= realmIndex) && !hidden.includes(item.type),
+  );
   return { kind: 'flyoutToolbox', contents };
 }
 

@@ -4,6 +4,8 @@
   --paper: #1c2228;
   --danger: #e04b3a;
   --gold: #e8c978;
+  /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
+  --hud-width: 260px;
 }
 
 * {
@@ -25,7 +27,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 1fr 260px;
+  grid-template-columns: 1fr var(--hud-width);
   height: 100%;
 }
 
@@ -523,4 +525,150 @@ body {
   padding: 6px 8px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* ===== 任务 8 P0-C / P0-D：引导 ===== */
+
+/* 底部引导条：固定在画布那一栏的下沿，不压右栏（右栏最下面几行是存档与提示，被盖住就看不见了）。
+   裁定 6b：这条和它的「跳过引导」永远不被降对比度规则命中 —— 它不在 .hud 里，压制规则只写 .hud 的后代。 */
+.tutorial-bar {
+  align-items: baseline;
+  background: rgba(10, 14, 18, 0.94);
+  border-top: 1px solid var(--spirit);
+  bottom: 0;
+  display: flex;
+  gap: 12px;
+  left: 0;
+  padding: 8px 14px;
+  position: fixed;
+  right: var(--hud-width);
+  z-index: 10;
+}
+
+.tutorial-text {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.tutorial-count {
+  color: var(--gold);
+  flex: 0 0 auto;
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.tutorial-skip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--paper);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 11px;
+  margin-left: auto;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.tutorial-skip:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* 降对比度：只压「这一屏里跟当前步骤无关的说明性面板」，压到 0.6。
+   裁定 6：0.45 会让工具箱看着像坏了，所以 0.6；红字 / 灰字 / 存档 / 闭关报告 / 曲线面板 / toast
+   这些「该知道的信息」根本不在这张名单里，画布更不压 —— 玩家随时要在被引导的地方之外动手。 */
+.tut .hud .label,
+.tut .hud .qi,
+.tut .hud .rate,
+.tut .hud .mode-indicator,
+.tut .hud .realm,
+.tut .hud .sprint,
+.tut .hud .challenge,
+.tut .hud .book,
+.tut .hud .artifacts,
+.tut .hud .settings-panel,
+.tut .hud .hint,
+.tut .hud .tool-hint {
+  opacity: 0.6;
+}
+
+/* 当前步骤要看的元素回到全亮：第 2 步看灵力数字，第 5 步看心魔那一组（在境界面板里，整块一起抬），
+   第 6 步看渡劫按钮。第 1/3 步的目标在工具箱里，第 4 步的目标是曲线面板（本来就不压）。 */
+.tut-2 .hud .qi,
+.tut-2 .hud .rate,
+.tut-5 .hud .realm,
+.tut-6 .hud .challenge {
+  opacity: 1;
+}
+
+/* 工具箱：非聚焦块同样压到 0.6，聚焦那块全亮并呼吸。只碰 flyout 里的元素，画布上的积木一条规则都不加。 */
+.tut .blocklyFlyout .blocklyDraggable:not(.tut-focus) {
+  opacity: 0.6;
+}
+
+/* 呼吸式高亮（P0-C 第 2 项）：2 秒一轮。
+   动 filter 不动 transform —— flyout 里每块的 svgRoot 上挂着 Blockly 自己写的 translate，
+   用 transform 做动画会把积木挪到原点，看起来像工具箱塌了。 */
+.blocklyFlyout .tut-breath {
+  animation: tut-breathe 2s ease-in-out infinite;
+}
+
+@keyframes tut-breathe {
+  0%,
+  100% {
+    filter: none;
+  }
+  50% {
+    filter: drop-shadow(0 0 5px rgba(53, 224, 200, 0.85)) brightness(1.4);
+  }
+}
+
+/* 首次「可渡劫」的脉冲（P0-C 第 4 项）：按钮是 HTML，box-shadow 扩散一圈就够，不用缩放。 */
+.hud .challenge-button.is-ready {
+  animation: tut-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tut-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(53, 224, 200, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(53, 224, 200, 0);
+  }
+}
+
+/* 拖拽时目标凹槽的描边（P0-C 第 3 项）。
+   实测：Blockly 注入的 CSS 带 `#<id> .blocklyInsertionMarker>.blocklyPath { stroke: none }`，
+   id 前缀的特异性比这里的「类+类」高一级，普通规则压不住（浏览器算出来 stroke=none）。
+   只有 !important 能盖，且这是对 Blockly 生成样式的常规做法，不再退到 setInsertionMarkerPreviewer。 */
+.blocklyInsertionMarker > .blocklyPath {
+  stroke: var(--spirit) !important;
+  stroke-width: 2px !important;
+}
+
+/* 心魔条旁那句「调息 -0.0005/次」：是补充说明，别和百分比抢注意力 */
+.hud .demon-calm {
+  color: var(--gold);
+  margin-left: 8px;
+  opacity: 0.85;
+}
+
+/* 渡劫挑战面板首行（P0-C 第 5 项）：这句是给「不敢松手」的人的安慰，排在规则之前 */
+.hud .trial-first {
+  color: var(--spirit);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 0 0 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blocklyFlyout .tut-breath,
+  .hud .challenge-button.is-ready {
+    animation: none;
+  }
 }

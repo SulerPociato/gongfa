@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, type BookPhase, type StallEvent } from '@gongfa/core';
+import { compareParts } from './format';
+import type { TutorialBarModel } from './tutorial';
 
 /** 存档损坏：HUD 只显示这一句，逐字段明细收在「详情」里 */
 export interface CorruptLineModel {
@@ -39,6 +41,11 @@ export interface RealmModel {
   /** 走火入魔剩余毫秒：>0 时显示倒计时并禁掉渡劫。惩罚期不落盘（刷新可跳过，见 runtime 的已知漏洞）。 */
   readonly pauseRemainingMs: number;
   readonly demon: number;
+  /**
+   * 心魔条旁的常驻提示（任务 8 P0-C 第 6 项），例如「调息 -0.0005/次」。
+   * 数值由宿主从 actions.json 拼好交进来，HUD 不查表也不格式化；null = 表里没有调息，整句不显示。
+   */
+  readonly calmText: string | null;
 }
 
 /**
@@ -137,6 +144,8 @@ export interface HudModel {
   readonly retreat: RetreatReport | null;
   /** 变更提示（任务 8）：产出第一次显著跳涨时弹一次，文案由宿主拼好，超时清除也归宿主。 */
   readonly toast: string | null;
+  /** 手把手引导的底部条（任务 8 P0-D）：null = 引导没启动或已永久关闭。 */
+  readonly tutorial: TutorialBarModel | null;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -218,6 +227,8 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
   const eta = model.etaSec === null
     ? `${model.seconds} 秒内不产出灵力`
     : `预计 ${model.etaSec} 秒达标${model.reachesInWindow ? '' : `（超出本图 ${model.seconds} 秒）`}`;
+  // 三个数字的写法与引导第 4 步共用 compareParts：两处各写一遍 toFixed，早晚会分叉成两个「每秒」。
+  const compare = model.compare === null ? null : compareParts(model.compare.fromPerSec, model.compare.toPerSec, model.compare.percent);
   return (
     <div className="curve">
       <p className="label">产出曲线</p>
@@ -227,11 +238,7 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
         <polyline className="curve-line" points={line} />
       </svg>
       <p className="curve-eta">{eta}</p>
-      {model.compare !== null && (
-        <p className="curve-compare">
-          产出 {model.compare.fromPerSec.toFixed(1)} → {model.compare.toPerSec.toFixed(1)} / 秒（{model.compare.percent >= 0 ? '+' : '-'}{Math.abs(model.compare.percent)}%）
-        </p>
-      )}
+      {compare !== null && <p className="curve-compare">产出 {compare.from} → {compare.to} / 秒（{compare.percent}%）</p>}
       {model.truncated && <p className="curve-truncated">程序超出本 tick 指令预算，曲线只算跑得完的部分</p>}
       <p className="curve-note">直线执行估算，未计入「如果」分支与心魔折扣</p>
     </div>
@@ -251,10 +258,17 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
       {paused && (
         <p className="backlash">走火入魔：存量 ×0.7、心魔归 0，停 5 秒（刷新可跳过）· 剩余 {(model.pauseRemainingMs / 1000).toFixed(1)} 秒</p>
       )}
-      <p className="label">心魔</p>
-      <Bar value={model.demon} of={1} label="心魔" kind="demon" />
-      <p className="demon-text">{(model.demon * 100).toFixed(1)}%</p>
-      <p className="demon-hint">超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。</p>
+      {/* 心魔这一小截单独成组：引导第 5 步只点亮它，不点亮整块境界面板。 */}
+      <div className="realm-demon tut-target">
+        <p className="label">心魔</p>
+        <Bar value={model.demon} of={1} label="心魔" kind="demon" />
+        <p className="demon-text">
+          {(model.demon * 100).toFixed(1)}%
+          {/* 调息每次压多少是表里的数（宿主拼好）：常驻在这句旁边，玩家不用为了知道它去翻代码。 */}
+          {model.calmText !== null && <span className="demon-calm">{model.calmText}</span>}
+        </p>
+        <p className="demon-hint">超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。</p>
+      </div>
     </div>
   );
 }
@@ -302,7 +316,8 @@ export function ChallengePanel({ model, onPress }: { readonly model: ChallengeMo
             : '';
   return (
     <div className="challenge">
-      <button className="challenge-button" type="button" disabled={!model.enabled} onClick={onPress}>
+      {/* is-ready：首次「可渡劫」的脉冲动画挂在这上面（P0-C 第 4 项），只看相位，不看别的。 */}
+      <button className={`challenge-button${model.phase === 'ready' ? ' is-ready' : ''} tut-target`} type="button" disabled={!model.enabled} onClick={onPress}>
         {BUTTON_TEXT[model.phase]}
         {sub === '' ? '' : ` ${sub}`}
       </button>
@@ -310,6 +325,11 @@ export function ChallengePanel({ model, onPress }: { readonly model: ChallengeMo
         <div className="trial">
           {/* 命名（任务 8）：10 秒这一格叫「渡劫挑战」，60 秒那一格叫「试炼」——同一屏两个「试炼」玩家会分不清在等哪个。 */}
           <p className="trial-title">渡劫挑战</p>
+          {/* 裁定 1：这句只在 10 秒窗口里出现。它是「你不用慌」的即时安慰，常驻在按钮下面就成了废话。
+              不操作不是惩罚而是 60% 的托管档，这句不写死玩家就会以为磨时间能磨出更高概率。 */}
+          <p className="trial-first">
+            {(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒内不操作，自动按 {(AUTO_RATE * 100).toFixed(0)}% 结算（无需操作，不额外扣代价）
+          </p>
           {/* 01-design §4.4 的「限时改功法」：改的是产出，不是概率 —— 这句必须写死，不然玩家会以为磨得越久越容易。 */}
           <p className="trial-rule">改功法只改接下来的产出，不改成功率。</p>
           <p className="trial-odds">
@@ -346,6 +366,23 @@ function RetreatPanel({ report, onClose }: { readonly report: RetreatReport; rea
       <button className="retreat-close" type="button" onClick={onClose}>
         知道了
       </button>
+    </div>
+  );
+}
+
+// 底部引导条（任务 8 P0-D）：文案 + 「n/6」 + 跳过，三个东西一行装完。
+// 裁定 2：跳过只在这条右端出现一个入口，右上角不再放第二个 —— 两个入口玩家会按错。
+// 结束态（step === null）只剩文案：没有下一步可跳，按钮留着就是死键。
+export function TutorialBar({ model, onSkip }: { readonly model: TutorialBarModel; readonly onSkip: () => void }) {
+  return (
+    <div className="tutorial-bar" role="status">
+      <p className="tutorial-text">{model.text}</p>
+      {model.step !== null && <p className="tutorial-count">{`${model.step}/${model.total}`}</p>}
+      {model.step !== null && (
+        <button className="tutorial-skip" type="button" onClick={onSkip}>
+          跳过引导
+        </button>
+      )}
     </div>
   );
 }
@@ -389,8 +426,8 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settin
     <aside className="hud">
       <h1>代码修仙</h1>
       <p className="label">灵力</p>
-      <p className="qi">{model.qi}</p>
-      <p className="rate">{model.rate.toFixed(1)} / 秒</p>
+      <p className="qi tut-target">{model.qi}</p>
+      <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
       <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
       {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
       {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}

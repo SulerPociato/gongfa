@@ -50,6 +50,13 @@ import { wallClock } from '../adapters/storage';
 
 const content = loadContent({ actions: actionsJson, realms: realmsJson });
 
+/**
+ * 调息每次压掉多少心魔：直接取 actions.json 里 calm 那行的 demonDelta（任务 8 P0-C 第 6 项）。
+ * 表里没有调息就给 null —— 面板宁可不说这句，也不要印一个「-0/次」假装压得住。
+ * 走模块常量而不是 RuntimeState：它和 VM 吃的是同一份 content，逐帧现算只会多一次查表。
+ */
+export const CALM_DEMON_DELTA: number | null = content.actions.find((action) => action.id === 'calm')?.demonDelta ?? null;
+
 export interface RuntimeState {
   readonly qi: number;
   readonly demon: number;

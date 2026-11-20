@@ -14,12 +14,13 @@ import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SE
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
-import { createRuntime, urlSeed, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
+import { createRuntime, urlSeed, CALM_DEMON_DELTA, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
+import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
+import { Hud, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -38,6 +39,8 @@ declare global {
 }
 
 // 进度条和文案共用的境界视图：字段全部来自 runtime.state()，HUD 侧不做任何算术。
+// 调息那句（P0-C 第 6 项）走 CALM_DEMON_DELTA —— actions.json 里 calm 那行的原值，
+// 表改成 -0.001 这行就跟着变；表里没有调息就整句不出现，不印一个「-0/次」冒充。
 function realmModel(state: RuntimeState): RealmModel {
   return {
     name: state.realmName,
@@ -46,6 +49,7 @@ function realmModel(state: RuntimeState): RealmModel {
     canBreakthrough: state.canBreakthrough,
     pauseRemainingMs: state.pauseRemainingMs,
     demon: state.demon,
+    calmText: CALM_DEMON_DELTA === null ? null : `调息 ${CALM_DEMON_DELTA}/次`,
   };
 }
 
@@ -117,6 +121,11 @@ function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
 // 模块级变量在两次挂载之间存活，第二次挂载读取后清空。
 let pendingOfflineReport: OfflineResult | null = null;
 
+// 引导的「无存档」判据也一样不能交给双挂载：第一次挂载卸载时 cleanup 会 flush 落盘，
+// 第二次读档就有档了。所以只认本次页面加载的第一次读档结果，后面每次挂载复用同一个值。
+// 刷新（新的 JS 上下文）会重置，正合「老玩家重进不该再走一遍引导」——那时第一次读档本来就是有档。
+let firstBootFresh: boolean | null = null;
+
 // 曲线预览的空视图：编译失败或凹槽空着时整块面板不出现 —— 画一条没在跑的曲线是假话。
 const NO_CURVE: CurveModel = { points: [], threshold: 0, etaSec: null, reachesInWindow: false, seconds: PREVIEW_SECONDS, compare: null, truncated: false };
 
@@ -136,7 +145,7 @@ function curveModel(preview: CurvePreview, compare: CurveCompare | null): CurveM
   };
 }
 
-function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast'>): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -154,6 +163,7 @@ function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'e
     notices: extra.notices,
     retreat: extra.retreat,
     toast: extra.toast,
+    tutorial: extra.tutorial,
   };
 }
 
@@ -210,6 +220,8 @@ export function App() {
   const challengeActionRef = useRef<(() => void) | null>(null);
   // 道具开关同理：装备要当场重算 sink 与预算池，只有 useEffect 里才摸得到 runtime 与控制器。
   const artifactActionRef = useRef<((id: string) => void) | null>(null);
+  // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
+  const tutorialSkipRef = useRef<(() => void) | null>(null);
   // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
   // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
   // markDirty 走 saveRef 现取：控制器要到 useEffect 里才建出来，构造时只能留一个晚绑定的闭包。
@@ -217,7 +229,7 @@ export function App() {
   if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
 
   useEffect(() => {
@@ -226,20 +238,56 @@ export function App() {
     if (container === null || runtime === null) return;
 
     const storage = createLocalStorageSaveStorage();
+
+    // ---- 任务 8 P0-C / P0-D：引导 ----
+    // 声明在 inject 之前：工具箱要不要藏块、flyout 上挂哪些 class，都由这几个量决定；
+    // 而「是不是第一次进游戏」要等 loadBlocks 之后才判得出来，所以这里先占位、稍后激活。
+    // 进度本身是内存态（和 attempt / insight 同一类）：只有「永久关闭」写 localStorage。
+    let tutActive = false;
+    let tutStep: TutorialStep = 1;
+    let tutReleased = true;
+    let tutBreathDragged = false;
+    let tutPressed = false;
+    let tutStepAt = 0;
+    let tutBar: TutorialBarModel | null = null;
+    let tutBarSig = '';
+    let tutReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+    let tutEndTimer: ReturnType<typeof setTimeout> | null = null;
+
     // 工具箱按境界门控（契约 §4.3 的解锁列）：炼气只给 4 块，筑基起补「如果 / 循环」。
     // ?demo=1 全开（01-design §11.4「演示模式强制全开」）。Blockly 的 updateToolbox 重建整棵 flyout，
     // 但 flyout 是「打开时才渲染」的，所以只换 ToolboxJson 不会碰画布上已有的积木，也不触发 compile。
-    let toolboxRealm = booted.realmIndex;
-    const toolboxJson = (index: number): NonNullable<InjectOptions['toolbox']> =>
-      toolboxForRealm(index, booted.demo) as unknown as NonNullable<InjectOptions['toolbox']>;
+    // 引导的临时藏块（hidden）叠在同一份 ToolboxJson 上、走同一个入口，才不会出现两份工具箱口径。
     const workspace = Blockly.inject(container, {
       theme: Blockly.Theme.defineTheme(GONGFA_THEME.name, GONGFA_THEME as unknown as ThemeConfig),
-      toolbox: toolboxJson(toolboxRealm),
+      toolbox: toolboxForRealm(booted.realmIndex, booted.demo) as unknown as NonNullable<InjectOptions['toolbox']>,
     });
-    const syncToolbox = (index: number): void => {
-      if (index === toolboxRealm) return;
-      toolboxRealm = index;
-      workspace.updateToolbox(toolboxJson(index) as unknown as Parameters<typeof workspace.updateToolbox>[0]);
+    // flyout 的块是渲染过的积木，getSvgRoot 在 BlockSvg 上；类型入口没导出 BlockSvg，这里按形状取。
+    type RenderedBlock = { readonly getSvgRoot: () => SVGGElement };
+    const TUT_TYPES = ['breath', 'calm', 'gongfa_compare'] as const;
+    const refreshFlyoutClasses = (): void => {
+      const inner = workspace.getFlyout()?.getWorkspace();
+      if (inner === undefined || inner === null) return;
+      const focus = tutActive ? flyoutFocusType(tutStep) : null;
+      // 呼吸高亮只在第 1 步、且第一块吐纳还没落地之前（P0-C 第 2 项）。
+      const breathe = tutActive && tutStep === 1 && !tutBreathDragged;
+      for (const type of TUT_TYPES) {
+        for (const block of inner.getBlocksByType(type, false)) {
+          const svg = (block as unknown as RenderedBlock).getSvgRoot();
+          svg.classList.toggle('tut-focus', type === focus);
+          svg.classList.toggle('tut-breath', type === 'breath' && breathe);
+        }
+      }
+    };
+    let toolboxSig = `${booted.realmIndex}|`;
+    const applyToolbox = (index: number): void => {
+      const hidden = hiddenToolboxTypes(tutActive, tutReleased);
+      const sig = `${index}|${hidden.join(',')}`;
+      if (sig === toolboxSig) return;
+      toolboxSig = sig;
+      workspace.updateToolbox(toolboxForRealm(index, booted.demo, hidden) as unknown as Parameters<typeof workspace.updateToolbox>[0]);
+      // updateToolbox 把整棵 flyout 换成新 DOM：高亮 class 只能重建后重新挂，缓存 svgRoot 会挂在已废弃的元素上。
+      refreshFlyoutClasses();
     };
 
     // 存档里的 workspace 是真相源（契约 §5.1），IR 只是缓存：这里只往 saved 里存 Blockly 的原样 JSON，
@@ -310,6 +358,24 @@ export function App() {
     });
     const blockErrors = loadBlocks(loaded.state?.workspace);
     const restoreErrors = loaded.state === null ? [] : runtime.restore(loaded.state);
+
+    // 引导激活（P0-C 第 1 项 + P0-D）：三个「第一次」的判据到这一刻才凑齐 —— 无存档、开局 5 秒内、
+    // 画布上还没有动作块。?demo=1 与「已跳过」都在这里一并挡掉（裁定 5：评审第一眼要看全量积木）。
+    // 藏块要立刻生效，所以紧跟一次 applyToolbox：inject 那份是没藏的版本，重建一次才只留「吐纳」。
+    if (firstBootFresh === null) firstBootFresh = loaded.fresh;
+    tutActive = tutorialActiveAt({
+      done: readTutorialDone(storage),
+      fresh: firstBootFresh,
+      playMs: booted.playMs,
+      demo: booted.demo,
+      actionBlocks:
+        workspace.getBlocksByType('breath', false).length + workspace.getBlocksByType('calm', false).length,
+    });
+    if (tutActive) {
+      tutReleased = false;
+      tutStepAt = wallClock.now();
+      applyToolbox(runtime.state().realmIndex);
+    }
     // 损坏提示分层：HUD 那一行 + 控制台明细 + 「详情」展开区，都由这一次装载的结果决定
     const corrupted = corruptReport(storage, loaded);
     // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默。两处不进红字：
@@ -520,6 +586,8 @@ export function App() {
     // ① 蓄势就绪 → 开启 10 秒挑战；② 前置条件没满足（惩罚 / 阈值 / 末境 / 冷却 / 蓄势）→ 红字。
     // 当场结算（手动确认、演示模式）与到点结算（托管）都由 reportChallenge 说。
     challengeActionRef.current = (): void => {
+      // 引导把它当「这一套他会了」：点过就一直算点过（第 5 步不设单独跳过，裁定 3）。
+      tutPressed = true;
       const result = runtime.pressChallenge();
       if (result.phase === 'trial') {
         lastHudKey = '';
@@ -541,7 +609,14 @@ export function App() {
     let lastCompare: CurveCompare | null = null;
     let curveRealm = booted.realmIndex;
     let toastShown = false;
+    let readyToastShown = false;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    // toast 是单通道：后到的顶掉先到的（两条各只说一次，且不会同时发生 —— 裁定里确认过可接受）。
+    const showToast = (message: string): void => {
+      setHud((previous) => ({ ...previous, toast: message }));
+      if (toastTimer !== null) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => setHud((previous) => ({ ...previous, toast: null })), TOAST_MS);
+    };
     const syncCurve = (program: Program | null): void => {
       const preview = runtime.preview(program);
       if (preview === null) {
@@ -564,10 +639,7 @@ export function App() {
         // 一次性：只在「第一次真的显著涨」那回弹，之后再加积木不重复打扰（验收 6）。
         if (!toastShown && lastCompare.percent >= 30) {
           toastShown = true;
-          const message = `同样的时间，你的产出提高了 ${lastCompare.percent}%`;
-          setHud((previous) => ({ ...previous, toast: message }));
-          if (toastTimer !== null) clearTimeout(toastTimer);
-          toastTimer = setTimeout(() => setHud((previous) => ({ ...previous, toast: null })), TOAST_MS);
+          showToast(`同样的时间，你的产出提高了 ${lastCompare.percent}%`);
         }
       } else if (base === null || base.realmIndex !== preview.realmIndex) {
         // 没有可比基线（开局第一份程序、渡劫换表）：上一行的对比说的已经是别一套乘数，撤掉比留着诚实。
@@ -577,6 +649,79 @@ export function App() {
       // 所以「速率没变」时保留上一行的对比，不能把它抹掉 —— 否则刚看清的 +80% 会在半秒后自己消失。
       curveBase = { perSec: preview.perSec, realmIndex: preview.realmIndex };
       setHud((previous) => ({ ...previous, curve: curveModel(preview, lastCompare) }));
+    };
+
+    // ---- 任务 8 P0-D：引导推进 ----
+    // 步骤机在 tutorial.ts 里（纯函数、有单测）；这里只做三件脏活：读画布积木数、挂 flyout 的 class、
+    // 管两个计时器。不锁操作是硬要求 —— 这段代码里没有任何 pointer-events / disabled 的改动。
+    const tutNumbers = (): TutorialNumbers => {
+      const state = runtime.state();
+      // perSec 与 compare 都取曲线面板那份：引导复述的数字必须和面板同源，否则验收 c) 就是假通过。
+      return { perSec: curveBase?.perSec ?? 0, compare: lastCompare, goalQi: state.sprintGoalQi, windowSec: state.sprintWindowMs / 1000 };
+    };
+
+    const syncTutorial = (state: RuntimeState): void => {
+      if (!tutActive) return;
+      const breath = workspace.getBlocksByType('breath', false).length;
+      const calm = workspace.getBlocksByType('calm', false).length;
+      if (breath >= 1 && !tutBreathDragged) {
+        // 第一块吐纳落地：呼吸高亮停掉，3 秒后放出「调息」「比较」（P0-C 第 1、2 项）。
+        tutBreathDragged = true;
+        refreshFlyoutClasses();
+        if (tutReleaseTimer === null) {
+          tutReleaseTimer = setTimeout(() => {
+            tutReleaseTimer = null;
+            tutReleased = true;
+            applyToolbox(runtime.state().realmIndex);
+          }, RELEASE_AFTER_DRAG_MS);
+        }
+      }
+      const next = nextTutorialStep(
+        tutStep,
+        { breath, calm, qi: state.qi, demon: state.demon, hasCompare: lastCompare !== null, pressedChallenge: tutPressed },
+        wallClock.now() - tutStepAt,
+      );
+      if (next !== tutStep) {
+        tutStep = next;
+        tutStepAt = wallClock.now();
+        refreshFlyoutClasses();
+        if (next === 'done') {
+          // 走完六步和点「跳过引导」是同一个结局：这条引导一辈子只来一遍，下次清档也不再重播。
+          writeTutorialDone(storage);
+          if (tutEndTimer !== null) clearTimeout(tutEndTimer);
+          tutEndTimer = setTimeout(() => {
+            tutEndTimer = null;
+            tutActive = false;
+            tutBar = null;
+            tutBarSig = '';
+            setHud((previous) => ({ ...previous, tutorial: null }));
+          }, END_DWELL_MS);
+        }
+      }
+      const bar = tutorialBar(tutStep, tutNumbers());
+      const sig = `${bar.step}|${bar.text}`;
+      if (sig !== tutBarSig) {
+        tutBarSig = sig;
+        tutBar = bar;
+      }
+    };
+
+    // 裁定 2：跳过只有底部条右端这一个入口。点了就永久关闭，并当场把藏掉的积木放回工具箱 ——
+    // 引导没了却还少两块积木，那是引导的副作用在替玩家做决定。
+    tutorialSkipRef.current = (): void => {
+      if (!tutActive) return;
+      writeTutorialDone(storage);
+      tutActive = false;
+      tutReleased = true;
+      tutBar = null;
+      tutBarSig = '';
+      if (tutEndTimer !== null) {
+        clearTimeout(tutEndTimer);
+        tutEndTimer = null;
+      }
+      refreshFlyoutClasses();
+      applyToolbox(runtime.state().realmIndex);
+      setHud((previous) => ({ ...previous, tutorial: null }));
     };
 
     // event 为空 = 挂载时那一次手动编译；组号是我们的程序化换画布 = 不是玩家编辑。
@@ -627,11 +772,19 @@ export function App() {
         if (seenChallenge !== null) reportChallenge(seenChallenge);
       }
       const qi = Math.floor(state.qi);
-      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}`;
+      // 引导逐步推进靠墙钟停留时长（第 4 步的 5 秒），所以它必须在渲染闸门之前每帧都跑；
+      // 它自己只在文案真变时改 tutBarSig，sig 进 key，闸门照样拦得住空转帧。
+      syncTutorial(state);
+      // 首次「可渡劫」：脉冲由 CSS 看相位，话由这里说一次（P0-C 第 4 项）。
+      if (!readyToastShown && challengePhaseOf(state) === 'ready') {
+        readyToastShown = true;
+        showToast('存量已满，可以渡劫了');
+      }
+      const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}|${tutBarSig}`;
       if (key === lastHudKey) return;
       lastHudKey = key;
       // 突破/渡劫成功之后工具箱跟着换（§4.3）：flyout 是打开时才渲染的，但已打开的面板要当场重建才看得见新块。
-      syncToolbox(state.realmIndex);
+      applyToolbox(state.realmIndex);
       // 渡劫之后乘数换表：曲线跟着新境重算，否则「预计 X 秒」说的还是上一境的数字。
       // 只在境界真换过的那一帧动手，且这不算「玩家改了程序」，所以不会冒出对比行。
       if (state.realmIndex !== curveRealm) {
@@ -647,6 +800,7 @@ export function App() {
         sprint: sprintModel(state),
         challenge: challengeModel(state),
         toolHint: toolHintOf(state),
+        tutorial: tutBar,
       }));
     });
     loop.start();
@@ -711,9 +865,12 @@ export function App() {
     return () => {
       loop.stop();
       if (toastTimer !== null) clearTimeout(toastTimer);
+      if (tutReleaseTimer !== null) clearTimeout(tutReleaseTimer);
+      if (tutEndTimer !== null) clearTimeout(tutEndTimer);
       detachBook();
       detachArtifacts();
       challengeActionRef.current = null;
+      tutorialSkipRef.current = null;
       if (debugVisible) delete window.__gongfa_debug;
       // StrictMode 的双挂载与真实卸载都走这里：先落一次档再拆工作区，别把刚搭的程序丢在内存里
       controller.flush();
@@ -733,10 +890,15 @@ export function App() {
     setHud((previous) => ({ ...previous, retreat: null }));
   };
 
+  // tut-N 是降对比度规则的作用域（P0-D）：引导没启动、已结束或已跳过都不带 class，一条压制规则都不会生效。
+  // 结束态（step === null）也不带 —— 那句「自己试」不该再把别的元素压暗。
+  const tutClass = hud.tutorial === null || hud.tutorial.step === null ? '' : ` tut tut-${hud.tutorial.step}`;
+
   return (
-    <div className="layout">
+    <div className={`layout${tutClass}`}>
       <div className="canvas" ref={containerRef} />
       <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} onCloseRetreat={handleCloseRetreat} />
+      {hud.tutorial !== null && <TutorialBar model={hud.tutorial} onSkip={() => { tutorialSkipRef.current?.(); }} />}
     </div>
   );
 }
