@@ -29,8 +29,8 @@
 
 | 文件 | 说明 |
 |---|---|
-| `tools/prototype/balance-sim.py` | 参考实现，复现目标表；`python balance-sim.py` |
-| `tools/prototype/balance-sim.log` | 最近一次运行结果（四境界，三档心魔基线），契约第 3 节数字的来源 |
+| `tools/prototype/balance-sim.py` | 参考实现，复现目标表；仓库根执行 `python tools/prototype/balance-sim.py` |
+| `tools/prototype/balance-sim.log` | 最近一次运行结果（四境界，三档心魔基线），契约第 3 节数字的来源；**由人工重定向生成，不随 `pnpm test` 更新**：`python tools/prototype/balance-sim.py > tools/prototype/balance-sim.log` |
 | `tools/reference-run.ts` | 任务 10 产物：VM 与 sink 双路径对账，证明参考程序按契约能跑出 1:40 / 4:12 / 7:04 / 11:09 |
 
 ## 部署
@@ -40,9 +40,12 @@
 ```bash
 pnpm install
 pnpm dev          # 启动 Vite 开发服务器，默认 :5173
-pnpm build        # 构建生产产物到 apps/web/dist/（约 1MB，主要来自 Blockly）
-pnpm preview      # 预览构建产物
+pnpm --filter @gongfa/web build    # 构建生产产物到 apps/web/dist/（约 1.1MB，其中 JS 1,019.62 kB / gzip 295.02 kB，主要来自 Blockly）
+pnpm --filter @gongfa/web preview  # 预览构建产物，默认 :4173
 ```
+
+根 `package.json` 只有 `dev` / `sim` / `sim:table` / `test` / `typecheck`，`build` 与 `preview` 在 `@gongfa/web` 里，所以要用 `--filter` 调。
+`@gongfa/core` 与 `@gongfa/blocks` 没有构建步骤（`exports` 直接指向 `.ts` 源码），新克隆 `pnpm install` 后即可直接构建。
 
 ### 字体
 

@@ -3,3 +3,4 @@ dist/
 .qoder/
 spike-blockly/spike.mjs
 .DS_Store
+*.tsbuildinfo

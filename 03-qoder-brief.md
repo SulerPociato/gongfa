@@ -289,7 +289,7 @@ npx tsx tools/balance-sim.ts
 **目标**：线上可访问，有 3 分钟演示视频。
 
 **产出**
-- `pnpm build` → 静态文件
+- `pnpm --filter @gongfa/web build` → 静态文件（产物在 `apps/web/dist/`）
 - 部署（OSS / Pages / Vercel）
 - 录屏按 01-design 第十节的脚本
 - 提交材料：链接 + 视频 + 两份文档 + Qoder 会话截图

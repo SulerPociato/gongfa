@@ -1,1 +1,0 @@
-{"root":["./src/adapters/seed.ts","./src/adapters/storage.ts","./src/game/books.ts","./src/game/loop.ts","./src/game/runtime.ts","./src/game/save.ts","./src/game/toolbox.ts","./src/app.tsx","./src/main.tsx","./src/game/hud.tsx","./vite.config.ts"],"version":"5.9.3"}
