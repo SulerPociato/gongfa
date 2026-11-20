@@ -84,6 +84,33 @@ export interface SprintModel {
   readonly reached: boolean;
 }
 
+/**
+ * 曲线预览（任务 8 P0-B）：60 秒累计产出的折线、阈值参考线、预计达标秒数与变更对比行。
+ * 点、阈值、秒数、百分比全部由 core 的简化模型（previewCurve）算好 —— HUD 只做像素映射和选文案，
+ * 一次除法都不做，否则「面板说的」和「游戏给的」迟早分成两套口径。
+ */
+export interface CurveCompare {
+  readonly fromPerSec: number;
+  readonly toPerSec: number;
+  /** 相对变化的整数百分比（可负）：宿主算好，HUD 不拿两个小数自己除。 */
+  readonly percent: number;
+}
+
+export interface CurveModel {
+  /** 60 个累计点；空数组 = 没有可预览的程序（编译失败或凹槽空着），整块面板不出现。 */
+  readonly points: readonly number[];
+  readonly threshold: number;
+  /** null = 这份程序一产出都没有。 */
+  readonly etaSec: number | null;
+  /** 60 秒窗口内够不够到阈值：不够就补一句「超出本图」，别让参考线看着像够不着的 bug。 */
+  readonly reachesInWindow: boolean;
+  /** 窗口秒数：横轴文案从这里除，不写死 60。 */
+  readonly seconds: number;
+  readonly compare: CurveCompare | null;
+  /** 指令预算截断：曲线只描述这一 tick 跑得完的部分。 */
+  readonly truncated: boolean;
+}
+
 export interface HudModel {
   readonly qi: number;
   readonly rate: number;
@@ -98,6 +125,8 @@ export interface HudModel {
   /** 道具面板（任务 7A）：目录读不起来时宿主给空数组，红字里已经有那句原因。 */
   readonly artifacts: readonly ArtifactRow[];
   readonly realm: RealmModel;
+  /** 曲线预览（任务 8）：紧贴境界面板，因为它俩说的是同一件事 —— 这条程序离阈值多远。 */
+  readonly curve: CurveModel;
   /** 试炼（任务 8）：紧挨渡劫面板，因为它的唯一后果就是「蓄势减半」。 */
   readonly sprint: SprintModel;
   /** 渡劫面板（任务 6.5）：按钮相位、10 秒倒计时、保底与悟道全由 runtime 算好交过来。 */
@@ -106,6 +135,8 @@ export interface HudModel {
   readonly toolHint: string;
   /** 闭关报告（任务 7B）：离线结算后显示，玩家点「知道了」关闭 */
   readonly retreat: RetreatReport | null;
+  /** 变更提示（任务 8）：产出第一次显著跳涨时弹一次，文案由宿主拼好，超时清除也归宿主。 */
+  readonly toast: string | null;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -166,6 +197,43 @@ function Bar({ value, of, label, kind }: { readonly value: number; readonly of: 
   return (
     <div className={`bar ${kind}`} role="progressbar" aria-label={label} aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
       <div className="bar-fill" style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
+
+// 折线画布的像素尺寸：viewBox 与之一致，宽度交给 CSS（HUD 是窄栏，SVG 用 preserveAspectRatio 缩放）。
+const CURVE_W = 300;
+const CURVE_H = 96;
+
+// 曲线面板（任务 8 P0-B）：拖一块积木就能看见「这么改值多少」，不用等 100 秒验证猜想。
+// 模型只算无干扰产出，所以那句免责必须常驻：拿估算当承诺是这轮要修的「一直在等」的反面教材。
+function CurvePanel({ model }: { readonly model: CurveModel }) {
+  if (model.points.length === 0) return null;
+  const last = model.points[model.points.length - 1] ?? 0;
+  // 纵轴上限取「曲线末点与阈值的大者」：阈值那条线永远画在图里，玩家才看得见自己差多远。
+  const top = Math.max(last, model.threshold, 1);
+  const x = (index: number): number => (model.points.length === 1 ? CURVE_W : (index / (model.points.length - 1)) * CURVE_W);
+  const y = (value: number): number => CURVE_H - (value / top) * CURVE_H;
+  const line = model.points.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
+  const eta = model.etaSec === null
+    ? `${model.seconds} 秒内不产出灵力`
+    : `预计 ${model.etaSec} 秒达标${model.reachesInWindow ? '' : `（超出本图 ${model.seconds} 秒）`}`;
+  return (
+    <div className="curve">
+      <p className="label">产出曲线</p>
+      <svg className="curve-svg" viewBox={`0 0 ${CURVE_W} ${CURVE_H}`} preserveAspectRatio="none" role="img"
+        aria-label={`60 秒产出曲线，末点 ${Math.round(last)}，阈值 ${model.threshold}，${eta}`}>
+        <line className="curve-threshold-line" x1="0" y1={y(model.threshold).toFixed(1)} x2={CURVE_W} y2={y(model.threshold).toFixed(1)} />
+        <polyline className="curve-line" points={line} />
+      </svg>
+      <p className="curve-eta">{eta}</p>
+      {model.compare !== null && (
+        <p className="curve-compare">
+          产出 {model.compare.fromPerSec.toFixed(1)} → {model.compare.toPerSec.toFixed(1)} / 秒（{model.compare.percent >= 0 ? '+' : '-'}{Math.abs(model.compare.percent)}%）
+        </p>
+      )}
+      {model.truncated && <p className="curve-truncated">程序超出本 tick 指令预算，曲线只算跑得完的部分</p>}
+      <p className="curve-note">直线执行估算，未计入「如果」分支与心魔折扣</p>
     </div>
   );
 }
@@ -324,8 +392,10 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settin
       <p className="qi">{model.qi}</p>
       <p className="rate">{model.rate.toFixed(1)} / 秒</p>
       <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+      {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
       {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
       <RealmPanel model={model.realm} qi={model.qi} />
+      <CurvePanel model={model.curve} />
       <SprintPanel model={model.sprint} />
       <ChallengePanel model={model.challenge} onPress={onChallenge} />
       <BookPanel model={model.book} onAction={onBookAction} />

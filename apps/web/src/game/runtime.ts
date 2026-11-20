@@ -17,6 +17,7 @@ import {
   makeActionSink,
   noiseGainMult,
   passivePerTick,
+  previewCurve,
   Qi,
   reachesBacklash,
   resolveChallenge,
@@ -34,6 +35,7 @@ import {
   type BookDef,
   type ChallengeMode,
   type Clock,
+  type CurvePreview,
   type GameState,
   type JadeCacheSpec,
   type OfflineResult,
@@ -177,6 +179,11 @@ export interface Runtime {
    * 期间心魔不涨、杂念不砍、走火不罚。返回结算结果（null = 没跑，例如 0 tick）。
    */
   settleOffline(input: { readonly lastSeenAt: number; readonly allowBreakthrough: boolean }): OfflineResult | null;
+  /**
+   * 曲线预览（任务 8 P0-B，架构 §曲线预览）：简化模型估这份程序 60 秒能攒多少，不启动 VM。
+   * 表与预算池都从 runtime 现取，宿主再 loadContent 一份就是第二套口径；编译失败传 null 就什么都不画。
+   */
+  preview(program: Program | null): CurvePreview | null;
   state(): RuntimeState;
 }
 
@@ -675,6 +682,9 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh };
     },
     settleOffline: settleOfflineMethod,
+    preview: (program) => program === null
+      ? null
+      : previewCurve({ content, realmIndex, code: program.code, budget: vm.budget }),
     state: () => ({ ...state, ...realmView() }),
   };
 }

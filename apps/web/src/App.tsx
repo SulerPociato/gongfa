@@ -10,7 +10,7 @@ import {
   STARTER_WORKSPACE_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage } from '@gongfa/core';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage } from '@gongfa/core';
 import { createLocalStorageSaveStorage, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -19,7 +19,7 @@ import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
+import { Hud, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -116,12 +116,33 @@ function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
 // 离线结算报告暂存：StrictMode 双挂载时，第一次挂载的结算结果要在第二次挂载时显示。
 // 模块级变量在两次挂载之间存活，第二次挂载读取后清空。
 let pendingOfflineReport: OfflineResult | null = null;
-function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat'>): HudModel {
+
+// 曲线预览的空视图：编译失败或凹槽空着时整块面板不出现 —— 画一条没在跑的曲线是假话。
+const NO_CURVE: CurveModel = { points: [], threshold: 0, etaSec: null, reachesInWindow: false, seconds: PREVIEW_SECONDS, compare: null, truncated: false };
+
+// toast 的停留时长：要够读完一句话，又不至于挡在玩家眼前不走（HUD 窄栏没有别的东西可看）。
+const TOAST_MS = 6_000;
+
+// 预览结果 → 面板模型：窗口秒数从 core 的常量取，对比行走的是模型速率（同一份程序不许有两个「每秒」）。
+function curveModel(preview: CurvePreview, compare: CurveCompare | null): CurveModel {
+  return {
+    points: preview.points,
+    threshold: preview.threshold,
+    etaSec: preview.etaSec,
+    reachesInWindow: preview.reachesInWindow,
+    seconds: PREVIEW_SECONDS,
+    compare,
+    truncated: preview.truncated,
+  };
+}
+
+function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
     stall: state.stall,
     realm: realmModel(state),
+    curve: extra.curve,
     sprint: sprintModel(state),
     challenge: challengeModel(state),
     toolHint: toolHintOf(state),
@@ -132,6 +153,7 @@ function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'e
     save: extra.save,
     notices: extra.notices,
     retreat: extra.retreat,
+    toast: extra.toast,
   };
 }
 
@@ -195,7 +217,7 @@ export function App() {
   if (runtimeRef.current === null) runtimeRef.current = createRuntime({ seed: urlSeed() ?? randomSeed(), markDirty: () => saveRef.current?.markDirty() });
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
 
   useEffect(() => {
@@ -512,6 +534,51 @@ export function App() {
       lastHudKey = '';
     };
 
+    // 曲线预览（任务 8 P0-B）：画布一变就重算，玩家不必拿 100 秒去验证一个猜想。
+    // 对比行的基线是「上一次预览的模型速率」，不是 state.rate —— 后者含杂念折扣，同一份程序会报出两个「每秒」。
+    // 基线还带 realmIndex：渡劫换了乘数表，拿上一境的数字做百分比是说假话。
+    let curveBase: { readonly perSec: number; readonly realmIndex: number } | null = null;
+    let lastCompare: CurveCompare | null = null;
+    let curveRealm = booted.realmIndex;
+    let toastShown = false;
+    let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    const syncCurve = (program: Program | null): void => {
+      const preview = runtime.preview(program);
+      if (preview === null) {
+        // 编译不过：曲线撤掉、基线与对比行一起作废，否则改回合法程序时会拿一份没在跑的旧速率做对比。
+        curveBase = null;
+        lastCompare = null;
+        setHud((previous) => ({ ...previous, curve: NO_CURVE }));
+        return;
+      }
+      // base 取局部常量：curveBase 是 let，跨语句的判断 TS 不肯收窄，读一次就安全了。
+      // 算「变更」要同时满足三条：有基线、同一境界（乘数表没换）、旧速率非零且真的变了（0 → 10 没有百分比可说）。
+      const base = curveBase;
+      const changed = base !== null && base.realmIndex === preview.realmIndex && base.perSec > 0 && base.perSec !== preview.perSec;
+      if (changed) {
+        lastCompare = {
+          fromPerSec: base.perSec,
+          toPerSec: preview.perSec,
+          percent: Math.round((preview.perSec / base.perSec - 1) * 100),
+        };
+        // 一次性：只在「第一次真的显著涨」那回弹，之后再加积木不重复打扰（验收 6）。
+        if (!toastShown && lastCompare.percent >= 30) {
+          toastShown = true;
+          const message = `同样的时间，你的产出提高了 ${lastCompare.percent}%`;
+          setHud((previous) => ({ ...previous, toast: message }));
+          if (toastTimer !== null) clearTimeout(toastTimer);
+          toastTimer = setTimeout(() => setHud((previous) => ({ ...previous, toast: null })), TOAST_MS);
+        }
+      } else if (base === null || base.realmIndex !== preview.realmIndex) {
+        // 没有可比基线（开局第一份程序、渡劫换表）：上一行的对比说的已经是别一套乘数，撤掉比留着诚实。
+        lastCompare = null;
+      }
+      // 拖一块积木会连着触发好几次 change（新建、移动、连上凹槽），后几次是同一份程序的重复编译。
+      // 所以「速率没变」时保留上一行的对比，不能把它抹掉 —— 否则刚看清的 +80% 会在半秒后自己消失。
+      curveBase = { perSec: preview.perSec, realmIndex: preview.realmIndex };
+      setHud((previous) => ({ ...previous, curve: curveModel(preview, lastCompare) }));
+    };
+
     // event 为空 = 挂载时那一次手动编译；组号是我们的程序化换画布 = 不是玩家编辑。
     const compile = (event?: ChangeEvent): void => {
       const blocks = Blockly.serialization.workspaces.save(workspace) as unknown as WorkspaceJson;
@@ -523,6 +590,7 @@ export function App() {
       // 画布内容变了就可能 LOADED ↔ DIRTY（D1：dirty 不落库，每次都重新推导），顺带重算装备的乘数
       refreshBook(event !== undefined && event.group !== PROGRAMMATIC_GROUP);
       setHud((previous) => ({ ...previous, errors: [...playErrors, ...saveErrors] }));
+      syncCurve(result.program);
       controller.markDirty();
     };
 
@@ -564,6 +632,12 @@ export function App() {
       lastHudKey = key;
       // 突破/渡劫成功之后工具箱跟着换（§4.3）：flyout 是打开时才渲染的，但已打开的面板要当场重建才看得见新块。
       syncToolbox(state.realmIndex);
+      // 渡劫之后乘数换表：曲线跟着新境重算，否则「预计 X 秒」说的还是上一境的数字。
+      // 只在境界真换过的那一帧动手，且这不算「玩家改了程序」，所以不会冒出对比行。
+      if (state.realmIndex !== curveRealm) {
+        curveRealm = state.realmIndex;
+        syncCurve(cache[0] ?? null);
+      }
       setHud((previous) => ({
         ...previous,
         qi,
@@ -636,6 +710,7 @@ export function App() {
 
     return () => {
       loop.stop();
+      if (toastTimer !== null) clearTimeout(toastTimer);
       detachBook();
       detachArtifacts();
       challengeActionRef.current = null;

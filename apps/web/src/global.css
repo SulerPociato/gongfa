@@ -148,6 +148,74 @@ body {
   opacity: 0.75;
 }
 
+/* 任务 8 P0-B：曲线预览。窄栏 260px，SVG 用 viewBox 缩放而不是固定像素，
+   横轴充满可用宽度、纵轴保持 96 单位高，折线才不会在小窗口里被压成一坨。 */
+.hud .curve {
+  margin: 0 0 18px;
+}
+
+.hud .curve-svg {
+  display: block;
+  width: 100%;
+  height: 96px;
+  border: 1px solid var(--paper);
+  background: rgba(28, 34, 40, 0.35);
+}
+
+.hud .curve-line {
+  fill: none;
+  stroke: var(--spirit);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 阈值线是参考线，故意比曲线细且虚：玩家一眼分得清「这条是目标，那条是我」。 */
+.hud .curve-threshold-line {
+  stroke: var(--gold);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.hud .curve-eta {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.hud .curve-compare {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin: 4px 0 0;
+  color: var(--gold);
+}
+
+.hud .curve-truncated {
+  font-size: 11px;
+  margin: 4px 0 0;
+  color: var(--danger);
+}
+
+/* 免责那句不许省：模型不建模心魔与分支，把它当承诺看就会二次退坑。 */
+.hud .curve-note {
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 6px 0 0;
+  opacity: 0.6;
+}
+
+/* 任务 8 P0-B：产出跳涨的一次性提示。role=status 的可见文本，读屏与截图同源。 */
+.hud .toast {
+  background: rgba(232, 201, 120, 0.14);
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  color: var(--gold);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+}
+
 /* 任务 6.5：渡劫面板。按钮灰不灰只看 canChallenge，相位只决定说哪句话 */
 .hud .challenge {
   margin: 0 0 18px;
