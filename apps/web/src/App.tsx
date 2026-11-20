@@ -22,6 +22,7 @@ import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artif
 import { lockedCount, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
 import { Hud, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
+import { QiParticles } from './components/QiParticles';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
 type ThemeConfig = Parameters<typeof Blockly.Theme.defineTheme>[1];
@@ -926,7 +927,10 @@ export function App() {
 
   return (
     <div className={`layout${tutClass}`}>
-      <div className="canvas" ref={containerRef} />
+      <div style={{ position: 'relative', flex: 1, height: '100%' }}>
+        <div className="canvas" ref={containerRef} />
+        <QiParticles rate={hud.rate} />
+      </div>
       <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} onCloseRetreat={handleCloseRetreat} />
       {hud.tutorial !== null && <TutorialBar model={hud.tutorial} onSkip={() => { tutorialSkipRef.current?.(); }} />}
     </div>
