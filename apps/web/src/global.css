@@ -135,8 +135,8 @@ body::before {
 
 .topbar-mode {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  color: rgba(53, 224, 200, 0.45);
   letter-spacing: 0.05em;
 }
 
@@ -357,7 +357,8 @@ body::before {
 .hud .qi {
   font-family: 'JetBrains Mono', monospace;
   font-size: 38px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   margin: 0 0 4px;
   background: linear-gradient(180deg, #7ffff0 0%, #35e0c8 100%);
   -webkit-background-clip: text;
@@ -378,7 +379,7 @@ body::before {
 
 .hud .rate {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 16px;
+  font-size: 14px;
   margin: 0;
 }
 
@@ -488,12 +489,16 @@ body::before {
   margin: 0;
 }
 
+.hud .bar.sprint {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .hud .bar.sprint .bar-fill {
-  background: var(--spirit);
+  background: linear-gradient(90deg, #e8c978 0%, #f5e3b0 100%);
 }
 
 .hud .sprint.is-reached .bar-fill {
-  background: var(--gold);
+  background: linear-gradient(90deg, #e8c978 0%, #f5e3b0 100%);
 }
 
 .hud .sprint-header {
@@ -513,6 +518,7 @@ body::before {
   font-size: 11px;
   margin: 0;
   flex-shrink: 0;
+  color: var(--gold);
 }
 
 .hud .sprint-text {

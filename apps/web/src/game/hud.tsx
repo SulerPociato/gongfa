@@ -238,8 +238,8 @@ const CURVE_H = 120;
 // 曲线面板（任务 8 P0-B）：拖一块积木就能看见「这么改值多少」，不用等 100 秒验证猜想。
 // 模型只算无干扰产出，所以那句免责必须常驻：拿估算当承诺是这轮要修的「一直在等」的反面教材。
 function CurvePanel({ model }: { readonly model: CurveModel }) {
-  if (model.points.length === 0) return null;
   const last = model.points[model.points.length - 1] ?? 0;
+  const hasData = model.points.length > 0;
   // 纵轴上限取「曲线末点与阈值的大者」：阈值那条线永远画在图里，玩家才看得见自己差多远。
   const top = Math.max(last, model.threshold, 1);
   const x = (index: number): number => (model.points.length === 1 ? CURVE_W : (index / (model.points.length - 1)) * CURVE_W);
@@ -256,25 +256,33 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
     <div className="curve">
       <p className="label">产出曲线</p>
       <svg className="curve-svg" viewBox={`0 0 ${CURVE_W} ${CURVE_H}`} preserveAspectRatio="none" role="img"
-        aria-label={`60 秒产出曲线，末点 ${Math.round(last)}，阈值 ${model.threshold}，${eta}`}>
+        aria-label={hasData ? `60 秒产出曲线，末点 ${Math.round(last)}，阈值 ${model.threshold}，${eta}` : '曲线空态，拖积木后显示'}>
         <defs>
           <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgba(53, 224, 200, 0.18)" />
             <stop offset="100%" stopColor="rgba(53, 224, 200, 0)" />
           </linearGradient>
         </defs>
-        <polygon className="curve-area" points={area} />
-        <line className="curve-threshold-line" x1="0" y1={y(model.threshold).toFixed(1)} x2={CURVE_W} y2={y(model.threshold).toFixed(1)} />
-        <polyline className="curve-line" points={line} />
+        {/* 底部基线 */}
+        <line x1="0" y1={CURVE_H - 1} x2={CURVE_W} y2={CURVE_H - 1} stroke="rgba(53, 224, 200, 0.12)" strokeWidth="1" />
+        {hasData ? (
+          <>
+            <polygon className="curve-area" points={area} />
+            <line className="curve-threshold-line" x1="0" y1={y(model.threshold).toFixed(1)} x2={CURVE_W} y2={y(model.threshold).toFixed(1)} />
+            <polyline className="curve-line" points={line} />
+          </>
+        ) : (
+          <text x={CURVE_W / 2} y={CURVE_H / 2} fill="rgba(255,255,255,0.4)" fontSize="12" fontFamily="system-ui, sans-serif" textAnchor="middle">搭一块积木，曲线就会出来</text>
+        )}
         {/* 横轴标签 */}
         <text x="0" y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace">0</text>
         <text x={CURVE_W / 2} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="middle">30</text>
         <text x={CURVE_W} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="end">60</text>
       </svg>
-      <p className="curve-eta">{eta}</p>
-      {compare !== null && <p className="curve-compare">产出 {compare.from} → {compare.to} / 秒（{compare.percent}%）</p>}
-      {model.truncated && <p className="curve-truncated">程序超出本 tick 指令预算，曲线只算跑得完的部分</p>}
-      <p className="curve-note">直线执行估算，未计入「如果」分支与心魔折扣</p>
+      {hasData && <p className="curve-eta">{eta}</p>}
+      {hasData && compare !== null && <p className="curve-compare">产出 {compare.from} → {compare.to} / 秒（{compare.percent}%）</p>}
+      {hasData && model.truncated && <p className="curve-truncated">程序超出本 tick 指令预算，曲线只算跑得完的部分</p>}
+      {hasData && <p className="curve-note">直线执行估算，未计入「如果」分支与心魔折扣</p>}
     </div>
   );
 }
