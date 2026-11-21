@@ -233,7 +233,7 @@ function Bar({ value, of, label, kind }: { readonly value: number; readonly of: 
 
 // 折线画布的像素尺寸：viewBox 与之一致，宽度交给 CSS（HUD 是窄栏，SVG 用 preserveAspectRatio 缩放）。
 const CURVE_W = 300;
-const CURVE_H = 96;
+const CURVE_H = 120;
 
 // 曲线面板（任务 8 P0-B）：拖一块积木就能看见「这么改值多少」，不用等 100 秒验证猜想。
 // 模型只算无干扰产出，所以那句免责必须常驻：拿估算当承诺是这轮要修的「一直在等」的反面教材。
@@ -245,6 +245,8 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
   const x = (index: number): number => (model.points.length === 1 ? CURVE_W : (index / (model.points.length - 1)) * CURVE_W);
   const y = (value: number): number => CURVE_H - (value / top) * CURVE_H;
   const line = model.points.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
+  // 渐变填充区域：从曲线到 SVG 底部
+  const area = `0,${CURVE_H} ${line} ${CURVE_W},${CURVE_H}`;
   const eta = model.etaSec === null
     ? `${model.seconds} 秒内不产出灵力`
     : `预计 ${model.etaSec} 秒达标${model.reachesInWindow ? '' : `（超出本图 ${model.seconds} 秒）`}`;
@@ -255,8 +257,19 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
       <p className="label">产出曲线</p>
       <svg className="curve-svg" viewBox={`0 0 ${CURVE_W} ${CURVE_H}`} preserveAspectRatio="none" role="img"
         aria-label={`60 秒产出曲线，末点 ${Math.round(last)}，阈值 ${model.threshold}，${eta}`}>
+        <defs>
+          <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(53, 224, 200, 0.18)" />
+            <stop offset="100%" stopColor="rgba(53, 224, 200, 0)" />
+          </linearGradient>
+        </defs>
+        <polygon className="curve-area" points={area} />
         <line className="curve-threshold-line" x1="0" y1={y(model.threshold).toFixed(1)} x2={CURVE_W} y2={y(model.threshold).toFixed(1)} />
         <polyline className="curve-line" points={line} />
+        {/* 横轴标签 */}
+        <text x="0" y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace">0</text>
+        <text x={CURVE_W / 2} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="middle">30</text>
+        <text x={CURVE_W} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="end">60</text>
       </svg>
       <p className="curve-eta">{eta}</p>
       {compare !== null && <p className="curve-compare">产出 {compare.from} → {compare.to} / 秒（{compare.percent}%）</p>}
