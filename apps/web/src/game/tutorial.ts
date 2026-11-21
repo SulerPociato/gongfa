@@ -114,7 +114,7 @@ export function tutorialText(step: TutorialStep, n: TutorialNumbers): string {
 export interface TutorialBarModel {
   readonly text: string;
   /** null = 结束态：不报「n/6」，也不给跳过按钮（没有可跳的了） */
-  readonly step: number | null;
+  readonly step: TutorialPlayStep | null;
   readonly total: number;
 }
 
@@ -136,6 +136,45 @@ export function flyoutFocusType(step: TutorialStep): string | null {
   if (step === 1 || step === 3) return 'breath';
   if (step === 5) return 'calm';
   return null;
+}
+
+/**
+ * 气泡要贴的目标（需求变更 2026-11-21）：只说「找什么」，不说「找到了谁」。
+ * 'flyout' = 工具箱里某一类块；'dom' = 一个稳定选择器。
+ * DOM 侧每次重算都要重新 querySelector：updateToolbox 会把整棵 flyout 换成新 DOM，
+ * 缓存元素身份等于把高亮挂在已废弃的节点上。
+ */
+export type TutorialTarget =
+  | { readonly kind: 'flyout'; readonly type: 'breath' | 'calm' }
+  | { readonly kind: 'dom'; readonly selector: string };
+
+/**
+ * 第 4 步是 .curve-compare（曲线面板里「产出 X → Y / 秒」那一行），不是 .compare：
+ * 仓库里没有 .compare 这个类。它是条件渲染的（没有可比基线时整行不存在），所以这一步经常合理地退回底部条。
+ */
+export function tutorialTarget(step: TutorialStep): TutorialTarget | null {
+  switch (step) {
+    case 1:
+    case 3:
+      return { kind: 'flyout', type: 'breath' };
+    case 2:
+      return { kind: 'dom', selector: '.hud .qi' };
+    case 4:
+      return { kind: 'dom', selector: '.hud .curve-compare' };
+    case 5:
+      return { kind: 'flyout', type: 'calm' };
+    case 6:
+      return { kind: 'dom', selector: '.hud .challenge-button' };
+    case 'done':
+      return null;
+  }
+}
+
+/** 目标的稳定字符串键：React 依赖数组和「这一步在指哪」的日志都用它，不用对象身份。 */
+export function tutorialTargetKey(step: TutorialStep): string {
+  const t = tutorialTarget(step);
+  if (t === null) return 'none';
+  return t.kind === 'flyout' ? `flyout:${t.type}` : t.selector;
 }
 
 /**

@@ -23,6 +23,7 @@ import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artif
 import { lockedCount, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
 import { Hud, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
+import { TutorialBubble } from './game/tutorialBubble';
 import { QiParticles } from './components/QiParticles';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
@@ -40,6 +41,7 @@ declare global {
     __gongfa_debug?: {
       readonly state: () => RuntimeState;
       readonly settleOffline?: (lastSeenAt: number) => OfflineResult | null;
+      readonly hideFlyout?: () => void;
     } | undefined;
   }
 }
@@ -261,6 +263,10 @@ export function App() {
   const initialSettings = readSettings(createLocalStorageSaveStorage());
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
+  // 引导气泡（需求变更 2026-11-21）：贴得上目标 → 底部条降级成「n/6 · 跳过引导」；贴不上 → 底部条说完整文案。
+  const [tutPlaced, setTutPlaced] = useState(false);
+  // 「工具箱重建过了」的计数：updateToolbox 换掉整棵 flyout DOM，气泡要立刻重挂高亮，不等 400ms 轮询。
+  const [tutRev, setTutRev] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -317,6 +323,13 @@ export function App() {
       }
     };
     let toolboxSig = `${booted.realmIndex}|`;
+    // 引导期间钉住工具箱（批准）：Blockly 的 flyout 默认 autoClose=true，玩家随手点一下画布它就整棵
+    // display:none，第 1/3/5 步的气泡天天「目标消失」—— 那是常态不是边角情况。引导一停就还原。
+    // setAutoClose 不在 IFlyout 接口上（在 Flyout 实现里），按形状取，和上面 RenderedBlock 同一手法。
+    type FlyoutAutoClose = { readonly setAutoClose: (value: boolean) => void };
+    const pinFlyout = (): void => {
+      (workspace.getFlyout() as unknown as FlyoutAutoClose | null)?.setAutoClose(!tutActive);
+    };
     const applyToolbox = (index: number): void => {
       const hidden = hiddenToolboxTypes(tutActive, tutReleased);
       const sig = `${index}|${hidden.join(',')}`;
@@ -324,7 +337,10 @@ export function App() {
       toolboxSig = sig;
       workspace.updateToolbox(toolboxForRealm(index, booted.demo, hidden) as unknown as Parameters<typeof workspace.updateToolbox>[0]);
       // updateToolbox 把整棵 flyout 换成新 DOM：高亮 class 只能重建后重新挂，缓存 svgRoot 会挂在已废弃的元素上。
+      // 同一次重建也可能换掉 flyout 对象本身，钉住要跟着重下一次；气泡侧靠 tutRev 立刻重算。
+      pinFlyout();
       refreshFlyoutClasses();
+      setTutRev((previous) => previous + 1);
     };
 
     // 存档里的 workspace 是真相源（契约 §5.1），IR 只是缓存：这里只往 saved 里存 Blockly 的原样 JSON，
@@ -742,6 +758,8 @@ export function App() {
             tutActive = false;
             tutBar = null;
             tutBarSig = '';
+            // 引导没了，工具箱该还给玩家自己开关。
+            pinFlyout();
             setHud((previous) => ({ ...previous, tutorial: null }));
           }, END_DWELL_MS);
         }
@@ -896,6 +914,12 @@ export function App() {
           }
           return result;
         },
+        // 验收用：收起工具箱（需求变更 2026-11-21 验收 c）。引导期间 autoClose 被钉住，
+        // 玩家点画布不会自动收起，所以验收要靠这个句柄模拟「目标消失」的状态。
+        hideFlyout: () => {
+          const flyout = workspace.getFlyout() as unknown as { hide?: () => void } | null;
+          flyout?.hide?.();
+        },
       };
     }
 
@@ -950,7 +974,10 @@ export function App() {
         <QiParticles rate={hud.rate} />
       </div>
       <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} onCloseRetreat={handleCloseRetreat} />
-      {hud.tutorial !== null && <TutorialBar model={hud.tutorial} onSkip={() => { tutorialSkipRef.current?.(); }} />}
+      {hud.tutorial !== null && hud.tutorial.step !== null && (
+        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} onPlaced={setTutPlaced} />
+      )}
+      {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
     </div>
   );
 }

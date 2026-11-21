@@ -16,6 +16,8 @@ import {
   resumeTutorialStep,
   tutorialActiveAt,
   tutorialBar,
+  tutorialTarget,
+  tutorialTargetKey,
   tutorialText,
   writeTutorialDone,
   type TutorialSignals,
@@ -238,5 +240,31 @@ describe('永久关闭只写一个键', () => {
   it('别的值（手改的、半截的）都不算关闭：宁可多给一次引导', () => {
     expect(readTutorialDone(memoryStorage({ [TUTORIAL_KEY]: 'yes' }))).toBe(false);
     expect(readTutorialDone(memoryStorage({ [TUTORIAL_KEY]: '' }))).toBe(false);
+  });
+});
+
+// 需求变更 2026-11-21：气泡要贴住「这一步该看的那个元素」。这里钉住六步的目标映射，
+// 特别是两个容易写错的：第 4 步是 .curve-compare（仓库里没有 .compare 这个类），'done' 没有目标。
+describe('tutorialTarget：每一步指哪个元素', () => {
+  it('第 1/3 步指工具箱里的吐纳块，第 5 步指调息块', () => {
+    expect(tutorialTarget(1)).toEqual({ kind: 'flyout', type: 'breath' });
+    expect(tutorialTarget(3)).toEqual({ kind: 'flyout', type: 'breath' });
+    expect(tutorialTarget(5)).toEqual({ kind: 'flyout', type: 'calm' });
+  });
+
+  it('第 2/4/6 步指 HUD 里那三个真实类名', () => {
+    expect(tutorialTarget(2)).toEqual({ kind: 'dom', selector: '.hud .qi' });
+    expect(tutorialTarget(4)).toEqual({ kind: 'dom', selector: '.hud .curve-compare' });
+    expect(tutorialTarget(6)).toEqual({ kind: 'dom', selector: '.hud .challenge-button' });
+  });
+
+  it('结束态没有目标：那句「自己试」由底部条完整文案来说，气泡不出现', () => {
+    expect(tutorialTarget('done')).toBeNull();
+  });
+
+  it('目标键是稳定字符串：React 依赖数组用它，不用对象身份', () => {
+    expect(tutorialTargetKey(1)).toBe('flyout:breath');
+    expect(tutorialTargetKey(4)).toBe('.hud .curve-compare');
+    expect(tutorialTargetKey('done')).toBe('none');
   });
 });

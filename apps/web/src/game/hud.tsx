@@ -382,10 +382,12 @@ function RetreatPanel({ report, onClose }: { readonly report: RetreatReport; rea
 // 底部引导条（任务 8 P0-D）：文案 + 「n/6」 + 跳过，三个东西一行装完。
 // 裁定 2：跳过只在这条右端出现一个入口，右上角不再放第二个 —— 两个入口玩家会按错。
 // 结束态（step === null）只剩文案：没有下一步可跳，按钮留着就是死键。
-export function TutorialBar({ model, onSkip }: { readonly model: TutorialBarModel; readonly onSkip: () => void }) {
+// 需求变更 2026-11-21：气泡能贴到目标上时，这条降级成「迷你进度」，只报 n/6 和跳过；
+// 贴不上（目标没渲染、工具箱收起）才把完整文案放回这里 —— 引导的话永远有一个地方说得出。
+export function TutorialBar({ model, mini, onSkip }: { readonly model: TutorialBarModel; readonly mini: boolean; readonly onSkip: () => void }) {
   return (
-    <div className="tutorial-bar" role="status">
-      <p className="tutorial-text">{model.text}</p>
+    <div className={`tutorial-bar${mini ? ' is-mini' : ''}`} role={mini ? undefined : 'status'}>
+      {!mini && <p className="tutorial-text">{model.text}</p>}
       {model.step !== null && <p className="tutorial-count">{`${model.step}/${model.total}`}</p>}
       {model.step !== null && (
         <button className="tutorial-skip" type="button" onClick={onSkip}>
