@@ -133,6 +133,13 @@ body::before {
   color: var(--violet);
 }
 
+.topbar-mode {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.05em;
+}
+
 .topbar-settings {
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -206,13 +213,13 @@ body::before {
   overflow: hidden;
 }
 
-/* 固定区：灵力/境界/试炼 —— 不滚动，锁死高度 */
+/* 固定区：灵力/境界/试炼 —— 不滚动，高度由内容决定 */
 .hud-fixed {
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex-shrink: 0;
-  max-height: 300px;
+  max-height: auto;
   overflow: hidden;
 }
 
@@ -274,9 +281,9 @@ body::before {
 }
 
 /* 首屏卡片自下而上淡入，错开 60ms */
-.hud .qi-card { animation-delay: 0ms; padding: 12px; }
-.hud .realm { animation-delay: 60ms; }
-.hud .sprint { animation-delay: 120ms; }
+.hud .qi-card { animation-delay: 0ms; padding: 10px; }
+.hud .realm { animation-delay: 60ms; padding: 12px; }
+.hud .sprint { animation-delay: 120ms; padding: 12px; }
 .hud .curve { animation-delay: 180ms; }
 .hud .challenge { animation-delay: 240ms; }
 .hud .book-artifacts { animation-delay: 300ms; }
@@ -327,7 +334,7 @@ body::before {
 
 .hud .qi {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 36px;
+  font-size: 32px;
   font-weight: 700;
   margin: 0 0 4px;
   background: linear-gradient(180deg, #35e0c8 0%, #7fffd4 100%);
@@ -353,21 +360,6 @@ body::before {
   margin: 0;
 }
 
-.hud .rate-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 0 0 4px;
-}
-
-.hud .mode-indicator {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  margin: 0;
-  opacity: 0.5;
-}
-
 .hud .book {
   margin: 0;
 }
@@ -384,9 +376,18 @@ body::before {
   flex-shrink: 0;
 }
 
+.hud .realm-stock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin: 0;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
 .hud .realm-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin: 0 0 4px;
 }
@@ -434,6 +435,15 @@ body::before {
   gap: 8px;
 }
 
+.hud .demon-label {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  margin: 0;
+  color: rgba(53, 224, 200, 0.65);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
 .hud .demon-row .bar {
   width: 60px;
   flex-shrink: 0;
@@ -464,15 +474,28 @@ body::before {
   background: var(--gold);
 }
 
-.hud .sprint-text {
-  font-size: 11px;
-  line-height: 1.6;
+.hud .sprint-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 4px;
+}
+
+.hud .sprint-header .bar {
+  flex: 1;
+  margin: 0;
 }
 
 .hud .sprint-progress {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.hud .sprint-text {
+  font-size: 11px;
+  line-height: 1.6;
   margin: 0;
   opacity: 0.75;
 }

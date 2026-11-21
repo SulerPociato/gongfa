@@ -273,22 +273,20 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
       <p className="label">境界</p>
       <div className="realm-header">
         <p className="realm-name">{model.name}</p>
-        <Bar value={qi} of={model.threshold} label="突破进度" kind="qi" />
+        <p className="realm-stock">存量 {qi} / {model.threshold}</p>
       </div>
-      <p className="realm-text">
-        存量 {qi} / {model.threshold} · 被动 +{model.passivePerSec}/秒
-      </p>
+      <Bar value={qi} of={model.threshold} label="突破进度" kind="qi" />
       {paused && (
         <p className="backlash">走火入魔：存量 ×0.7、心魔归 0，停 5 秒（刷新可跳过）· 剩余 {(model.pauseRemainingMs / 1000).toFixed(1)} 秒</p>
       )}
       {/* 心魔这一小截单独成组：引导第 5 步只点亮它，不点亮整块境界面板。 */}
       <div className="realm-demon tut-target">
-        <p className="label">心魔</p>
         <div className="demon-row">
+          <p className="demon-label">心魔</p>
           <Bar value={model.demon} of={1} label="心魔" kind="demon" />
           <p className="demon-text">
             {(model.demon * 100).toFixed(1)}%
-            {model.calmText !== null && <span className="demon-calm">{model.calmText}</span>}
+            {model.calmText !== null && <span className="demon-calm"> {model.calmText}</span>}
           </p>
         </div>
       </div>
@@ -306,9 +304,11 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
   return (
     <div className={`sprint${model.reached ? ' is-reached' : ''}`}>
       <p className="label">试炼</p>
-      <Bar value={model.progressQi} of={model.goalQi} label="试炼进度" kind="sprint" />
-      <p className="sprint-text">试炼 {model.goalQi}/{seconds}秒 · {model.reached ? '本境试炼已达成（只生效一次）' : '达成后蓄势减半'}</p>
-      <p className="sprint-progress">{seconds} 秒内已产出 {Math.floor(model.progressQi)} / {model.goalQi}</p>
+      <div className="sprint-header">
+        <Bar value={model.progressQi} of={model.goalQi} label="试炼进度" kind="sprint" />
+        <p className="sprint-progress">{Math.floor(model.progressQi)} / {model.goalQi}</p>
+      </div>
+      <p className="sprint-text">{seconds} 秒内达成可减半蓄势</p>
     </div>
   );
 }
@@ -457,10 +457,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         <div className="qi-card">
           <p className="label">灵力</p>
           <p ref={qiRef} className="qi tut-target">{model.qi}</p>
-          <p className="rate-line tut-target">
-            <span className="rate">{model.rate.toFixed(1)} / 秒</span>
-            <span className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</span>
-          </p>
+          <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
         </div>
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}

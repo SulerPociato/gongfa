@@ -976,6 +976,7 @@ export function App() {
         <div className="topbar-right">
           {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
           {!hud.demo && <span className="topbar-badge">在线</span>}
+          <span className="topbar-mode">在线 ×1.0 ｜ 闭关 ×0.6</span>
           <button className="topbar-settings" type="button" aria-label="设置" onClick={() => setDrawerOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />
