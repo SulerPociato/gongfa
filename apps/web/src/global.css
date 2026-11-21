@@ -199,10 +199,55 @@ body::before {
 .hud {
   border-left: 1px solid rgba(255, 255, 255, 0.06);
   padding: 14px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 固定区：灵力/境界/试炼 —— 不滚动 */
+.hud-fixed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 滚动区：曲线/渡劫/功法与道具 —— 可滚动，隐藏滚动条 */
+.hud-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  position: relative;
+  min-height: 0;
+}
+
+.hud-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* 两段之间的分隔线 + 渐隐遮罩 */
+.hud-divider {
+  position: relative;
+  height: 1px;
+  background: rgba(53, 224, 200, 0.2);
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.hud-divider::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: 0;
+  right: 0;
+  height: 12px;
+  background: linear-gradient(to bottom, transparent, rgba(28, 34, 40, 0.8));
+  pointer-events: none;
 }
 
 /* 玻璃卡片：HUD 里的每个区块 */
@@ -423,7 +468,7 @@ body::before {
 .hud .curve-svg {
   display: block;
   width: 100%;
-  height: 72px;
+  height: 120px;
   border: 1px solid var(--paper);
   background: rgba(28, 34, 40, 0.35);
 }
@@ -660,6 +705,19 @@ body::before {
   line-height: 1.6;
   margin: 0;
   opacity: 0.7;
+}
+
+/* 功法与道具合并卡片（B3 续） */
+.hud .book-artifacts {
+  margin: 0;
+}
+
+.hud .book-artifact-row {
+  margin: 0 0 8px;
+}
+
+.hud .book-artifact-row:last-child {
+  margin: 0;
 }
 
 /* 任务 7B：设置面板 */
@@ -1080,4 +1138,78 @@ body::before {
   .tut-ring.is-on {
     animation: none;
   }
+}
+
+/* 设置抽屉：从右侧滑入，覆盖在 HUD 上 */
+.settings-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 11, 16, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-drawer {
+  width: 300px;
+  height: 100%;
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid rgba(53, 224, 200, 0.28);
+  padding: 24px 20px;
+  overflow-y: auto;
+  animation: drawer-slide-in 0.2s ease-out;
+}
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.settings-drawer-title {
+  font-size: 14px;
+  letter-spacing: 0.2em;
+  color: rgba(53, 224, 200, 0.65);
+  margin: 0 0 20px;
+  text-transform: uppercase;
+}
+
+.settings-drawer-item {
+  margin: 0 0 16px;
+}
+
+.settings-drawer-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--spirit);
+  cursor: pointer;
+}
+
+.settings-drawer-item input[type='checkbox'] {
+  cursor: pointer;
+}
+
+.settings-drawer-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--spirit);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.settings-drawer-close:hover {
+  opacity: 0.7;
 }

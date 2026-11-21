@@ -264,6 +264,7 @@ export function App() {
   const initialSettings = readSettings(createLocalStorageSaveStorage());
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   // 引导气泡（需求变更 2026-11-21）：贴得上目标 → 底部条降级成「n/6 · 跳过引导」；贴不上 → 底部条说完整文案。
   const [tutPlaced, setTutPlaced] = useState(false);
   // 「工具箱重建过了」的计数：updateToolbox 换掉整棵 flyout DOM，气泡要立刻重挂高亮，不等 400ms 轮询。
@@ -975,10 +976,7 @@ export function App() {
         <div className="topbar-right">
           {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
           {!hud.demo && <span className="topbar-badge">在线</span>}
-          <button className="topbar-settings" type="button" aria-label="设置" onClick={() => {
-            const panel = document.querySelector('.settings-panel');
-            if (panel) panel.scrollIntoView({ behavior: 'smooth' });
-          }}>
+          <button className="topbar-settings" type="button" aria-label="设置" onClick={() => setDrawerOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -990,11 +988,34 @@ export function App() {
         <div className="canvas" ref={containerRef} />
         <QiParticles rate={hud.rate} />
       </div>
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} settings={settings} onSettingsToggle={handleSettingsToggle} onCloseRetreat={handleCloseRetreat} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} />
       {hud.tutorial !== null && hud.tutorial.step !== null && (
         <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} onPlaced={setTutPlaced} />
       )}
       {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
+      {drawerOpen && (
+        <div className="settings-drawer-overlay" onClick={() => setDrawerOpen(false)}>
+          <div className="settings-drawer" onClick={(e) => e.stopPropagation()}>
+            <button className="settings-drawer-close" type="button" onClick={() => setDrawerOpen(false)} aria-label="关闭设置">✕</button>
+            <p className="settings-drawer-title">设置</p>
+            <div className="settings-drawer-item">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.offlineBreakthrough}
+                  onChange={(e) => handleSettingsToggle('offlineBreakthrough', e.target.checked)}
+                />
+                闭关时自动渡劫（60% 成功率，失败不扣灵力）
+              </label>
+            </div>
+            <div className="settings-drawer-item">
+              <p style={{ fontSize: '12px', opacity: 0.6, lineHeight: 1.6, margin: 0 }}>
+                演示模式：点「可渡劫」当场按 85% 结算，无 10 秒窗口。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

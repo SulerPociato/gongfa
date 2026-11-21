@@ -166,7 +166,6 @@ const BOOK_BUTTONS: Record<BookPhase, readonly { readonly action: BookAction; re
 function BookPanel({ model, onAction }: { readonly model: BookModel; readonly onAction: (action: BookAction) => void }) {
   return (
     <div className="book">
-      <p className="label">功法</p>
       <p className="book-text">{model.text}</p>
       <div className="book-actions">
         {BOOK_BUTTONS[model.phase].map((button) => (
@@ -188,7 +187,6 @@ function BookPanel({ model, onAction }: { readonly model: BookModel; readonly on
 function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow[]; readonly onToggle: (id: string) => void }) {
   return (
     <div className="artifacts">
-      <p className="label">道具</p>
       {rows.map((row) => (
         <div className="artifact" key={row.id}>
           <button className="artifact-toggle" type="button" aria-pressed={row.equipped} onClick={() => onToggle(row.id)}>
@@ -197,6 +195,28 @@ function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow
           <p className="artifact-effect">{row.effect}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+// 功法与道具合并卡片（B3 续）：第一行功法，第二行道具
+function BookArtifactPanel({ bookModel, artifactRows, onBookAction, onArtifactToggle }: {
+  readonly bookModel: BookModel;
+  readonly artifactRows: readonly ArtifactRow[];
+  readonly onBookAction: (action: BookAction) => void;
+  readonly onArtifactToggle: (id: string) => void;
+}) {
+  return (
+    <div className="book-artifacts">
+      <p className="label">功法与道具</p>
+      <div className="book-artifact-row">
+        <BookPanel model={bookModel} onAction={onBookAction} />
+      </div>
+      {artifactRows.length > 0 && (
+        <div className="book-artifact-row">
+          <ArtifactPanel rows={artifactRows} onToggle={onArtifactToggle} />
+        </div>
+      )}
     </div>
   );
 }
@@ -415,23 +435,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-function SettingsPanel({ settings, onToggle }: { readonly settings: SettingsModel; readonly onToggle: (key: 'offlineBreakthrough', value: boolean) => void }) {
-  return (
-    <div className="settings-panel">
-      <p className="label">设置</p>
-      <label className="settings-toggle">
-        <input
-          type="checkbox"
-          checked={settings.offlineBreakthrough}
-          onChange={(e) => onToggle('offlineBreakthrough', e.target.checked)}
-        />
-        闭关时自动渡劫（60% 成功率，失败不扣灵力）
-      </label>
-    </div>
-  );
-}
-
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void; readonly onCloseRetreat: () => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -446,51 +450,63 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settin
 
   return (
     <aside className="hud">
-      <div className="qi-card">
-        <p className="label">灵力</p>
-        <p ref={qiRef} className="qi tut-target">{model.qi}</p>
-        <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
-        <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+      {/* 固定区：灵力/境界/试炼 */}
+      <div className="hud-fixed">
+        <div className="qi-card">
+          <p className="label">灵力</p>
+          <p ref={qiRef} className="qi tut-target">{model.qi}</p>
+          <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
+          <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+        </div>
+        {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
+        {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
+        <RealmPanel model={model.realm} qi={model.qi} />
+        <SprintPanel model={model.sprint} />
       </div>
-      {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
-      {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
-      <RealmPanel model={model.realm} qi={model.qi} />
-      <CurvePanel model={model.curve} />
-      <SprintPanel model={model.sprint} />
-      <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
-      <BookPanel model={model.book} onAction={onBookAction} />
-      {model.artifacts.length > 0 && <ArtifactPanel rows={model.artifacts} onToggle={onArtifactAction} />}
-      <SettingsPanel settings={settings} onToggle={onSettingsToggle} />
-      {model.stall !== null && (
-        <p className="stall">
-          第 {model.stall.steps} 步没跑完（{STALL_REASON[model.stall.reason]}，停在第 {model.stall.pc + 1} 条指令，tick {model.stall.tick}）
-        </p>
-      )}
-      {(model.errors.length > 0 || model.corrupt !== null) && (
-        <ul className="errors">
-          {model.errors.map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-          {model.corrupt !== null && <CorruptEntry model={model.corrupt} />}
-        </ul>
-      )}
-      {model.save.length > 0 && (
-        <ul className="save">
-          {model.save.map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-        </ul>
-      )}
-      {model.notices.length > 0 && (
-        <ul className="notices">
-          {model.notices.map((message) => (
-            <li key={message}>{message}</li>
-          ))}
-        </ul>
-      )}
-      <p className="hint">把工具箱里的积木拖进「每 tick」下面的凹槽：「如果 / 循环」控制产出节奏，「比较」读心魔、存量或预算。</p>
-      {/* 工具箱被境界挡住几块要说出来，否则玩家以为游戏只有四块积木（§4.3 的门控是内容设计，不是缺件）。 */}
-      <p className="tool-hint">{model.toolHint}</p>
+
+      {/* 分隔线 + 渐隐遮罩 */}
+      <div className="hud-divider" />
+
+      {/* 滚动区：曲线/渡劫/功法与道具 */}
+      <div className="hud-scroll">
+        <CurvePanel model={model.curve} />
+        <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
+        <BookArtifactPanel
+          bookModel={model.book}
+          artifactRows={model.artifacts}
+          onBookAction={onBookAction}
+          onArtifactToggle={onArtifactAction}
+        />
+        {model.stall !== null && (
+          <p className="stall">
+            第 {model.stall.steps} 步没跑完（{STALL_REASON[model.stall.reason]}，停在第 {model.stall.pc + 1} 条指令，tick {model.stall.tick}）
+          </p>
+        )}
+        {(model.errors.length > 0 || model.corrupt !== null) && (
+          <ul className="errors">
+            {model.errors.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+            {model.corrupt !== null && <CorruptEntry model={model.corrupt} />}
+          </ul>
+        )}
+        {model.save.length > 0 && (
+          <ul className="save">
+            {model.save.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        )}
+        {model.notices.length > 0 && (
+          <ul className="notices">
+            {model.notices.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        )}
+        <p className="hint">把工具箱里的积木拖进「每 tick」下面的凹槽：「如果 / 循环」控制产出节奏，「比较」读心魔、存量或预算。</p>
+        <p className="tool-hint">{model.toolHint}</p>
+      </div>
     </aside>
   );
 }
