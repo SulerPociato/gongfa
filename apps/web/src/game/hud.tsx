@@ -268,7 +268,7 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
           {/* 调息每次压多少是表里的数（宿主拼好）：常驻在这句旁边，玩家不用为了知道它去翻代码。 */}
           {model.calmText !== null && <span className="demon-calm">{model.calmText}</span>}
         </p>
-        <p className="demon-hint">超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。</p>
+        <p className="demon-hint" title="超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。">超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。</p>
       </div>
     </div>
   );

@@ -76,6 +76,21 @@ body::before {
   z-index: 1;
 }
 
+/* 右下角符箓纹样 */
+.layout::after {
+  content: '';
+  position: absolute;
+  bottom: 24px;
+  right: calc(var(--hud-width) + 24px);
+  width: 80px;
+  height: 80px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cpath d='M70 70 L50 70 L50 65 L65 65 L65 50 L70 50 Z M60 60 L40 60 L40 55 L55 55 L55 40 L60 40 Z' fill='none' stroke='rgba(232,201,120,0.12)' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
 /* 顶栏：logo 左、模式徽章 + 设置右 */
 .topbar {
   grid-column: 1 / -1;
@@ -149,15 +164,45 @@ body::before {
 .canvas {
   height: 100%;
   position: relative;
+  background-image:
+    linear-gradient(rgba(53, 224, 200, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 224, 200, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* 画布顶部渐隐线：区分顶栏与工作区 */
+.canvas::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(53, 224, 200, 0.3), transparent);
+}
+
+/* 角落符箓纹样：SVG path 装饰，不拦截交互 */
+.canvas::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  width: 80px;
+  height: 80px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cpath d='M10 10 L30 10 L30 15 L15 15 L15 30 L10 30 Z M20 20 L40 20 L40 25 L25 25 L25 40 L20 40 Z' fill='none' stroke='rgba(232,201,120,0.12)' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 .hud {
   border-left: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 16px 14px;
+  padding: 14px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 /* 玻璃卡片：HUD 里的每个区块 */
@@ -174,9 +219,51 @@ body::before {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius-card);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(53, 224, 200, 0.28);
+  padding: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), inset 0 0 12px rgba(53, 224, 200, 0.06);
+  animation: card-fade-in 0.3s ease-out backwards;
+}
+
+/* 首屏卡片自下而上淡入，错开 60ms */
+.hud > .qi-card { animation-delay: 0ms; }
+.hud > .realm { animation-delay: 60ms; }
+.hud > .curve { animation-delay: 120ms; }
+.hud > .sprint { animation-delay: 180ms; }
+.hud > .challenge { animation-delay: 240ms; }
+.hud > .book { animation-delay: 300ms; }
+.hud > .artifacts { animation-delay: 360ms; }
+.hud > .settings-panel { animation-delay: 420ms; }
+
+@keyframes card-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* prefers-reduced-motion 下关闭动画 */
+@media (prefers-reduced-motion: reduce) {
+  .hud > .qi-card,
+  .hud > .realm,
+  .hud > .curve,
+  .hud > .sprint,
+  .hud > .challenge,
+  .hud > .book,
+  .hud > .artifacts,
+  .hud > .settings-panel {
+    animation: none;
+  }
+  body::before {
+    animation: none;
+  }
+  .hud .qi.is-rolling {
+    animation: none;
+  }
 }
 
 .hud h1 {
@@ -189,16 +276,21 @@ body::before {
 .hud .label {
   font-size: 12px;
   letter-spacing: 0.2em;
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   color: rgba(53, 224, 200, 0.65);
   text-transform: uppercase;
 }
 
 .hud .qi {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 40px;
+  font-size: 42px;
   font-weight: 700;
-  margin: 2px 0 12px;
+  margin: 0 0 4px;
+  background: linear-gradient(180deg, #35e0c8 0%, #7fffd4 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 8px 8px rgba(53, 224, 200, 0.3));
   transition: transform 0.2s ease-out;
 }
 
@@ -214,7 +306,10 @@ body::before {
 .hud .rate {
   font-family: 'JetBrains Mono', monospace;
   font-size: 16px;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 /* 顶栏常驻模式指示：最小字号，不与灵力抢视觉 */
@@ -227,18 +322,18 @@ body::before {
 }
 
 .hud .book {
-  margin: 0 0 18px;
+  margin: 0;
 }
 
 /* 任务 6：境界块。数字都在文案里，条只画比例 */
 .hud .realm {
-  margin: 0 0 18px;
+  margin: 0;
 }
 
 .hud .realm-name {
-  font-size: 18px;
+  font-size: 15px;
   letter-spacing: 0.1em;
-  margin: 2px 0 6px;
+  margin: 0 0 4px;
 }
 
 .hud .bar {
@@ -276,15 +371,18 @@ body::before {
 .hud .demon-text {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   opacity: 0.85;
 }
 
 .hud .demon-hint {
   font-size: 11px;
   line-height: 1.6;
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 任务 8 试炼（契约 §7.1.1）：60 秒滑窗进度 + 一句常驻文案。
@@ -292,7 +390,7 @@ body::before {
    24px：HUD 文字偏密，试炼与功法之间加 6px（实测 103px → 109px；渡劫面板夹在两者中间，
    所以这一条 margin 就是它们之间唯一的调节量）。 */
 .hud .sprint {
-  margin: 0 0 24px;
+  margin: 0;
 }
 
 .hud .bar.sprint .bar-fill {
@@ -319,13 +417,13 @@ body::before {
 /* 任务 8 P0-B：曲线预览。窄栏 260px，SVG 用 viewBox 缩放而不是固定像素，
    横轴充满可用宽度、纵轴保持 96 单位高，折线才不会在小窗口里被压成一坨。 */
 .hud .curve {
-  margin: 0 0 18px;
+  margin: 0;
 }
 
 .hud .curve-svg {
   display: block;
   width: 100%;
-  height: 96px;
+  height: 72px;
   border: 1px solid var(--paper);
   background: rgba(28, 34, 40, 0.35);
 }
@@ -386,7 +484,7 @@ body::before {
 
 /* 任务 6.5：渡劫面板。按钮灰不灰只看 canChallenge，相位只决定说哪句话 */
 .hud .challenge {
-  margin: 0 0 18px;
+  margin: 0;
 }
 
 .hud .challenge-button {
@@ -518,7 +616,7 @@ body::before {
 
 /* 任务 7A：道具面板。数值都在 artifacts.json 里，面板只转述，不另写一份 */
 .hud .artifacts {
-  margin: 0 0 18px;
+  margin: 0;
 }
 
 .hud .artifact {
@@ -566,7 +664,7 @@ body::before {
 
 /* 任务 7B：设置面板 */
 .hud .settings-panel {
-  margin: 0 0 18px;
+  margin: 0;
 }
 
 .hud .settings-toggle {
@@ -588,7 +686,7 @@ body::before {
   background: rgba(53, 224, 200, 0.08);
   border: 1px solid var(--spirit);
   border-radius: 0;
-  margin: 0 0 18px;
+  margin: 0;
   padding: 10px 12px;
 }
 
