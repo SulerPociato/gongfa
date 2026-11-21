@@ -271,8 +271,10 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
   return (
     <div className="realm">
       <p className="label">境界</p>
-      <p className="realm-name">{model.name}</p>
-      <Bar value={qi} of={model.threshold} label="突破进度" kind="qi" />
+      <div className="realm-header">
+        <p className="realm-name">{model.name}</p>
+        <Bar value={qi} of={model.threshold} label="突破进度" kind="qi" />
+      </div>
       <p className="realm-text">
         存量 {qi} / {model.threshold} · 被动 +{model.passivePerSec}/秒
       </p>
@@ -282,13 +284,13 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
       {/* 心魔这一小截单独成组：引导第 5 步只点亮它，不点亮整块境界面板。 */}
       <div className="realm-demon tut-target">
         <p className="label">心魔</p>
-        <Bar value={model.demon} of={1} label="心魔" kind="demon" />
-        <p className="demon-text">
-          {(model.demon * 100).toFixed(1)}%
-          {/* 调息每次压多少是表里的数（宿主拼好）：常驻在这句旁边，玩家不用为了知道它去翻代码。 */}
-          {model.calmText !== null && <span className="demon-calm">{model.calmText}</span>}
-        </p>
-        <p className="demon-hint" title="超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。">超过 70% 会不时「杂念」，那一 tick 产出减半；涨满 100% 就走火入魔。</p>
+        <div className="demon-row">
+          <Bar value={model.demon} of={1} label="心魔" kind="demon" />
+          <p className="demon-text">
+            {(model.demon * 100).toFixed(1)}%
+            {model.calmText !== null && <span className="demon-calm">{model.calmText}</span>}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -455,8 +457,10 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         <div className="qi-card">
           <p className="label">灵力</p>
           <p ref={qiRef} className="qi tut-target">{model.qi}</p>
-          <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
-          <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+          <p className="rate-line tut-target">
+            <span className="rate">{model.rate.toFixed(1)} / 秒</span>
+            <span className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</span>
+          </p>
         </div>
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}

@@ -76,7 +76,7 @@ body::before {
   z-index: 1;
 }
 
-/* 右下角符箓纹样 */
+/* 画布右下角符箓纹样 */
 .layout::after {
   content: '';
   position: absolute;
@@ -88,7 +88,7 @@ body::before {
   background-size: contain;
   background-repeat: no-repeat;
   pointer-events: none;
-  opacity: 0.6;
+  opacity: 0.06;
 }
 
 /* 顶栏：logo 左、模式徽章 + 设置右 */
@@ -206,12 +206,14 @@ body::before {
   overflow: hidden;
 }
 
-/* 固定区：灵力/境界/试炼 —— 不滚动 */
+/* 固定区：灵力/境界/试炼 —— 不滚动，锁死高度 */
 .hud-fixed {
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex-shrink: 0;
+  max-height: 300px;
+  overflow: hidden;
 }
 
 /* 滚动区：曲线/渡劫/功法与道具 —— 可滚动，隐藏滚动条 */
@@ -250,16 +252,17 @@ body::before {
   pointer-events: none;
 }
 
-/* 玻璃卡片：HUD 里的每个区块 */
-.hud > .qi-card,
-.hud > .realm,
-.hud > .curve,
-.hud > .artifacts,
-.hud > .book,
-.hud > .challenge,
-.hud > .sprint,
-.hud > .retreat,
-.hud > .settings-panel {
+/* 玻璃卡片：HUD 里的每个区块（支持固定区/滚动区嵌套） */
+.hud .qi-card,
+.hud .realm,
+.hud .curve,
+.hud .artifacts,
+.hud .book,
+.hud .challenge,
+.hud .sprint,
+.hud .retreat,
+.hud .settings-panel,
+.hud .book-artifacts {
   background: var(--glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -271,14 +274,12 @@ body::before {
 }
 
 /* 首屏卡片自下而上淡入，错开 60ms */
-.hud > .qi-card { animation-delay: 0ms; }
-.hud > .realm { animation-delay: 60ms; }
-.hud > .curve { animation-delay: 120ms; }
-.hud > .sprint { animation-delay: 180ms; }
-.hud > .challenge { animation-delay: 240ms; }
-.hud > .book { animation-delay: 300ms; }
-.hud > .artifacts { animation-delay: 360ms; }
-.hud > .settings-panel { animation-delay: 420ms; }
+.hud .qi-card { animation-delay: 0ms; padding: 12px; }
+.hud .realm { animation-delay: 60ms; }
+.hud .sprint { animation-delay: 120ms; }
+.hud .curve { animation-delay: 180ms; }
+.hud .challenge { animation-delay: 240ms; }
+.hud .book-artifacts { animation-delay: 300ms; }
 
 @keyframes card-fade-in {
   from {
@@ -293,14 +294,12 @@ body::before {
 
 /* prefers-reduced-motion 下关闭动画 */
 @media (prefers-reduced-motion: reduce) {
-  .hud > .qi-card,
-  .hud > .realm,
-  .hud > .curve,
-  .hud > .sprint,
-  .hud > .challenge,
-  .hud > .book,
-  .hud > .artifacts,
-  .hud > .settings-panel {
+  .hud .qi-card,
+  .hud .realm,
+  .hud .sprint,
+  .hud .curve,
+  .hud .challenge,
+  .hud .book-artifacts {
     animation: none;
   }
   body::before {
@@ -328,14 +327,14 @@ body::before {
 
 .hud .qi {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 42px;
+  font-size: 36px;
   font-weight: 700;
   margin: 0 0 4px;
   background: linear-gradient(180deg, #35e0c8 0%, #7fffd4 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 8px 8px rgba(53, 224, 200, 0.3));
+  filter: drop-shadow(0 6px 6px rgba(53, 224, 200, 0.3));
   transition: transform 0.2s ease-out;
 }
 
@@ -351,13 +350,16 @@ body::before {
 .hud .rate {
   font-family: 'JetBrains Mono', monospace;
   font-size: 16px;
-  margin: 0 0 6px;
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
+  margin: 0;
 }
 
-/* 顶栏常驻模式指示：最小字号，不与灵力抢视觉 */
+.hud .rate-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
 .hud .mode-indicator {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
@@ -378,7 +380,20 @@ body::before {
 .hud .realm-name {
   font-size: 15px;
   letter-spacing: 0.1em;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.hud .realm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 4px;
+}
+
+.hud .realm-header .bar {
+  flex: 1;
+  margin: 0;
 }
 
 .hud .bar {
@@ -413,22 +428,25 @@ body::before {
 }
 
 .hud .realm-text,
+.hud .demon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud .demon-row .bar {
+  width: 60px;
+  flex-shrink: 0;
+  margin: 0;
+}
+
 .hud .demon-text {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  margin: 0 0 4px;
+  margin: 0;
   opacity: 0.85;
 }
 
-.hud .demon-hint {
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 4px 0 0;
-  opacity: 0.6;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* 任务 8 试炼（契约 §7.1.1）：60 秒滑窗进度 + 一句常驻文案。
    达成后填色从主色转强调金，让「这一格已经结清」在还没读字之前就能看出来。
