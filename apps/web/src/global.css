@@ -26,7 +26,7 @@
   --radius-btn: 10px;
   --glow: 0 0 24px rgba(53, 224, 200, 0.25);
   /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
-  --hud-width: 260px;
+  --hud-width: 300px;
   --topbar-height: 48px;
 }
 
@@ -161,6 +161,7 @@ body::before {
 }
 
 /* 玻璃卡片：HUD 里的每个区块 */
+.hud > .qi-card,
 .hud > .realm,
 .hud > .curve,
 .hud > .artifacts,
@@ -174,7 +175,7 @@ body::before {
   -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius-card);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 14px 16px;
+  padding: 16px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -186,23 +187,34 @@ body::before {
 }
 
 .hud .label {
-  font-size: 11px;
-  letter-spacing: 0.15em;
+  font-size: 12px;
+  letter-spacing: 0.2em;
   margin: 0 0 8px;
-  opacity: 0.5;
+  color: rgba(53, 224, 200, 0.65);
   text-transform: uppercase;
 }
 
 .hud .qi {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 34px;
-  margin: 2px 0 18px;
+  font-size: 40px;
+  font-weight: 700;
+  margin: 2px 0 12px;
+  transition: transform 0.2s ease-out;
+}
+
+.hud .qi.is-rolling {
+  animation: qi-roll 0.2s ease-out;
+}
+
+@keyframes qi-roll {
+  0% { transform: translateY(-4px); opacity: 0.6; }
+  100% { transform: translateY(0); opacity: 1; }
 }
 
 .hud .rate {
   font-family: 'JetBrains Mono', monospace;
   font-size: 16px;
-  margin: 0 0 20px;
+  margin: 0 0 8px;
 }
 
 /* 顶栏常驻模式指示：最小字号，不与灵力抢视觉 */
@@ -210,7 +222,7 @@ body::before {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   letter-spacing: 0.1em;
-  margin: 0 0 18px;
+  margin: 0;
   opacity: 0.5;
 }
 
@@ -232,15 +244,28 @@ body::before {
 .hud .bar {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--paper);
-  border-radius: 0;
-  height: 8px;
+  border-radius: 999px;
+  height: 6px;
   margin: 0 0 6px;
   overflow: hidden;
 }
 
 .hud .bar-fill {
-  background: var(--spirit);
+  background: linear-gradient(90deg, var(--spirit) 0%, rgba(53, 224, 200, 0.8) 100%);
   height: 100%;
+  border-radius: 999px;
+  position: relative;
+}
+
+.hud .bar-fill::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4));
+  border-radius: 0 999px 999px 0;
 }
 
 .hud .bar.demon .bar-fill {
@@ -367,16 +392,23 @@ body::before {
 .hud .challenge-button {
   background: rgba(53, 224, 200, 0.12);
   border: 1px solid var(--spirit);
-  border-radius: 0;
+  border-radius: var(--radius-btn);
   color: var(--spirit);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
   padding: 5px 10px;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
 
 .hud .challenge-button:hover:not(:disabled) {
   background: rgba(53, 224, 200, 0.22);
+  transform: translateY(-1px);
+  box-shadow: var(--glow);
+}
+
+.hud .challenge-button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .hud .challenge-button:disabled {
@@ -460,16 +492,23 @@ body::before {
 .hud .book-actions button {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--paper);
-  border-radius: 0;
+  border-radius: var(--radius-btn);
   color: inherit;
   cursor: pointer;
   font: inherit;
   font-size: 11px;
   padding: 4px 8px;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
 
 .hud .book-actions button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+  box-shadow: var(--glow);
+}
+
+.hud .book-actions button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .hud .book-actions button:disabled {
@@ -493,16 +532,23 @@ body::before {
 .hud .artifact-toggle {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--paper);
-  border-radius: 0;
+  border-radius: var(--radius-btn);
   color: inherit;
   cursor: pointer;
   font: inherit;
   font-size: 11px;
   padding: 4px 8px;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
 
 .hud .artifact-toggle:hover {
   background: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+  box-shadow: var(--glow);
+}
+
+.hud .artifact-toggle:active {
+  transform: scale(0.98);
 }
 
 /* 装上的那件换成灵光色描边：截图、读屏、扫一眼三种看法都能指出哪件正在生效 */

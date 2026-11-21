@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, type BookPhase, type StallEvent } from '@gongfa/core';
 import { compareParts } from './format';
 import type { TutorialBarModel } from './tutorial';
@@ -432,12 +432,26 @@ function SettingsPanel({ settings, onToggle }: { readonly settings: SettingsMode
 }
 
 export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void; readonly onCloseRetreat: () => void }) {
+  const qiRef = useRef<HTMLParagraphElement>(null);
+  const prevQiRef = useRef(model.qi);
+
+  useEffect(() => {
+    if (prevQiRef.current !== model.qi && qiRef.current) {
+      qiRef.current.classList.remove('is-rolling');
+      void qiRef.current.offsetWidth;
+      qiRef.current.classList.add('is-rolling');
+      prevQiRef.current = model.qi;
+    }
+  }, [model.qi]);
+
   return (
     <aside className="hud">
-      <p className="label">灵力</p>
-      <p className="qi tut-target">{model.qi}</p>
-      <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
-      <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+      <div className="qi-card">
+        <p className="label">灵力</p>
+        <p ref={qiRef} className="qi tut-target">{model.qi}</p>
+        <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
+        <p className="mode-indicator">在线 ×1.0 ｜ 闭关 ×0.6</p>
+      </div>
       {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
       {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
       <RealmPanel model={model.realm} qi={model.qi} />
