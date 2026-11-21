@@ -15,13 +15,19 @@
 }
 
 :root {
-  --ink: #0a0e12;
+  --ink: #070B10;
   --spirit: #35e0c8;
+  --violet: #7c5cff;
   --paper: #1c2228;
   --danger: #e04b3a;
   --gold: #e8c978;
+  --glass: rgba(28, 34, 40, 0.65);
+  --radius-card: 14px;
+  --radius-btn: 10px;
+  --glow: 0 0 24px rgba(53, 224, 200, 0.25);
   /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
   --hud-width: 260px;
+  --topbar-height: 48px;
 }
 
 * {
@@ -39,35 +45,152 @@ body {
   background: var(--ink);
   color: var(--spirit);
   font-family: system-ui, 'Noto Serif SC', serif;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 背景光晕：青在左上、紫在右下，20s 呼吸。只用 ::before 一层，不遮 content。 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(53, 224, 200, 0.12) 0%, transparent 50%),
+    radial-gradient(circle at 85% 80%, rgba(124, 92, 255, 0.10) 0%, transparent 50%);
+  animation: body-breathe 20s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes body-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
 }
 
 .layout {
   display: grid;
+  grid-template-rows: var(--topbar-height) 1fr;
   grid-template-columns: 1fr var(--hud-width);
   height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* 顶栏：logo 左、模式徽章 + 设置右 */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 10;
+}
+
+.topbar-logo {
+  font-size: 15px;
+  letter-spacing: 0.3em;
+  font-weight: 600;
+  color: var(--spirit);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(53, 224, 200, 0.12);
+  color: var(--spirit);
+  letter-spacing: 0.05em;
+}
+
+.topbar-badge.demo {
+  background: rgba(124, 92, 255, 0.15);
+  color: var(--violet);
+}
+
+.topbar-settings {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-btn);
+  color: var(--spirit);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.topbar-settings:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--glow);
+}
+
+.topbar-settings:active {
+  transform: scale(0.98);
+}
+
+.topbar-settings svg {
+  width: 16px;
+  height: 16px;
 }
 
 .canvas {
   height: 100%;
+  position: relative;
 }
 
 .hud {
-  border-left: 1px solid var(--paper);
-  padding: 20px 18px;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 16px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 玻璃卡片：HUD 里的每个区块 */
+.hud > .realm,
+.hud > .curve,
+.hud > .artifacts,
+.hud > .book,
+.hud > .challenge,
+.hud > .sprint,
+.hud > .retreat,
+.hud > .settings-panel {
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 14px 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .hud h1 {
   font-size: 15px;
   letter-spacing: 0.3em;
-  margin: 0 0 22px;
+  margin: 0 0 12px;
   opacity: 0.75;
 }
 
 .hud .label {
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  margin: 0;
-  opacity: 0.6;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  margin: 0 0 8px;
+  opacity: 0.5;
+  text-transform: uppercase;
 }
 
 .hud .qi {

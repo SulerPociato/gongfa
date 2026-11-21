@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, type BookPhase, type StallEvent } from '@gongfa/core';
 import { compareParts } from './format';
-import { DEMO_SPEED } from './demo';
 import type { TutorialBarModel } from './tutorial';
 
 /** 存档损坏：HUD 只显示这一句，逐字段明细收在「详情」里 */
@@ -435,10 +434,6 @@ function SettingsPanel({ settings, onToggle }: { readonly settings: SettingsMode
 export function Hud({ model, onBookAction, onChallenge, onArtifactAction, settings, onSettingsToggle, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly settings: SettingsModel; readonly onSettingsToggle: (key: 'offlineBreakthrough', value: boolean) => void; readonly onCloseRetreat: () => void }) {
   return (
     <aside className="hud">
-      {/* 演示角标（任务 9）：HUD 的第一个子元素 —— 截图左上角一眼看出这不是正式玩法。
-          倍速写在这里而不是 HUD 的「/ 秒」旁边：那一行是每模拟秒速率（裁定 3），3× 只描述真实时间。 */}
-      {model.demo && <p className="demo-badge">演示模式 · {DEMO_SPEED}×</p>}
-      <h1>代码修仙</h1>
       <p className="label">灵力</p>
       <p className="qi tut-target">{model.qi}</p>
       <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>

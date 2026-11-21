@@ -17,6 +17,7 @@ import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
 import { createRuntime, urlSeed, CALM_DEMON_DELTA, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
 import { clearGongfaKeys, consumeDemoReset, requestDemoReset } from './game/demo';
+import { DEMO_SPEED } from './game/demo';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
@@ -969,6 +970,22 @@ export function App() {
 
   return (
     <div className={`layout${tutClass}`}>
+      <div className="topbar">
+        <span className="topbar-logo">代码修仙</span>
+        <div className="topbar-right">
+          {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
+          {!hud.demo && <span className="topbar-badge">在线</span>}
+          <button className="topbar-settings" type="button" aria-label="设置" onClick={() => {
+            const panel = document.querySelector('.settings-panel');
+            if (panel) panel.scrollIntoView({ behavior: 'smooth' });
+          }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        </div>
+      </div>
       <div style={{ position: 'relative', height: '100%' }}>
         <div className="canvas" ref={containerRef} />
         <QiParticles rate={hud.rate} />
