@@ -59,6 +59,8 @@ export interface ChallengeModel {
   readonly phase: ChallengePhase;
   /** 按钮的 disabled 只看这一条：phase 只决定说哪句话。 */
   readonly enabled: boolean;
+  /** 当前境名：挑战面板的标题「渡劫 · 炼气 → 筑基」两头都要真的从 runtime 拿。 */
+  readonly realmName: string;
   readonly nextRealmName: string | null;
   readonly chargeRemainingMs: number;
   readonly trialRemainingMs: number;
@@ -66,6 +68,18 @@ export interface ChallengeModel {
   /** 下一次冲关是本境界第几次（§7.1 的 N，从 1 起）；连续失败次数 = N - 1。 */
   readonly attempt: number;
   readonly insight: number;
+}
+
+/**
+ * 一次结算的结果层要读的四件事：成/败、结算前后的境名、是否保底第 N 次。
+ * 全部来自 runtime 的 ChallengeResult，HUD 不回头查表，也不自己算「下一境是第几境」。
+ */
+export interface ChallengeOutcome {
+  readonly ok: boolean;
+  readonly fromRealmName: string;
+  readonly realmName: string;
+  readonly forced: boolean;
+  readonly attempt: number;
 }
 
 export interface RetreatReport {
@@ -335,12 +349,13 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
 }
 
 // 按钮文案按相位给，六态互斥：HUD 不做任何比较运算，phase 是宿主从 runtime 字段推出来的。
+// trial 这一态不带倒计时：10 秒那个数字只出现在挑战面板的主按钮上，两处读秒迟早对不上。
 const BUTTON_TEXT: Record<ChallengePhase, string> = {
   threshold: '先攒存量',
   charge: '蓄势中',
   cooldown: '冷却中',
   ready: '可渡劫',
-  trial: '立即冲关',
+  trial: '渡劫中',
   final: '已至末境',
 };
 
@@ -351,49 +366,93 @@ function remainText(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+// 百分比只有一个来源：MANUAL_RATE / AUTO_RATE 改了，面板、按钮、结果层跟着一起变。
+function percent(rate: number): string {
+  return `${(rate * 100).toFixed(0)}%`;
+}
+
 export function ChallengePanel({ model, demo, onPress }: { readonly model: ChallengeModel; readonly demo: boolean; readonly onPress: () => void }) {
   const sub =
     model.phase === 'charge' ? `还需 ${remainText(model.chargeRemainingMs)}`
       : model.phase === 'cooldown' ? `还剩 ${(model.cooldownRemainingMs / 1000).toFixed(1)} 秒`
-        : model.phase === 'trial' ? `剩余 ${(model.trialRemainingMs / 1000).toFixed(1)} 秒`
-          : model.phase === 'ready' && model.nextRealmName !== null ? `→ ${model.nextRealmName}`
-            : '';
+        : model.phase === 'ready' && model.nextRealmName !== null ? `→ ${model.nextRealmName}`
+          : '';
   return (
     <div className="challenge">
       {/* is-ready：首次「可渡劫」的脉冲动画挂在这上面（P0-C 第 4 项），只看相位，不看别的。 */}
+      {/* trial 也保持可点：玩家慌乱时会习惯性按原来那颗按钮，禁用等于把入口藏起来。点下去 = 手动 85%。 */}
       <button className={`challenge-button${model.phase === 'ready' ? ' is-ready' : ''} tut-target`} type="button" disabled={!model.enabled} onClick={onPress}>
         {BUTTON_TEXT[model.phase]}
         {sub === '' ? '' : ` ${sub}`}
       </button>
-      {model.phase === 'trial' && (
-        <div className="trial">
-          {/* 命名（任务 8）：10 秒这一格叫「渡劫挑战」，60 秒那一格叫「试炼」——同一屏两个「试炼」玩家会分不清在等哪个。 */}
-          <p className="trial-title">渡劫挑战</p>
-          {/* 裁定 1：这句只在 10 秒窗口里出现。它是「你不用慌」的即时安慰，常驻在按钮下面就成了废话。
-              不操作不是惩罚而是 60% 的托管档，这句不写死玩家就会以为磨时间能磨出更高概率。 */}
-          <p className="trial-first">
-            {(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒内不操作，自动按 {(AUTO_RATE * 100).toFixed(0)}% 结算（无需操作，不额外扣代价）
-          </p>
-          {/* 01-design §4.4 的「限时改功法」：改的是产出，不是概率 —— 这句必须写死，不然玩家会以为磨得越久越容易。 */}
-          <p className="trial-rule">改功法只改接下来的产出，不改成功率。</p>
-          <p className="trial-odds">
-            {(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒内点「立即冲关」= 手动 {(MANUAL_RATE * 100).toFixed(0)}% ／ 放手不管 = 托管 {(AUTO_RATE * 100).toFixed(0)}%
-          </p>
-        </div>
-      )}
-      {/* 演示模式根本没有 10 秒窗口（runtime 里 pressChallenge 直接按手动口径结算），
-          上面那一整块在演示下永远不出现 —— 于是这里补一句常驻的：按钮按下去会发生什么，
-          得有人说明白，否则「点一下就成了」看着像 bug。百分比同样从 MANUAL_RATE 拼。 */}
-      {demo && model.phase !== 'trial' && (
-        <div className="trial">
-          <p className="trial-first">演示模式：点「可渡劫」当场按 {(MANUAL_RATE * 100).toFixed(0)}% 结算</p>
-        </div>
+      {/* 「可渡劫」= 现在可以发起一次冲关，境界要等结算成功才动。这句写在按钮正下方：
+          光看「可渡劫」三个字，玩家以为点一下就进阶，进去 10 秒窗口才发现还有两个档 —— 那 10 秒是白站的。 */}
+      {model.phase === 'ready' && (
+        <p className="challenge-hint">
+          {demo
+            ? '演示模式：点一下当场按 ' + percent(MANUAL_RATE) + ' 结算（无 10 秒窗口），按 X 才走面板。'
+            : `点一下进 ${(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒窗口：窗口内点确认 = ${percent(MANUAL_RATE)}，撒手 = ${percent(AUTO_RATE)} 托管。境界在结算之后才变。`}
+        </p>
       )}
       {/* 保底与冷却都在内存里（§5.1 没这两个字段）：文案必须写明刷新清零，否则玩家以为攒到了第 2 次。 */}
       <p className="challenge-meta">
         本档连续失败 {model.attempt - 1} 次（刷新清零）· 第 {model.attempt} 次冲关{model.attempt >= GUARANTEE_ATTEMPT ? '（保底必成）' : ''} ·
         失败存量 ×{FAILURE_QI_MULT} · 悟道 {model.insight}（本档）
       </p>
+    </div>
+  );
+}
+
+/**
+ * 渡劫挑战面板（批次 1）：10 秒窗口里的两个去向摊开摆 —— 手动 85% 与托管 60%，倒计时只写在主按钮里。
+ * 它不在 HUD 里：HUD 宽 300px 塞不下「最显眼的一行」，而窗口期玩家的手还在画布上，眼睛不该被迫右移。
+ * demo 那一支没有 10 秒窗口（runtime 的 pressChallenge 当场结算），所以藏掉倒计时、只留一个按钮。
+ */
+export function TrialPanel({ model, demo, onPress }: {
+  readonly model: ChallengeModel;
+  readonly demo: boolean;
+  readonly onPress: (mode: 'manual' | 'auto') => void;
+}) {
+  return (
+    <div className="trial-panel" role="dialog" aria-label="渡劫挑战">
+      <p className="trial-panel-title">渡劫 · {model.realmName}{model.nextRealmName === null ? '' : ` → ${model.nextRealmName}`}</p>
+      <p className="trial-panel-lead">
+        {demo
+          ? `演示模式：面板只由 X 键打开，点「确认冲关」当场按 ${percent(MANUAL_RATE)} 结算，无 10 秒窗口。`
+          : `不操作也会自动结算（${percent(AUTO_RATE)}）；点「立即冲关」= ${percent(MANUAL_RATE)}`}
+      </p>
+      <div className="trial-panel-actions">
+        {/* demo 那一支写「确认」而不是「立即」：窗口是 X 键开的，这一下只是确认，
+            而点 HUD「可冲关」仍然是当场结算 —— 两条路的差别必须能从文案上读出来。 */}
+        <button className="trial-primary" type="button" onClick={() => onPress('manual')}>
+          {demo ? `确认冲关 ${percent(MANUAL_RATE)}` : `立即冲关 ${percent(MANUAL_RATE)}（${(model.trialRemainingMs / 1000).toFixed(1)}s）`}
+        </button>
+        {!demo && (
+          <button className="trial-secondary" type="button" onClick={() => onPress('auto')}>
+            交给天意 {percent(AUTO_RATE)}
+          </button>
+        )}
+      </div>
+      {/* 01-design §4.4 的「限时改功法」：改的是产出，不是概率 —— 这句必须写死，不然玩家会以为磨得越久越容易。 */}
+      <p className="trial-panel-note">改功法只改接下来的产出，不改成功率。</p>
+    </div>
+  );
+}
+
+/**
+ * 结算结果层（批次 1）：成与败都要占满一次视线，否则玩家只看见数字跳了一下。
+ * 整层可点=跳过，但「满 1.5 秒才认这次点击」的闸在 App.tsx 的 onDismiss 里，不在这里。
+ */
+export function ChallengeResultLayer({ outcome, onDismiss }: { readonly outcome: ChallengeOutcome; readonly onDismiss: () => void }) {
+  return (
+    <div className={`result-layer${outcome.ok ? ' is-win' : ' is-lose'}`} role="status" aria-live="assertive" onClick={onDismiss}>
+      <div className="result-talisman" aria-hidden="true" />
+      <p className="result-title">{outcome.ok ? '突破成功' : '渡劫失败'}</p>
+      <p className="result-sub">
+        {outcome.ok ? `${outcome.fromRealmName} → ${outcome.realmName}` : `存量 ×${FAILURE_QI_MULT}，心魔归 0，可再来一次`}
+      </p>
+      {/* 第 3 次的成功来自保底而非骰子（§7.1）：不写出来，玩家会以为自己是 85% 里的幸运儿。 */}
+      {outcome.ok && outcome.forced && <p className="result-forced">保底第 {outcome.attempt} 次，非骰值</p>}
     </div>
   );
 }

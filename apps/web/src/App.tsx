@@ -24,7 +24,7 @@ import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './g
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
-import { Hud, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
+import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { QiParticles } from './components/QiParticles';
 
@@ -92,6 +92,8 @@ function challengeModel(state: RuntimeState): ChallengeModel {
     // 冷却与蓄势都归零才算就绪；挑战进行中允许再点一次（那一次就是手动确认，85%）。
     enabled: state.canChallenge,
     nextRealmName: state.nextRealmName,
+    // 渡劫面板的标题「渡劫 · 炼气 → 筑基」要当前境名；runtime 已经给了，不再回头查表拼第二份口径。
+    realmName: state.realmName,
     chargeRemainingMs: state.chargeRemainingMs,
     trialRemainingMs: state.trialRemainingMs,
     cooldownRemainingMs: state.cooldownRemainingMs,
@@ -150,6 +152,12 @@ const NO_CURVE: CurveModel = { points: [], threshold: 0, etaSec: null, reachesIn
 
 // toast 的停留时长：要够读完一句话，又不至于挡在玩家眼前不走（HUD 窄栏没有别的东西可看）。
 const TOAST_MS = 6_000;
+
+// 渡劫结果层的两段时长（批次 1 验收 6/9）：1.2 秒金色符箓展开 + 展开后再停 1.5 秒。
+// HOLD 同时是「点击跳过」的闸门：结算那一下玩家的手常常还压在按钮上，
+// 若一出现就能点，动画会被同一连击秒掉 —— 那不是反馈，是闪屏。所以不满 1.5 秒的点击必须整次忽略。
+const RESULT_TALISMAN_MS = 1_200;
+const RESULT_HOLD_MS = 1_500;
 
 // 预览结果 → 面板模型：窗口秒数从 core 的常量取，对比行走的是模型速率（同一份程序不许有两个「每秒」）。
 function curveModel(preview: CurvePreview, compare: CurveCompare | null): CurveModel {
@@ -270,6 +278,17 @@ export function App() {
   const [tutPlaced, setTutPlaced] = useState(false);
   // 「工具箱重建过了」的计数：updateToolbox 换掉整棵 flyout DOM，气泡要立刻重挂高亮，不等 400ms 轮询。
   const [tutRev, setTutRev] = useState(0);
+  // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
+  // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
+  // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
+  const [demoTrial, setDemoTrial] = useState(false);
+  // 最近一次结算的展示数据（含 1.2s + 1.5s 的停留窗口）；null = 结果层不在屏上。
+  const [outcome, setOutcome] = useState<ChallengeOutcome | null>(null);
+  // 结果层出现的一刻：点击跳过的 1.5 秒闸按它判（口径见 RESULT_HOLD_MS）。
+  const outcomeSinceRef = useRef(0);
+  const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 面板里两个按钮的实现在 useEffect 里才拿得到 runtime，这里同样只留转发口。
+  const trialPressRef = useRef<((mode: 'manual' | 'auto') => void) | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -647,6 +666,14 @@ export function App() {
       } else {
         pushNotice(`渡劫失败：存量 ×${FAILURE_QI_MULT} → ${Math.floor(result.qi)}、心魔归 0、悟道 +1 · ${dice}`);
       }
+      // 结果层（批次 1）：灰字那一句太小，冲关这种一次性事件要占满一次视线才算「有反馈」。
+      // 面板的收起不挂在这里 —— 正式玩法由 phase 离开 trial 自动收，演示由 trialPress 收，
+      // 到点托管结算时玩家可能根本没碰按钮，此时面板本来就该跟着 phase 一起消失。
+      if (outcomeTimerRef.current !== null) clearTimeout(outcomeTimerRef.current);
+      outcomeSinceRef.current = Date.now();
+      setOutcome({ ok: result.ok, fromRealmName: result.fromRealmName, realmName: result.realmName, forced: result.forced, attempt: result.attempt });
+      // 1.2 秒符箓展开 + 展开后 1.5 秒停留 = 到点自己淡出；中途点击只走 handleDismissOutcome。
+      outcomeTimerRef.current = setTimeout(() => setOutcome(null), RESULT_TALISMAN_MS + RESULT_HOLD_MS);
     };
 
     // 任务 6.5：「可渡劫」的唯一入口。点击本身只可能带来两种新信息：
@@ -666,6 +693,27 @@ export function App() {
         return;
       }
       // 结算已经在 runtime 里改完数字并标过脏；这里只打破 HUD 的渲染闸门，让灰字立刻出现。
+      lastHudKey = '';
+    };
+
+    // 渡劫面板（批次 1）的两个按钮。演示模式那块面板是 X 键举起来的：runtime 在 demoMode 下不落 trialUntil
+    // （点「可冲关」仍当场结算，任务 9 的裁定没动），所以面板的开关只能记在 UI 这一侧。
+    // demoPanelOpen 是本地镜像，不给闭包读 React state 的机会 —— 状态要下一帧才看得到，按钮不能等。
+    let demoPanelOpen = false;
+    const openDemoPanel = (): void => {
+      demoPanelOpen = true;
+      setDemoTrial(true);
+    };
+    const closeDemoPanel = (): void => {
+      demoPanelOpen = false;
+      setDemoTrial(false);
+    };
+    // 面板里的确认 = 手动 85%，「交给天意」= 托管 60%：档位由这一次点击定，runtime 只认参数。
+    trialPressRef.current = (mode: 'manual' | 'auto'): void => {
+      closeDemoPanel();
+      const result = runtime.pressChallenge(mode);
+      // 面板举着的这 10 秒里存量可能掉回阈值下（§7.1「渡劫无从开始」）：那句拒绝得说出来，不能静默。
+      if (result.phase === 'idle' || result.phase === 'refused') pushActionErrors(result.errors);
       lastHudKey = '';
     };
 
@@ -807,6 +855,23 @@ export function App() {
           : `演示跳关 · ${jumped.realmName} · 存量 ${Qi.format(jumped.qi)} / 阈值 ${Qi.format(jumped.threshold)}`);
         return;
       }
+      if (event.key === 'x' || event.key === 'X') {
+        event.preventDefault();
+        // X = 只把渡劫面板举起来，不结算（录屏要的是「面板出现 → 点确认 → 结果层」三段，
+        // 观众才看得懂 85% 是玩家按出来的而不是白给）。面板已在时再按 X = 点确认键。
+        // 注意这条不影响「点 HUD 可冲关 = 当场按手动 85% 结算」：那条裁定仍然只在鼠标路径上。
+        if (demoPanelOpen || runtime.state().challengeActive) {
+          trialPressRef.current?.('manual');
+          return;
+        }
+        if (runtime.state().canChallenge) {
+          openDemoPanel();
+          return;
+        }
+        // 前置条件没满（惩罚期 / 阈值 / 蓄势 / 冷却）：让按钮那条路把拒绝原因打进红字，X 不另造口径。
+        challengeActionRef.current?.();
+        return;
+      }
       if (event.key !== 'r' && event.key !== 'R') return;
       if (!window.confirm('演示重置：清空本机全部修仙存档并回到新档？\n灵力、境界、心魔、功法书、道具、引导记录都会没。')) return;
       requestDemoReset(demoFlags);
@@ -946,6 +1011,12 @@ export function App() {
       detachBook();
       detachArtifacts();
       challengeActionRef.current = null;
+      trialPressRef.current = null;
+      // 浮层是本地 state：StrictMode 的第二次挂载没有 demoPanelOpen，留着会挂着一块关不掉的面板。
+      setDemoTrial(false);
+      setOutcome(null);
+      if (outcomeTimerRef.current !== null) clearTimeout(outcomeTimerRef.current);
+      outcomeTimerRef.current = null;
       tutorialSkipRef.current = null;
       if (debugVisible) delete window.__gongfa_debug;
       // StrictMode 的双挂载与真实卸载都走这里：先落一次档再拆工作区，别把刚搭的程序丢在内存里
@@ -964,6 +1035,15 @@ export function App() {
 
   const handleCloseRetreat = (): void => {
     setHud((previous) => ({ ...previous, retreat: null }));
+  };
+
+  // 结果层的点击跳过：不满 RESULT_HOLD_MS 一律整次忽略，不是「点了没反应」的 bug ——
+  // 结算那一下玩家的手常常还压在按钮上，一出现就能点等于把动画闪掉，等于没给反馈。
+  const handleDismissOutcome = (): void => {
+    if (Date.now() - outcomeSinceRef.current < RESULT_HOLD_MS) return;
+    if (outcomeTimerRef.current !== null) clearTimeout(outcomeTimerRef.current);
+    outcomeTimerRef.current = null;
+    setOutcome(null);
   };
 
   // 清档走 resetAllSaves 的死顺序：先断写入 → 再清键 → 再 reload。
@@ -1002,6 +1082,12 @@ export function App() {
         <QiParticles rate={hud.rate} />
       </div>
       <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} />
+      {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
+          渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
+      {(hud.challenge.phase === 'trial' || demoTrial) && (
+        <TrialPanel model={hud.challenge} demo={hud.demo} onPress={(mode) => { trialPressRef.current?.(mode); }} />
+      )}
+      {outcome !== null && <ChallengeResultLayer outcome={outcome} onDismiss={handleDismissOutcome} />}
       {hud.tutorial !== null && hud.tutorial.step !== null && (
         <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} onPlaced={setTutPlaced} />
       )}
@@ -1021,11 +1107,15 @@ export function App() {
                 闭关时自动渡劫（60% 成功率，失败不扣灵力）
               </label>
             </div>
-            <div className="settings-drawer-item">
-              <p style={{ fontSize: '12px', opacity: 0.6, lineHeight: 1.6, margin: 0 }}>
-                演示模式：点「可渡劫」当场按 85% 结算，无 10 秒窗口。
-              </p>
-            </div>
+            {hud.demo && (
+              <div className="settings-drawer-item">
+                <p style={{ fontSize: '12px', opacity: 0.6, lineHeight: 1.6, margin: 0 }}>
+                  演示模式：点「可渡劫」当场按 85% 结算，无 10 秒窗口。
+                  <br />
+                  X 键开面板：面板内「确认冲关」= 85% 当场结算；不按就一直开着（演示里根本没有 10 秒窗口，放手不会结算）。
+                </p>
+              </div>
+            )}
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
                 重置存档

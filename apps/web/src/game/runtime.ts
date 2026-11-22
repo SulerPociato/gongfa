@@ -79,7 +79,11 @@ export interface RuntimeState {
   readonly realmName: string;
   readonly threshold: number;
   readonly passivePerSec: number;
-  /** 存量 ≥ 当前境界阈值且还有下一境 → 「可冲关」的前半条件（后半是蓄势就绪，见 canChallenge）。 */
+  /**
+   * 存量 ≥ 当前境界阈值且还有下一境 → 「可冲关」的前半条件（后半是蓄势就绪，见 canChallenge）。
+   * 名字里的「可」是「现在能发起一次冲关」，不是「境界已经变了」：境界只在 settle() 成功那一支 +1，
+   * 光看到这个 true 而不动数字才是对的。
+   */
   readonly canBreakthrough: boolean;
   /**
    * 蓄势完成时刻（契约 §5.1 的 chargeReadyAt，真实时间毫秒）：0 = 本境界从未达标。
@@ -165,6 +169,11 @@ export interface ChallengeResult {
   readonly forced: boolean;
   readonly qi: number;
   readonly realmName: string;
+  /**
+   * 结算开始前所在的境界。`realmName` 是结算后的那一境，成功时两者差一境，
+   * 结果层的副标「炼气 → 筑基」要的是这一对，让 UI 回头查表就是第二份口径。
+   */
+  readonly fromRealmName: string;
 }
 
 /** 跳关的可观察面：境界、存量、该行阈值一起交出去，验收和 toast 都读它，不用调用方再查一遍表。 */
@@ -186,10 +195,11 @@ export interface Runtime {
    */
   attachArtifacts(equipment: Pick<ArtifactEquipment, 'jadeCache' | 'budgetBonus'>): void;
   /**
-   * 「可渡劫」按钮的唯一入口（契约 §7.1）：蓄势就绪时开启 10 秒挑战，挑战中再点一次按手动 85% 当场结算，
-   * 放手到点则由 run() 按托管 60% 自动结算。拒绝原因在 errors 里，空数组 = 这次点击被接受。
+   * 「可渡劫」按钮的唯一入口（契约 §7.1）：蓄势就绪时开启 10 秒挑战，挑战中再点一次按 mode 当场结算，
+   * 放手到点则由 run() 按托管 60% 自动结算。mode 默认 'manual'（85%），「交给天意」传 'auto'。
+   * 拒绝原因在 errors 里，空数组 = 这次点击被接受。
    */
-  pressChallenge(): ChallengeResult;
+  pressChallenge(mode?: ChallengeMode): ChallengeResult;
   /**
    * 演示跳关（任务 9，裁定 1）：一站落到「下一境＝元婴」的那一境（金丹），存量给到该行阈值的 95%。
    * 只在 ?demo=1 下可用，且落点全部从 realms.json 现算；返回 null = 这次跳不了（非演示模式，
@@ -436,7 +446,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
 
   // 没开始就没结算：数字沿用当前值、境界名是当前境，HUD 只把 errors 打进红字。
   const idleResult = (mode: ChallengeMode, attempt: number, rate: number, roll: number, errors: readonly string[]): ChallengeResult => ({
-    errors, phase: 'idle', ok: false, mode, attempt, rate, roll, forced: false, qi: state.qi, realmName: currentRealm().name.zh,
+    errors, phase: 'idle', ok: false, mode, attempt, rate, roll, forced: false, qi: state.qi, realmName: currentRealm().name.zh, fromRealmName: currentRealm().name.zh,
   });
 
   // 结算 = 契约 §7.1 的全部后果。成功复用 breakthrough 规则（境界 +1、qi=0、demon=0）并换 sink；
@@ -444,6 +454,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 也不记冷却、不吃掉第 N 次：渡劫压根没开始。
   const settle = (mode: ChallengeMode): ChallengeResult => {
     const attempt = state.attempt;
+    // 结算前的境界名：成功路径下面 realmIndex 要 +1，副标「旧 → 新」的旧那一头只能在这里取。
+    const fromRealmName = currentRealm().name.zh;
     const outcome = resolveChallenge({
       realms: content.realms,
       realmIndex,
@@ -478,7 +490,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     }
     scheduler.reset();
     markDirty();
-    state.lastChallenge = { errors: [], phase: 'settled', ok: outcome.ok, mode, attempt, rate: outcome.rate, roll: outcome.roll, forced: outcome.forced, qi: state.qi, realmName: currentRealm().name.zh };
+    state.lastChallenge = { errors: [], phase: 'settled', ok: outcome.ok, mode, attempt, rate: outcome.rate, roll: outcome.roll, forced: outcome.forced, qi: state.qi, realmName: currentRealm().name.zh, fromRealmName };
     return state.lastChallenge;
   };
 
@@ -738,10 +750,11 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 换程序时同样清（见 load）；stall 只在 stall 事件里写，所以不主动清就会一直挂到下一次真截断。
       state.stall = null;
     },
-    pressChallenge: () => {
+    pressChallenge: (mode: ChallengeMode = 'manual'): ChallengeResult => {
       const now = clock.now();
-      // 挑战中再点一次 = 手动确认（85%）。已经到期那一帧交给 run() 按托管结算，这里不抢它的口径。
-      if (trialUntil !== 0) return trialUntil > now ? settle('manual') : settle('auto');
+      // 挑战中再点一次 = 当场结算：主按钮给 'manual'（85%），「交给天意」给 'auto'（60%）。
+      // 已经到期那一帧交给 run() 按托管结算，这里不抢它的口径。
+      if (trialUntil !== 0) return trialUntil > now ? settle(mode) : settle('auto');
       if (pausedUntil > now) return idleResult('manual', state.attempt, 0, 0, [`走火入魔还剩 ${Math.ceil((pausedUntil - now) / 1000)} 秒，惩罚期内不能渡劫`]);
       const realm = currentRealm();
       if (!isThresholdReached(state.qi, realm)) {
@@ -758,7 +771,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 演示模式：跳过 10 秒倒计时，直接按手动口径结算（评审 1:50 那一步只有几秒画面）。
       if (demoMode) return settle('manual');
       trialUntil = now + CHALLENGE_TRIAL_MS;
-      return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh };
+      return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh, fromRealmName: realm.name.zh };
     },
     jumpToDemoTarget: () => {
       // 两道闸：URL 没开演示就不跳（裁定 2 同源的理由：这是改玩家数字的动作），表里查不到目标境也不跳。

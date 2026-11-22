@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Program } from '@gongfa/core';
+import { AUTO_RATE, MANUAL_RATE } from '@gongfa/core';
 import { createRuntime } from './runtime';
 
 // runtime 读 ?seed= / ?demo= / ?realm= 这些查询串，node 环境里没有 window，构造时先补一个空 location。
@@ -66,5 +67,58 @@ describe('runtime.run 的 dt 入口（真机停摆的回归）', () => {
     expect(runtime.state().ticks).toBe(0);
     runtime.run(60);
     expect(runtime.state().ticks).toBe(1);
+  });
+});
+
+// 批次 1 的两个新入口：托管档点击与「结算前的境界名」。
+// ?debug=1&charge=0 把蓄势窗口设成 0（runtime 自带的 debug 口径），剩下的门槛只有存量。
+function challengeable(seed: number): ReturnType<typeof createRuntime> {
+  (globalThis as unknown as { window: { location: { search: string } } }).window =
+    { location: { search: '?debug=1&charge=0' } };
+  const runtime = createRuntime({ seed });
+  expect(runtime.load(PROGRAM)).toEqual([]);
+  // 炼气阈值 1e3，一块吐纳 10/秒 → 跑到过线；demon 只涨到 0.05 左右，不会踩进走火惩罚期。
+  while (runtime.state().qi < 1000) runtime.run(1000);
+  expect(runtime.state().canChallenge).toBe(true);
+  return runtime;
+}
+
+describe('pressChallenge 的档位与结算前的境界名', () => {
+  // seed 11 的第 1 次骰 = 0.0676：85% 与 60% 两档都成；seed 7 = 0.9847：两档都败。
+  it('挑战中点「交给天意」= 按 AUTO_RATE 结算，mode 落 auto', () => {
+    const runtime = challengeable(11);
+    expect(runtime.pressChallenge().phase).toBe('trial');
+    const result = runtime.pressChallenge('auto');
+    expect(result.phase).toBe('settled');
+    expect(result.mode).toBe('auto');
+    expect(result.rate).toBe(AUTO_RATE);
+    expect(result.ok).toBe(true);
+    expect(runtime.state().lastChallenge).toBe(result);
+  });
+
+  it('挑战中点「立即冲关」= 按 MANUAL_RATE 结算，mode 落 manual（默认参数不变）', () => {
+    const runtime = challengeable(11);
+    runtime.pressChallenge();
+    const result = runtime.pressChallenge();
+    expect(result.mode).toBe('manual');
+    expect(result.rate).toBe(MANUAL_RATE);
+  });
+
+  // 开启那一次点击只负责把 10 秒窗口打开（mode 在这一帧没有意义），档位由窗口里的第二次点击定。
+  it('fromRealmName 是结算前的境：成功时与 realmName 差一境', () => {
+    const runtime = challengeable(11);
+    runtime.pressChallenge();
+    const result = runtime.pressChallenge('auto');
+    expect(result.fromRealmName).toBe('炼气');
+    expect(result.realmName).toBe('筑基');
+  });
+
+  it('失败时两个名字相同，境界没动', () => {
+    const runtime = challengeable(7);
+    runtime.pressChallenge();
+    const result = runtime.pressChallenge('auto');
+    expect(result.ok).toBe(false);
+    expect(result.fromRealmName).toBe('炼气');
+    expect(result.realmName).toBe('炼气');
   });
 });

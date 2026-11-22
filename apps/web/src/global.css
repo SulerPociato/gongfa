@@ -633,32 +633,12 @@ body::before {
   opacity: 0.4;
 }
 
-/* 10 秒窗口里最容易误解的是「磨得越久越容易」：这块要在按钮正下方，字体别比按钮小太多 */
-.hud .trial {
-  border-left: 2px solid var(--spirit);
-  margin: 8px 0 0;
-  padding-left: 8px;
-}
-
-.hud .trial-title {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  margin: 0 0 4px;
-  opacity: 0.7;
-}
-
-.hud .trial-rule {
-  color: var(--danger);
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 0;
-}
-
-.hud .trial-odds {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  line-height: 1.6;
-  margin: 4px 0 0;
+/* 「可渡劫」≠「已经进阶」：这句紧跟按钮，把 10 秒窗口和两个档位在点之前就讲清 */
+.hud .challenge-hint {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 6px 0 0;
 }
 
 /* 保底与悟道是「本档」口径：刷新清零这句不能缩到看不见 */
@@ -1321,4 +1301,251 @@ body::before {
 
 .settings-drawer-close:hover {
   opacity: 0.7;
+}
+
+/* ---- 渡劫浮层（批次 1）----
+   两层都要盖在设置抽屉（z-index 100）之上：齿轮点开时结果动画不该被压在下面。 */
+
+/* 挑战面板：宽 420px、居中偏上（top 15% 让出顶栏与画布上半的操作区）。
+   它不在 HUD 的 300px 窄栏里 —— 第一行「不操作也会自动结算」必须最显眼，窄栏放不下。 */
+.trial-panel {
+  animation: trial-panel-in 0.18s ease-out both;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: var(--glass);
+  border: 1px solid rgba(232, 201, 120, 0.4);
+  border-radius: var(--radius-card);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 24px rgba(232, 201, 120, 0.12);
+  left: 50%;
+  /* 390px 手机上 420px 会顶出横向滚动条（B5 的移动端口径）：留 32px 边距封顶 */
+  max-width: calc(100vw - 32px);
+  padding: 18px 20px 16px;
+  position: fixed;
+  top: 15%;
+  transform: translateX(-50%);
+  width: 420px;
+  z-index: 110;
+}
+
+@keyframes trial-panel-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.trial-panel-title {
+  color: var(--gold);
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+/* 全 panel 最显眼的一行：字号比标题小一档但吃满青色 + 加粗，眼睛先落到这里 */
+.trial-panel-lead {
+  color: var(--spirit);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+
+.trial-panel-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.trial-panel-actions button {
+  align-items: center;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+/* 主按钮 = 玩家自己按的那一发（85%）：青色填充，倒计时也在这一颗的文字里 */
+.trial-primary {
+  background: var(--spirit);
+  border: 1px solid var(--spirit);
+  color: #04150f;
+  font-weight: 700;
+}
+
+.trial-primary:hover {
+  box-shadow: 0 0 18px rgba(53, 224, 200, 0.45);
+  transform: translateY(-1px);
+}
+
+.trial-primary:active {
+  transform: scale(0.98);
+}
+
+/* 次按钮 = 撒手交给托管（60%）：透明描边，视觉上明确「这不是我按的那一下」 */
+.trial-secondary {
+  background: transparent;
+  border: 1px solid rgba(53, 224, 200, 0.45);
+  color: var(--spirit);
+}
+
+.trial-secondary:hover {
+  background: rgba(53, 224, 200, 0.1);
+  transform: translateY(-1px);
+}
+
+.trial-secondary:active {
+  transform: scale(0.98);
+}
+
+.trial-panel-note {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 14px 0 0;
+}
+
+/* 结果层：整屏接管一次视线。is-win 金、is-lose 红，位置与结构完全一样 ——
+   换的只有配色，玩家不必重新找字在哪。 */
+.result-layer {
+  align-items: center;
+  animation: result-dismiss 0.4s ease 2.7s forwards;
+  background: rgba(7, 11, 16, 0.72);
+  display: flex;
+  flex-direction: column;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 120;
+}
+
+.result-layer.is-lose {
+  /* 底色与成功层同一档：红晕只是渐变叠加，撤掉它文字仍压在稳定的暗底上。 */
+  background-color: rgba(7, 11, 16, 0.72);
+  background-image: radial-gradient(circle at 50% 46%, rgba(224, 75, 58, 0.16) 0%, rgba(7, 11, 16, 0.8) 62%);
+}
+
+/* 2.7 秒 = App.tsx 的 RESULT_TALISMAN_MS(1200) + RESULT_HOLD_MS(1500)：
+   那一头改了不带动这一头的话，淡出会被卸载切断（或卸载前有一段已经透明）。 */
+@keyframes result-dismiss {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 符箓：直角双层 + 斜向虚线阵，1.2 秒从中心展开（批次 1 验收 6） */
+.result-talisman {
+  animation: talisman-open 1.2s cubic-bezier(0.16, 0.84, 0.3, 1) both;
+  border: 1px solid rgba(232, 201, 120, 0.6);
+  box-shadow: inset 0 0 48px rgba(232, 201, 120, 0.18), 0 0 64px rgba(232, 201, 120, 0.22);
+  height: 300px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  width: 220px;
+}
+
+.result-talisman::before {
+  border: 1px solid rgba(232, 201, 120, 0.32);
+  content: '';
+  inset: 16px;
+  position: absolute;
+}
+
+.result-talisman::after {
+  border: 1px dashed rgba(232, 201, 120, 0.22);
+  content: '';
+  inset: -34px;
+  position: absolute;
+  transform: rotate(45deg);
+}
+
+.result-layer.is-lose .result-talisman {
+  border-color: rgba(224, 75, 58, 0.65);
+  box-shadow: inset 0 0 48px rgba(224, 75, 58, 0.16), 0 0 64px rgba(224, 75, 58, 0.2);
+}
+
+.result-layer.is-lose .result-talisman::before {
+  border-color: rgba(224, 75, 58, 0.32);
+}
+
+.result-layer.is-lose .result-talisman::after {
+  border-color: rgba(224, 75, 58, 0.22);
+}
+
+@keyframes talisman-open {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.result-title,
+.result-sub,
+.result-forced {
+  /* 文字压在符箓之上：三层都靠 position 排队，不给它们各自的堆叠上下文 */
+  position: relative;
+  text-align: center;
+  z-index: 1;
+}
+
+.result-title {
+  animation: result-text-in 0.45s ease 0.35s both;
+  color: var(--gold);
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  margin: 0;
+  text-shadow: 0 0 24px rgba(232, 201, 120, 0.4);
+}
+
+.result-sub {
+  animation: result-text-in 0.45s ease 0.5s both;
+  color: rgba(255, 255, 255, 0.72);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  margin: 14px 0 0;
+}
+
+/* 保底那一次的成功不是骰子给的（§7.1）：12px 补一行，玩家才知道是第 3 次兜住了 */
+.result-forced {
+  animation: result-text-in 0.45s ease 0.62s both;
+  color: var(--gold);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  margin: 10px 0 0;
+  opacity: 0.8;
+}
+
+.result-layer.is-lose .result-title {
+  color: var(--danger);
+  text-shadow: 0 0 24px rgba(224, 75, 58, 0.4);
+}
+
+@keyframes result-text-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
