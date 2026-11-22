@@ -12,11 +12,12 @@ import {
   type WorkspaceJson,
 } from '@gongfa/blocks';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage, Qi } from '@gongfa/core';
-import { createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
+import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
 import { createRuntime, urlSeed, CALM_DEMON_DELTA, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
 import { clearGongfaKeys, consumeDemoReset, requestDemoReset } from './game/demo';
+import { RESET_CONFIRM_TEXT, resetAllSaves } from './game/reset';
 import { DEMO_SPEED } from './game/demo';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
@@ -965,6 +966,17 @@ export function App() {
     setHud((previous) => ({ ...previous, retreat: null }));
   };
 
+  // 清档走 resetAllSaves 的死顺序：先断写入 → 再清键 → 再 reload。
+  // 少第一步的话，reload 触发的 pagehide 会带着内存里的旧状态再 flush 一次，玩家看到的是「重置没生效」。
+  const handleResetSave = (): void => {
+    if (!window.confirm(RESET_CONFIRM_TEXT)) return;
+    resetAllSaves({
+      storage: createLocalStorageSaveStorage(),
+      blockWrites: blockLocalStorageWrites,
+      reload: () => window.location.reload(),
+    });
+  };
+
   // tut-N 是降对比度规则的作用域（P0-D）：引导没启动、已结束或已跳过都不带 class，一条压制规则都不会生效。
   // 结束态（step === null）也不带 —— 那句「自己试」不该再把别的元素压暗。
   const tutClass = hud.tutorial === null || hud.tutorial.step === null ? '' : ` tut tut-${hud.tutorial.step}`;
@@ -1013,6 +1025,12 @@ export function App() {
               <p style={{ fontSize: '12px', opacity: 0.6, lineHeight: 1.6, margin: 0 }}>
                 演示模式：点「可渡劫」当场按 85% 结算，无 10 秒窗口。
               </p>
+            </div>
+            <div className="settings-drawer-item settings-drawer-danger">
+              <button className="settings-reset" type="button" onClick={handleResetSave}>
+                重置存档
+                <span className="settings-reset-hint">清空全部进度，无法恢复</span>
+              </button>
             </div>
           </div>
         </div>

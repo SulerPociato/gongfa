@@ -58,6 +58,16 @@ export function createLocalStorageSaveStorage(): SaveStorage {
 
 export const wallClock = { now: () => Date.now() };
 
+// 清档专用的「断写入」：reload 之前 pagehide / visibilitychange 的自动存档还会跑一次，
+// 那一次 flush 会把内存里的旧状态原样写回刚清空的 localStorage。把 setItem 置空，
+// 旧状态就写不进去；removeItem 不受影响，所以清空照常生效。
+// 不做恢复：调用它就意味着这一页马上要 reload，回来的是新档。
+export function blockLocalStorageWrites(): void {
+  Storage.prototype.setItem = function () {
+    /* no-op */
+  };
+}
+
 // 演示重置的一次性标记走 sessionStorage（任务 9 裁定 2）：要活过 reload，又不能落进 localStorage
 // —— 那个槽是玩家的档，清档验收时「到底还剩几个键」必须只有存档一处来源。
 // 存取全兜底：隐私模式下 sessionStorage 会直接抛，那会儿按「没有标记」处理，别连累整页启动。

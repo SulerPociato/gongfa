@@ -1274,6 +1274,38 @@ body::before {
   cursor: pointer;
 }
 
+/* 清档是抽屉里唯一的破坏性动作：描边用 --danger、底色透明，靠分隔线和上面的开关断开。 */
+.settings-drawer-danger {
+  margin: 16px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-reset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-btn);
+  color: var(--danger);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.settings-reset:hover {
+  background: rgba(224, 75, 58, 0.1);
+}
+
+.settings-reset-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .settings-drawer-close {
   position: absolute;
   top: 16px;
