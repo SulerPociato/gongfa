@@ -3,6 +3,7 @@ import { Qi } from '../number/bignum';
 import { BASE_BUDGET } from '../types';
 import type { StallEvent, StallReason, VmEvent } from './events';
 import { MAX_LOOP_DEPTH, MAX_VALUE_STACK_DEPTH, type CmpArg, type LoadKey, type Program } from './program';
+import { tickProfile, type ActionProfile } from './profile';
 import { verifyProgram, type VerifyIssue, type VerifyResult } from './verifier';
 
 export interface ActionRequest {
@@ -42,6 +43,11 @@ export interface TickResult {
   readonly gain: Qi;
   readonly demonDelta: number;
   readonly stall: StallEvent | null;
+  /**
+   * 本 tick 真实执行序列（批次 2 补充裁定）：HUD 的「动作 M · 层 K」读这份展开结果，不再数积木。
+   * 没装载程序时为 null —— 「没有程序在跑」和「程序一个动作都没有」是两句话。
+   */
+  readonly profile: ActionProfile | null;
 }
 
 export interface VmDeps {
@@ -165,6 +171,13 @@ export class Vm {
     let gain = Qi.zero;
     let demonDelta = Qi.zero;
     let actionSeq = 0;
+    // 批次 2 补充裁定（2026-11-22）：HUD 的「动作 M · 层 K」读这份展开序列，不再数积木。
+    // 一次调用传全部 code，预算走「每 tick 总池」的共享语义（tickProfile 内部把池按程序顺序串下去），
+    // 与下面逐步执行的 budgetPool 检查同一口径。程序中途 abort 时展开仍按字面计：那列说的是
+    // 「本 tick 打算跑哪些动作」，真停摆那一 tick 由红字说话，不靠动作数表态。
+    const profile: ActionProfile | null = this.installed.length === 0
+      ? null
+      : tickProfile(this.installed.map((program) => program.code), this.budgetPool);
 
     // 契约 §4.3「中止本程序本 tick」只掐当前程序，后续程序继续跑（P0 只有 programs[0]，先把口径立住）。
     // 每次 stall 都进 onEvent；TickResult.stall 是单数字段，只留本 tick 第一个。
@@ -312,7 +325,7 @@ export class Vm {
       }
     }
 
-    return { tick, steps, gain, demonDelta, stall: firstStall };
+    return { tick, steps, gain, demonDelta, stall: firstStall, profile };
   }
 
   /**

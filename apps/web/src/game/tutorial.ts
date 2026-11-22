@@ -1,3 +1,6 @@
+import actionsJson from '../../../../content/actions.json';
+import { BLOCK_SPECS, COMPARE_DEFAULT_THRESHOLD, COMPARE_LEFT_LABELS } from '@gongfa/blocks';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, actionMult } from '@gongfa/core';
 import type { SaveStorage } from '@gongfa/core';
 import { compareParts } from './format';
 
@@ -46,10 +49,23 @@ export interface TutorialSignals {
   readonly pressedChallenge: boolean;
 }
 
+/**
+ * 需求 13：每步最短停留 3 秒。条件一满足就跳，等于把刚出现的那句话在玩家读到一半时撤走 ——
+ * 尤其第 2→3 步（qi 过 0 只需要一个 tick）和第 3→4 步（第二块落地即满足）。
+ */
+export const MIN_STEP_DWELL_MS = 3_000;
+
+/** 各步最短停留：第 4 步是「读三个数」的那句，保留 5 秒；其余统一 3 秒。 */
+export function stepDwellMs(step: TutorialPlayStep): number {
+  return step === 4 ? STEP4_DWELL_MS : MIN_STEP_DWELL_MS;
+}
+
 export function nextTutorialStep(step: TutorialStep, sig: TutorialSignals, stepAgeMs: number): TutorialStep {
   if (step === 'done') return 'done';
   // 裁定 3：第 5 步不设「跳过这步」，直接点渡劫就视为跳到第 6 步；第 6 步等的那一下就是这次点击。
+  // 玩家的主动点击排在停留时间之前 —— 等待是给「读不完就翻页」设的，不是给按下按钮设的。
   if (sig.pressedChallenge) return step === 6 ? 'done' : 6;
+  if (stepAgeMs < stepDwellMs(step)) return step;
   switch (step) {
     case 1:
       return sig.breath >= 1 ? 2 : 1;
@@ -58,8 +74,7 @@ export function nextTutorialStep(step: TutorialStep, sig: TutorialSignals, stepA
     case 3:
       return sig.breath >= 2 ? 4 : 3;
     case 4:
-      if (!sig.hasCompare || stepAgeMs < STEP4_DWELL_MS) return 4;
-      return sig.demon > DEMON_HINT ? 5 : 6;
+      return !sig.hasCompare ? 4 : sig.demon > DEMON_HINT ? 5 : 6;
     case 5:
       return sig.calm >= 1 ? 6 : 5;
     case 6:
@@ -82,28 +97,45 @@ export interface TutorialNumbers {
   readonly goalQi: number | null;
   /** 窗口秒数，从 sprintWindowMs 除出来，不写死 60 */
   readonly windowSec: number;
+  /** 实时心魔（0–1）。第 5 步要说「已经 X% 了」，那这个 X 只能是当下这一帧的值。 */
+  readonly demon: number;
 }
 
+/** 倍率文本：0.80 → 「0.8」。表里的 actionMult 改了，这句话跟着变。 */
+function multText(mult: number): string {
+  return String(Number(mult.toFixed(2)));
+}
+
+/** 引导的每一句都要解释「为什么」，而数字必须来自表和现场状态，不是抄进字符串的字面量。 */
 export function tutorialText(step: TutorialStep, n: TutorialNumbers): string {
   switch (step) {
     case 1:
-      return '先把「吐纳」拖进「每 tick」下面的凹槽';
+      return '先把「吐纳」拖进「每 tick」下面的凹槽。它每 tick 产一次灵力。';
     // 「+10」是模型速率不是字面量：表改成 baseGain 2 这句话得跟着变，不然引导就在念旧数值。
     // qi 刚过 0 的那一帧曲线还没算出来，宁可不报数字也不报「+0」——那是假话。
     case 2:
-      return n.perSec > 0 ? `每秒 +${Math.round(n.perSec)} 灵力。这就是你的第一条周天` : '灵力在涨了。这就是你的第一条周天';
+      return n.perSec > 0
+        ? `每秒 +${Math.round(n.perSec)} 灵力。这个数字就是你的算法效率。`
+        : '灵力在涨了。这个数字就是你的算法效率。';
     case 3:
-      return '再拖一块吐纳，看看快多少';
+      return `再拖一块试试。同样一 tick 里第二块只值 ${multText(actionMult(2))} 倍 —— 这就是边际递减，但总产出还是涨了。`;
     case 4: {
       const c = n.compare;
-      if (c === null) return '看，产出涨了 —— 数字就在曲线面板那一行';
+      if (c === null) return '看，产出涨了 —— 数字就在曲线面板那一行。';
       const p = compareParts(c.fromPerSec, c.toPerSec, c.percent);
-      return `看，${p.from} → ${p.to} 每秒（${p.percent}%）。同样的时间，多算一遍`;
+      return `看，${p.from} → ${p.to} 每秒（${p.percent}%）。同样的时间，多算一遍。`;
     }
-    case 5:
-      return '心魔在涨。拖一个「调息」能压住它';
+    // 第 5 步的百分比每帧重算：这句是「心魔现在多少」的读数，不是一个固定台词。
+    // 低到不足 DEMON_HINT 时说「已经 X% 了——拖调息压住它」自相矛盾（它本来就压着），改口讲涨法。
+    case 5: {
+      const pct = (n.demon * 100).toFixed(1);
+      return n.demon >= DEMON_HINT
+        ? `注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 ${pct}% 了 —— 拖一个「调息」进来压住它。`
+        : `心魔按「每个动作」涨，吐纳叠得越多涨得越快。现在 ${pct}%，还压得住 —— 拖一个「调息」进来。`;
+    }
+    // 10 秒 / 60% 都从 realm 表常量取：trialMs 或 AUTO_RATE 一改，这句话不能还在报旧数。
     case 6:
-      return '存量满了，点「可渡劫」';
+      return `存量满了。点「可渡劫」—— 渡劫有 ${CHALLENGE_TRIAL_MS / 1000} 秒，不操作会按 ${Math.round(AUTO_RATE * 100)}% 自动结算。`;
     case 'done':
       return n.goalQi === null
         ? '从这里开始，自己试。'
@@ -139,13 +171,80 @@ export function flyoutFocusType(step: TutorialStep): string | null {
 }
 
 /**
+ * 需求 15：工具箱放出新一批积木的那一刻，每块挂 2 秒「新」角标，气泡改指其中一块。
+ * 文案里的数值一个都不许抄：label 来自 BLOCK_SPECS，心魔增减来自 content/actions.json，
+ * 比较块的默认阈值与左值来自积木定义（packages/blocks 那份 JSON 是唯一的写处）。
+ * 引 @gongfa/blocks 不破「不许 import Blockly」这条：definitions.ts 是一堆纯数据。
+ */
+export const NEW_BADGE_MS = 2_000;
+
+export interface ReleasedBlock {
+  readonly id: string;
+  readonly label: string;
+  /** BLOCK_SPECS 里的种类；表里没这个 id 记 'unknown'（介绍就不能提它干什么）。 */
+  readonly kind: 'entry' | 'action' | 'control' | 'value' | 'unknown';
+  /** actions.json 里这一行的 demonDelta；表里没这块就是 null —— 宁可不说，也不编一个数。 */
+  readonly demonDelta: number | null;
+}
+
+/** 按块 id 现查三份表。传进来的 id 就是工具箱里新增的那几项，不预设一定是调息。 */
+export function releasedBlock(id: string): ReleasedBlock {
+  const spec = BLOCK_SPECS[id];
+  const row = actionsJson.find((action) => action.id === id);
+  return {
+    id,
+    label: spec?.label ?? id,
+    kind: spec?.kind ?? 'unknown',
+    demonDelta: row === undefined ? null : row.demonDelta,
+  };
+}
+
+export function releasedBlocks(ids: readonly string[]): readonly ReleasedBlock[] {
+  return ids.map(releasedBlock);
+}
+
+/** 负数自带「-」，正值补「+」：「每次 0.0005 心魔」听着像在压，那是反话。 */
+function signedDelta(d: number): string {
+  return d > 0 ? `+${d}` : String(d);
+}
+
+/** 表里查不到功能的块只报「新」，不替它编一句介绍。 */
+function releasedGeneric(b: ReleasedBlock): string {
+  return `「${b.label}」刚放出来，可以拖进画布试试。`;
+}
+
+const RELEASED_BADGE: Readonly<Record<string, (b: ReleasedBlock) => string>> = {
+  calm: (b) =>
+    b.demonDelta === null
+      ? releasedGeneric(b)
+      : `${b.label}：每次 ${signedDelta(b.demonDelta)} 心魔，代价是占一个动作槽`,
+  gongfa_compare: (b) =>
+    `${b.label}：把 ${COMPARE_LEFT_LABELS.join(' / ')} 和 ${COMPARE_DEFAULT_THRESHOLD} 比大小，得出真或假。`,
+};
+
+export function releasedBadgeText(block: ReleasedBlock): string {
+  return (RELEASED_BADGE[block.id] ?? releasedGeneric)(block);
+}
+
+/** 这 2 秒气泡指谁：优先动作块 —— 「占一个动作槽」这个代价只有它有资格说。不写死调息。 */
+export function releasedFocus(blocks: readonly ReleasedBlock[]): ReleasedBlock | null {
+  if (blocks.length === 0) return null;
+  return blocks.find((b) => b.kind === 'action') ?? blocks[0] ?? null;
+}
+
+/** 释放窗口内的覆盖目标；窗口外传 null，气泡回到这一步自己的靶子。 */
+export function releasedTarget(block: ReleasedBlock | null): TutorialTarget | null {
+  return block === null ? null : { kind: 'flyout', type: block.id };
+}
+
+/**
  * 气泡要贴的目标（需求变更 2026-11-21）：只说「找什么」，不说「找到了谁」。
  * 'flyout' = 工具箱里某一类块；'dom' = 一个稳定选择器。
  * DOM 侧每次重算都要重新 querySelector：updateToolbox 会把整棵 flyout 换成新 DOM，
  * 缓存元素身份等于把高亮挂在已废弃的节点上。
  */
 export type TutorialTarget =
-  | { readonly kind: 'flyout'; readonly type: 'breath' | 'calm' }
+  | { readonly kind: 'flyout'; readonly type: string }
   | { readonly kind: 'dom'; readonly selector: string };
 
 /**
@@ -170,11 +269,15 @@ export function tutorialTarget(step: TutorialStep): TutorialTarget | null {
   }
 }
 
-/** 目标的稳定字符串键：React 依赖数组和「这一步在指哪」的日志都用它，不用对象身份。 */
+/** 目标的稳定字符串键：FLIP 用它判「换靶子了没有」，日志与依赖数组也都用它，不用对象身份。 */
+export function tutorialTargetKeyOf(target: TutorialTarget | null): string {
+  if (target === null) return 'none';
+  return target.kind === 'flyout' ? `flyout:${target.type}` : target.selector;
+}
+
+/** 当前步在指谁（字符串键）。 */
 export function tutorialTargetKey(step: TutorialStep): string {
-  const t = tutorialTarget(step);
-  if (t === null) return 'none';
-  return t.kind === 'flyout' ? `flyout:${t.type}` : t.selector;
+  return tutorialTargetKeyOf(tutorialTarget(step));
 }
 
 /**

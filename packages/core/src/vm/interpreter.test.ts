@@ -407,7 +407,7 @@ describe('装载与确定性', () => {
     const vm = new Vm({ content: CONTENT, sink: UNIT_SINK });
     expect(vm.loadPrograms([]).ok).toBe(true);
     const result = vm.tick();
-    expect(result).toEqual({ tick: 1, steps: 0, gain: 0, demonDelta: 0, stall: null });
+    expect(result).toEqual({ tick: 1, steps: 0, gain: 0, demonDelta: 0, stall: null, profile: null });
   });
 
   it('同一 IR 两次运行逐字段一致', () => {

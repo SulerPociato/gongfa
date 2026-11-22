@@ -68,7 +68,7 @@ describe('预览常量与窗口（架构 §曲线预览：简化模型跑 600 ti
 describe('静态线性化（LOOP 按字面展开、如果走「不成立」）', () => {
   it('顺序 = 执行序，k 就是序号（契约 §2.2 的每 tick 第 N 次动作从 1 起）', () => {
     const linear = linearizeProgram([BREATH, BREATH, BREATH, HALT]);
-    expect(linear.actionIds).toEqual(['breath', 'breath', 'breath']);
+    expect(linear.kinds).toEqual(['breath', 'breath', 'breath']);
     expect(linear.truncated).toBe(false);
     // 三块并排 = 每 tick 三次动作：k=2 的边际乘数是 1/(1+0.25)=0.8
     expect(preview([BREATH, BREATH, BREATH, HALT]).perTick).toBeCloseTo(1 + 0.8 + 1 / 1.5, 15);
@@ -82,32 +82,32 @@ describe('静态线性化（LOOP 按字面展开、如果走「不成立」）',
       HALT,
     ];
     const linear = linearizeProgram(code);
-    expect(linear.actionIds.length).toBe(4);
+    expect(linear.kinds.length).toBe(4);
     // BEGIN 1 步 + 4×(ACTION+END) 8 步 + HALT 1 步
     expect(linear.steps).toBe(10);
   });
 
   it('「如果」走不成立：则分支被跳过，否则分支照跑', () => {
     const linear = linearizeProgram(IF_ELSE_REPEAT);
-    expect(linear.actionIds).toEqual(['breath', 'breath', 'breath']);
+    expect(linear.kinds).toEqual(['breath', 'breath', 'breath']);
   });
 
   it('没有否则分支的如果 = 本 tick 什么都不执行', () => {
     const linear = linearizeProgram(IF_THEN_ONLY);
-    expect(linear.actionIds).toEqual([]);
+    expect(linear.kinds).toEqual([]);
   });
 
   it('预算截断：200 步之后停止，并如实标 truncated（不是「程序就这么长」）', () => {
     const code: readonly Op[] = [...Array.from({ length: 210 }, () => BREATH), HALT];
     const linear = linearizeProgram(code);
     expect(linear.steps).toBe(BASE_BUDGET);
-    expect(linear.actionIds.length).toBe(BASE_BUDGET);
+    expect(linear.kinds.length).toBe(BASE_BUDGET);
     expect(linear.truncated).toBe(true);
   });
 
   it('空程序与只有 HALT 都是 0 个动作，不抛异常', () => {
-    expect(linearizeProgram([]).actionIds).toEqual([]);
-    expect(linearizeProgram([HALT]).actionIds).toEqual([]);
+    expect(linearizeProgram([]).kinds).toEqual([]);
+    expect(linearizeProgram([HALT]).kinds).toEqual([]);
   });
 
   it('回边跳回自己（改档出来的坏 IR）由预算收口，不会把展开跑成死循环', () => {
@@ -115,7 +115,7 @@ describe('静态线性化（LOOP 按字面展开、如果走「不成立」）',
     const linear = linearizeProgram(code);
     expect(linear.steps).toBe(BASE_BUDGET);
     expect(linear.truncated).toBe(true);
-    expect(linear.actionIds).toEqual([]);
+    expect(linear.kinds).toEqual([]);
   });
 });
 
@@ -242,6 +242,97 @@ describe('预览 ↔ 真 VM 逐位对齐（无心魔、无杂念、无玉简时�
     const result = preview([BREATH, HALT], 3);
     expect(result.points[0]).toBe(result.perTick * TICKS_PER_SEC);
     expect(result.points[59]).toBe(vmLedger([BREATH, HALT], 3));
+  });
+});
+
+// ——————————————————————————————————————————————————————————————
+// 批次 2：曲线第二条线。裁定 1「心魔预测计调息的 −0.0005，法宝/功法书的 demonMult 不计」，
+// 这一节钉的就是那条：没有第二条数学，撞线点由 core 说，UI 只负责画。
+// ——————————————————————————————————————————————————————————————
+const DEMON_PER_BREATH = 0.00005; // 契约 §2.2 的 demonGrowth 基线（demonBase 缺省值）
+const CALM_DEMON_DELTA = -0.0005; // actions.json 里 calm 那一行的 demonDelta
+
+describe('心魔预测线（demonPoints / backlashAtSec）', () => {
+  it('纯吐纳无被动：每 tick 0.00005，第 30 秒 0.015，60 秒不撞线', () => {
+    const result = preview([BREATH, HALT]);
+    expect(result.demonPoints.length).toBe(PREVIEW_POINTS);
+    expect(result.demonPoints[29]).toBeCloseTo(0.015, 12);
+    expect(result.demonPoints[59]).toBeCloseTo(0.03, 12);
+    expect(result.backlashAtSec).toBeNull();
+  });
+
+  it('210 块（预算截断）：心魔只算展开出来的 200 槽，与灵力同一个截断口径', () => {
+    const code: readonly Op[] = [...Array.from({ length: 210 }, () => BREATH), HALT];
+    const result = preview(code);
+    expect(result.truncated).toBe(true);
+    // 200 槽 × 0.00005 = 0.01/tick = 0.1/秒 → 第 10 秒撞线。第 201–210 块不许进这条账。
+    // 实测 11 秒：0.01 累加 100 次落在 0.9999999999999999，多走一跳才越过火线——向上取整 thus 报 11。
+    expect(result.backlashAtSec).toBe(11);
+    expect(result.demonPoints.length).toBe(11);
+    expect(result.demonPoints[8]).toBeCloseTo(0.9, 12);
+    expect(result.demonPoints[10]).toBe(1);
+    // 裁定 2：qi 线不折、不因走火打折，还是满 60 点。
+    expect(result.points.length).toBe(PREVIEW_POINTS);
+  });
+
+  it('循环 3 次（深度 1）：增长项 ×1.5，第 6 秒 = 60 tick × 3 × 0.000075', () => {
+    const loop: readonly Op[] = [
+      { op: 'LOOP_BEGIN', end: 2, count: 3 },
+      BREATH,
+      { op: 'LOOP_END', begin: 0 },
+      HALT,
+    ];
+    const result = preview(loop);
+    // 第 k 个点是「第 k+1 秒末」，所以 index 5 是 60 tick 的累计，不是 30。
+    expect(result.demonPoints[5]).toBeCloseTo(60 * 3 * DEMON_PER_BREATH * 1.5, 12);
+    expect(result.demonPoints[5]).toBeCloseTo(0.0135, 12);
+  });
+
+  it('调息进模型（裁定 1）：吐纳 + 调息把每 tick 的账压成 0.00005 − 0.0005，60 秒恒 0', () => {
+    const withCalm = preview([BREATH, CALM, HALT]);
+    expect(withCalm.demonPoints[0]).toBe(0);
+    expect(withCalm.demonPoints[59]).toBe(0);
+    expect(withCalm.backlashAtSec).toBeNull();
+    // 单独一块调息同一条路：负增长夹在 0，不许画出一条往下掉的线。
+    expect(preview([CALM, HALT]).demonPoints[59]).toBe(0);
+  });
+
+  it('压不压得住看得见：40 块吐纳 50 秒撞线，同机器加 4 块调息后账正好抵平', () => {
+    const breaths: readonly Op[] = [...Array.from({ length: 40 }, () => BREATH), HALT];
+    const damped: readonly Op[] = [...Array.from({ length: 40 }, () => BREATH), CALM, CALM, CALM, CALM, HALT];
+    const hot = preview(breaths);
+    // 40 × 0.00005 = 0.002/tick = 0.02/秒 → 1.0 要 50 秒（窗口内，面板要出红点那句话）。
+    expect(hot.demonPoints[48]).toBeCloseTo(0.98, 12);
+    expect(hot.backlashAtSec).toBe(50);
+    expect(hot.demonPoints.length).toBe(50);
+    // 4 × (−0.0005) = −0.002 正好抵平：这就是裁定 1 要能回答的那个问题。
+    expect(40 * DEMON_PER_BREATH + 4 * CALM_DEMON_DELTA).toBe(0);
+    const cool = preview(damped);
+    expect(cool.backlashAtSec).toBeNull();
+    // 夹 0..1 之后只剩浮点零头：抵平就是抵平，不许画出往下掉的线。
+    expect(cool.demonPoints[59]).toBeCloseTo(0, 15);
+    // 灵力两条一样：调息 baseGain 0、且排在第 41–44 槽，前 40 槽的乘数一个没动 —— 面板上这正是「白捡的减压」。
+    expect(cool.points[59]).toBe(hot.points[59]);
+  });
+
+  it('撞线那条线在命中点截断 + 报秒数（裁定 2：qi 线不折，demon 线收住）', () => {
+    // 换基线最省事：同一份程序只把 demonBase 拧大，走的还是那条累加与判据。
+    const result = previewCurve({ content: CONTENT, realmIndex: 0, code: [BREATH, HALT], demonBase: 0.0025 });
+    // 0.0025/tick → 理论 400 tick = 40 秒；实测 41：第 400 tick 的和落在 0.9999999999999999，
+    // 判据要的是「越过」，于是多走一跳，向上取整成 41。面板说的就是这个数，不四舍五入回 40。
+    expect(result.backlashAtSec).toBe(41);
+    expect(result.demonPoints.length).toBe(41);
+    expect(result.demonPoints[40]).toBe(1);
+    // 灵力线不受影响：还是满 60 点，撞线那一秒的产出照常累计。
+    expect(result.points.length).toBe(PREVIEW_POINTS);
+    expect(result.points[39]).toBe(400);
+  });
+
+  it('心魔与灵力共用一次展开：未知 actionId 两边都记 0，预览不崩页面', () => {
+    const result = previewCurve({ content: CONTENT, realmIndex: 0, code: [{ op: 'ACTION', actionId: 'removed' }, HALT] });
+    expect(result.perTick).toBe(0);
+    expect(result.demonPoints[59]).toBe(0);
+    expect(result.backlashAtSec).toBeNull();
   });
 });
 

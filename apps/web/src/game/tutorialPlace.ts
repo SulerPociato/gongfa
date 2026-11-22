@@ -16,6 +16,29 @@ export interface Viewport {
   readonly height: number;
 }
 
+export interface BubblePosition {
+  readonly left: number;
+  readonly top: number;
+}
+
+/**
+ * 位移小于这个数就当没动（需求 14）。400ms 一次的重算会不断产出 0.01px 级的抖动，
+ * 每次都起飞的话气泡会在目标边上一直飘 —— 那是「在动」，不是「移过去」。
+ */
+export const FLIP_EPSILON_PX = 0.5;
+
+/**
+ * FLIP 的 Invert 那一步：新坐标已经写好，这里给出把它推回旧坐标的 transform。
+ * null = 不飞（没有基线，或位移在阈值内）。归零交给组件下一帧做，过渡时长在 CSS 里。
+ */
+export function flipInvert(prev: BubblePosition | null, next: BubblePosition): string | null {
+  if (prev === null) return null;
+  const dx = prev.left - next.left;
+  const dy = prev.top - next.top;
+  if (Math.abs(dx) < FLIP_EPSILON_PX && Math.abs(dy) < FLIP_EPSILON_PX) return null;
+  return `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+}
+
 /** 气泡边缘到目标边缘的空隙。箭头就活在这 12px 里（长 6px，尖朝目标）。 */
 export const BUBBLE_GAP_PX = 12;
 /** CSS border 三角的高度，也是气泡与目标之间那段空隙里箭头占掉的长度。 */

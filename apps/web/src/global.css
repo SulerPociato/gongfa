@@ -562,6 +562,106 @@ body::before {
   vector-effect: non-scaling-stroke;
 }
 
+/* 批次 2 第二条线：心魔读右轴（0 在底、火线在顶），虚线 + 红是 HUD 心魔条同一支颜色。
+   它与阈值那支虚线的区别靠颜色不靠线型：三种线型在一米宽的图上分不出来。 */
+.hud .curve-demon-line {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  opacity: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 撞线那一格的红点：半径走非缩放像素，横向拉伸 viewBox 不该把它拉成椭圆。 */
+.hud .curve-danger-dot {
+  fill: var(--danger);
+  stroke: rgba(7, 11, 16, 0.8);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 图例与右轴刻度都是 HTML：viewBox + preserveAspectRatio="none" 会把 SVG 里的 text 横向压扁
+   （实测窄栏里 getScreenCTM = scale(0.697, 0.983)，横向少掉三成），10px 的字经不起这一压。 */
+.hud .curve-plot {
+  position: relative;
+  padding-right: 30px;
+}
+
+.hud .curve-axis-right {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 28px;
+  pointer-events: none;
+}
+
+.hud .curve-tick {
+  position: absolute;
+  right: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--danger);
+  opacity: 0.7;
+}
+
+.hud .curve-tick.is-top {
+  top: 1px;
+}
+
+.hud .curve-tick.is-mid {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.hud .curve-tick.is-bottom {
+  bottom: 2px;
+}
+
+/* 图例在左上角：那里是曲线永远够不着的空角（起点恒在左下），压不住任何一条线。 */
+.hud .curve-legend {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.hud .curve-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  opacity: 0.85;
+}
+
+/* 色块与两条线同色同样子：图例说的是图上那两条，不该再有第三种颜色。 */
+.hud .curve-key::before {
+  content: "";
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.hud .curve-key.is-qi::before {
+  background: var(--spirit);
+}
+
+.hud .curve-key.is-demon::before {
+  background: repeating-linear-gradient(90deg, var(--danger) 0 4px, transparent 4px 6px);
+}
+
+/* 撞线那句是警告不是说明：与心魔条、红点同一个红，读三处是同一件事。 */
+.hud .curve-danger {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  margin: 4px 0 0;
+  color: var(--danger);
+}
+
 .hud .curve-eta {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
@@ -999,6 +1099,7 @@ body::before {
   display: none;
   pointer-events: none;
   position: fixed;
+  transition: transform 200ms ease;
   z-index: 11;
 }
 
@@ -1039,6 +1140,11 @@ body::before {
   pointer-events: none;
   position: fixed;
   top: 0;
+  /* 需求 14：换目标时气泡是「移过去」，不是换个位置重画。过渡常驻在基类上（.tut-ring 同一份），
+     组件写「反向位移」那一步临时把 style.transition 压成 none，写完立刻交还给这里 ——
+     用 class 开关会被 React 重渲染重写的 className 抹掉，中途掐断过渡就等于瞬移。
+     prefers-reduced-motion 下全局规则把 transition-duration 压到 0.01ms，于是自动瞬移（裁定 5）。 */
+  transition: transform 200ms ease;
   visibility: hidden;
   z-index: 12;
 }
@@ -1142,6 +1248,41 @@ body::before {
   50% {
     filter: drop-shadow(0 0 5px rgba(53, 224, 200, 0.85)) brightness(1.4);
   }
+}
+
+/* 需求 15：工具箱放出新一批积木时，每块右上角挂 2 秒「新」角标。
+   画不进 SVG（SVG 元素没有 ::after，Blockly 的 <g> 上挂不了文字），所以是一块 fixed HTML：
+   left/top 由 tutorialBubble 每次重算时贴到积木 rect 的右上角，translate 把芯片中心压在那个角上。
+   默认 display:none：flyout 收起时后代矩形全 0，量不到就不画，芯片不许留在屏幕左上角。 */
+.toolbox-new-badges {
+  display: contents;
+}
+
+.toolbox-new-badge {
+  align-items: center;
+  background: var(--gold);
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  color: var(--ink);
+  display: none;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 10px;
+  height: 16px;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+  position: fixed;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  /* 必须高过 Blockly 的 flyout：实测 flyout 那个 <svg> 是 position:absolute; z-index:20，
+     而 .injectionDiv / .canvas 全是 z-index:auto（不成层叠上下文），所以 20 直接在 .layout 的层里比大小。
+     原来写 13 → 芯片被 flyout 底色（rgb(28,34,40) @ fill-opacity .85）盖住，截图采样只有 (59,59,52)，
+     金色 (232,201,120) 掉了 75%，看着像个灰点。抬到 21 才是一块金 chip。 */
+  z-index: 21;
+}
+
+.toolbox-new-badge.is-on {
+  display: flex;
 }
 
 /* 首次「可渡劫」的脉冲（P0-C 第 4 项）：按钮是 HTML，box-shadow 扩散一圈就够，不用缩放。 */

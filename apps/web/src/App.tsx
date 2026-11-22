@@ -11,7 +11,7 @@ import {
   STARTER_WORKSPACE_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage, Qi } from '@gongfa/core';
 import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -23,7 +23,7 @@ import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { END_DWELL_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
+import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { QiParticles } from './components/QiParticles';
@@ -35,6 +35,10 @@ type SaveBridge = ReturnType<typeof createSaveController>;
 
 // 空画布装载的程序：与 compileWorkspace 对「空凹槽」的产物同形（只有一条 HALT）。
 const EMPTY_CANVAS_PROGRAM: Program = { id: PROGRAM_ID, code: [{ op: 'HALT' }] };
+
+// 需求 15：不在「新块角标」窗口内时的那份空列表。用同一个常量而不是每次新建 ——
+// 数组身份一变，TutorialBubble 的 effect 就重建，气泡白重测一次几何。
+const NO_RELEASE: readonly ReleasedBlock[] = [];
 
 // D5：验收与回放用的只读句柄（state() 的实时视图，含 noiseTicks / backlashTicks / tick）。
 // 只在 DEV 或 ?debug=1 时挂，正式构建默认不挂；卸载时删掉，不留上一份会话的 runtime。
@@ -148,7 +152,7 @@ function toRetreatReport(result: OfflineResult, realmName: string): RetreatRepor
 }
 
 // 曲线预览的空视图：编译失败或凹槽空着时整块面板不出现 —— 画一条没在跑的曲线是假话。
-const NO_CURVE: CurveModel = { points: [], threshold: 0, etaSec: null, reachesInWindow: false, seconds: PREVIEW_SECONDS, compare: null, truncated: false };
+const NO_CURVE: CurveModel = { points: [], threshold: 0, etaSec: null, reachesInWindow: false, seconds: PREVIEW_SECONDS, compare: null, truncated: false, demon: [], demonMax: BACKLASH_LINE, backlashAtSec: null };
 
 // toast 的停留时长：要够读完一句话，又不至于挡在玩家眼前不走（HUD 窄栏没有别的东西可看）。
 const TOAST_MS = 6_000;
@@ -169,6 +173,10 @@ function curveModel(preview: CurvePreview, compare: CurveCompare | null): CurveM
     seconds: PREVIEW_SECONDS,
     compare,
     truncated: preview.truncated,
+    demon: preview.demonPoints,
+    // 右轴满刻度 = 火线，从 core 传：HUD 写死 1 的话，改阈值那天面板会自己画出一条不存在的线。
+    demonMax: BACKLASH_LINE,
+    backlashAtSec: preview.backlashAtSec,
   };
 }
 
@@ -278,6 +286,8 @@ export function App() {
   const [tutPlaced, setTutPlaced] = useState(false);
   // 「工具箱重建过了」的计数：updateToolbox 换掉整棵 flyout DOM，气泡要立刻重挂高亮，不等 400ms 轮询。
   const [tutRev, setTutRev] = useState(0);
+  // 需求 15：工具箱刚放出来的那几块，2 秒内挂「新」角标并把气泡借过去。
+  const [tutRelease, setTutRelease] = useState<readonly ReleasedBlock[]>(NO_RELEASE);
   // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
   // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
   // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
@@ -318,6 +328,9 @@ export function App() {
     let tutBarSig = '';
     let tutReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let tutEndTimer: ReturnType<typeof setTimeout> | null = null;
+    // 需求 15：释放窗口（2 秒）里刚放出来的块 id。空 = 不在窗口内。
+    let tutNewIds: readonly string[] = [];
+    let tutBadgeTimer: ReturnType<typeof setTimeout> | null = null;
 
     // 工具箱按境界门控（契约 §4.3 的解锁列）：炼气只给 4 块，筑基起补「如果 / 循环」。
     // ?demo=1 全开（01-design §11.4「演示模式强制全开」）。Blockly 的 updateToolbox 重建整棵 flyout，
@@ -339,7 +352,9 @@ export function App() {
       for (const type of TUT_TYPES) {
         for (const block of inner.getBlocksByType(type, false)) {
           const svg = (block as unknown as RenderedBlock).getSvgRoot();
-          svg.classList.toggle('tut-focus', type === focus);
+          // 需求 15：窗口内的新块和这一步聚焦的那块一样全亮 ——
+          // .tut 那条 :not(.tut-focus) 会把刚放出来的积木压成 0.6，那正好是「看这里」的反面。
+          svg.classList.toggle('tut-focus', type === focus || tutNewIds.includes(type));
           svg.classList.toggle('tut-breath', type === 'breath' && breathe);
         }
       }
@@ -772,7 +787,13 @@ export function App() {
     const tutNumbers = (): TutorialNumbers => {
       const state = runtime.state();
       // perSec 与 compare 都取曲线面板那份：引导复述的数字必须和面板同源，否则验收 c) 就是假通过。
-      return { perSec: curveBase?.perSec ?? 0, compare: lastCompare, goalQi: state.sprintGoalQi, windowSec: state.sprintWindowMs / 1000 };
+      return {
+        perSec: curveBase?.perSec ?? 0,
+        compare: lastCompare,
+        goalQi: state.sprintGoalQi,
+        windowSec: state.sprintWindowMs / 1000,
+        demon: state.demon,
+      };
     };
 
     const syncTutorial = (state: RuntimeState): void => {
@@ -786,8 +807,19 @@ export function App() {
         if (tutReleaseTimer === null) {
           tutReleaseTimer = setTimeout(() => {
             tutReleaseTimer = null;
+            // 放出来的就是「刚才被引导藏掉」的那几块：id 从同一张表来，这里不再列一遍名字。
+            tutNewIds = hiddenToolboxTypes(tutActive, false);
             tutReleased = true;
             applyToolbox(runtime.state().realmIndex);
+            refreshFlyoutClasses();
+            setTutRelease(releasedBlocks(tutNewIds));
+            if (tutBadgeTimer !== null) clearTimeout(tutBadgeTimer);
+            tutBadgeTimer = setTimeout(() => {
+              tutBadgeTimer = null;
+              tutNewIds = [];
+              refreshFlyoutClasses();
+              setTutRelease(NO_RELEASE);
+            }, NEW_BADGE_MS);
           }, RELEASE_AFTER_DRAG_MS);
         }
       }
@@ -836,6 +868,13 @@ export function App() {
         clearTimeout(tutEndTimer);
         tutEndTimer = null;
       }
+      // 需求 15：引导没了，「新」角标和借走的气泡一起还回去。
+      if (tutBadgeTimer !== null) {
+        clearTimeout(tutBadgeTimer);
+        tutBadgeTimer = null;
+      }
+      tutNewIds = [];
+      setTutRelease(NO_RELEASE);
       refreshFlyoutClasses();
       applyToolbox(runtime.state().realmIndex);
       setHud((previous) => ({ ...previous, tutorial: null }));
@@ -1007,6 +1046,7 @@ export function App() {
       window.removeEventListener('keydown', onDemoKey);
       if (toastTimer !== null) clearTimeout(toastTimer);
       if (tutReleaseTimer !== null) clearTimeout(tutReleaseTimer);
+      if (tutBadgeTimer !== null) clearTimeout(tutBadgeTimer);
       if (tutEndTimer !== null) clearTimeout(tutEndTimer);
       detachBook();
       detachArtifacts();
@@ -1089,7 +1129,7 @@ export function App() {
       )}
       {outcome !== null && <ChallengeResultLayer outcome={outcome} onDismiss={handleDismissOutcome} />}
       {hud.tutorial !== null && hud.tutorial.step !== null && (
-        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} onPlaced={setTutPlaced} />
+        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} />
       )}
       {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
       {drawerOpen && (

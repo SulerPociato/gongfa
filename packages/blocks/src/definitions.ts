@@ -58,6 +58,18 @@ export const GONGFA_REPEAT_JSON = {
   style: 'gongfa_control',
 } as const;
 
+// 阈值与左值只在这里写一次：引导要复述「默认比的是 0.5」，从同一份定义里取才不会两处漂移。
+export const COMPARE_DEFAULT_THRESHOLD = 0.5;
+
+const COMPARE_LEFT_OPTIONS = [
+  ['存量', 'qi'],
+  ['心魔', 'demon'],
+  ['预算', 'budget'],
+] as const;
+
+/** 比较块能选哪几个左值（中文标签），引导文案照这份念。 */
+export const COMPARE_LEFT_LABELS: readonly string[] = COMPARE_LEFT_OPTIONS.map(([label]) => label);
+
 // 左值只暴露 qi / demon / budget（IR 的 LOAD 还支持 rate / realm，P0 不给玩家选）。
 export const GONGFA_COMPARE_JSON = {
   kind: 'block_definition',
@@ -67,11 +79,7 @@ export const GONGFA_COMPARE_JSON = {
     {
       type: 'field_dropdown',
       name: 'LEFT',
-      options: [
-        ['存量', 'qi'],
-        ['心魔', 'demon'],
-        ['预算', 'budget'],
-      ],
+      options: COMPARE_LEFT_OPTIONS,
     },
     {
       type: 'field_dropdown',
@@ -81,7 +89,7 @@ export const GONGFA_COMPARE_JSON = {
         ['<', '<'],
       ],
     },
-    { type: 'field_number', name: 'THRESHOLD', precision: 0.0001, value: 0.5 },
+    { type: 'field_number', name: 'THRESHOLD', precision: 0.0001, value: COMPARE_DEFAULT_THRESHOLD },
   ],
   output: 'Boolean',
   style: 'gongfa_logic',

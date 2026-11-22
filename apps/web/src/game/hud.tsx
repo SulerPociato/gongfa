@@ -129,6 +129,15 @@ export interface CurveModel {
   readonly compare: CurveCompare | null;
   /** 指令预算截断：曲线只描述这一 tick 跑得完的部分。 */
   readonly truncated: boolean;
+  /**
+   * 批次 2 第二条线：心魔累计，与 points 同一套横轴（下标 = 第几秒末）。
+   * 撞线那一格也占一位（值就是 demonMax），所以它比 points 短一截 = 「线在这儿收了」，不是数据缺失。
+   */
+  readonly demon: readonly number[];
+  /** 右轴满刻度：core 的火线值传进来，HUD 不写死 1。 */
+  readonly demonMax: number;
+  /** 60 秒窗口内预计撞线的秒数；null = 压得住。文案由宿主拼，数字只在这一个地方格式化。 */
+  readonly backlashAtSec: number | null;
 }
 
 export interface HudModel {
@@ -256,47 +265,82 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
   const hasData = model.points.length > 0;
   // 纵轴上限取「曲线末点与阈值的大者」：阈值那条线永远画在图里，玩家才看得见自己差多远。
   const top = Math.max(last, model.threshold, 1);
-  const x = (index: number): number => (model.points.length === 1 ? CURVE_W : (index / (model.points.length - 1)) * CURVE_W);
+  // 横轴按秒：两条线共用同一个分母，心魔在预算截断时比灵力短，短的那截要落在同一格刻度上。
+  const seconds = Math.max(model.points.length, model.demon.length);
+  const x = (index: number): number => (seconds === 1 ? CURVE_W : (index / (seconds - 1)) * CURVE_W);
   const y = (value: number): number => CURVE_H - (value / top) * CURVE_H;
+  // 右轴是心魔：0 在底、火线在顶，占满同一张图的高度（左轴是灵力，两套刻度不许混着读）。
+  const yDemon = (value: number): number => CURVE_H - (value / model.demonMax) * CURVE_H;
   const line = model.points.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
   // 渐变填充区域：从曲线到 SVG 底部
   const area = `0,${CURVE_H} ${line} ${CURVE_W},${CURVE_H}`;
+  const demonLine = model.demon.map((value, index) => `${x(index).toFixed(1)},${yDemon(value).toFixed(1)}`).join(' ');
+  const lastDemonIndex = model.demon.length - 1;
+  // 红点钉在命中那一格；贴边时往里收半个点，否则 viewBox 的 overflow:hidden 会把它削成半圆。
+  const dotY = (value: number): number => Math.min(CURVE_H - 4, Math.max(4, yDemon(value)));
   const eta = model.etaSec === null
     ? `${model.seconds} 秒内不产出灵力`
     : `预计 ${model.etaSec} 秒达标${model.reachesInWindow ? '' : `（超出本图 ${model.seconds} 秒）`}`;
   // 三个数字的写法与引导第 4 步共用 compareParts：两处各写一遍 toFixed，早晚会分叉成两个「每秒」。
   const compare = model.compare === null ? null : compareParts(model.compare.fromPerSec, model.compare.toPerSec, model.compare.percent);
+  const backlash = model.backlashAtSec === null ? null : `预计 ${model.backlashAtSec} 秒后走火入魔`;
   return (
     <div className="curve">
       <p className="label">产出曲线</p>
-      <svg className="curve-svg" viewBox={`0 0 ${CURVE_W} ${CURVE_H}`} preserveAspectRatio="none" role="img"
-        aria-label={hasData ? `60 秒产出曲线，末点 ${Math.round(last)}，阈值 ${model.threshold}，${eta}` : '曲线空态，拖积木后显示'}>
-        <defs>
-          <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(53, 224, 200, 0.18)" />
-            <stop offset="100%" stopColor="rgba(53, 224, 200, 0)" />
-          </linearGradient>
-        </defs>
-        {/* 底部基线 */}
-        <line x1="0" y1={CURVE_H - 1} x2={CURVE_W} y2={CURVE_H - 1} stroke="rgba(53, 224, 200, 0.12)" strokeWidth="1" />
-        {hasData ? (
-          <>
-            <polygon className="curve-area" points={area} />
-            <line className="curve-threshold-line" x1="0" y1={y(model.threshold).toFixed(1)} x2={CURVE_W} y2={y(model.threshold).toFixed(1)} />
-            <polyline className="curve-line" points={line} />
-          </>
-        ) : (
-          <text x={CURVE_W / 2} y={CURVE_H / 2} fill="rgba(255,255,255,0.4)" fontSize="12" fontFamily="system-ui, sans-serif" textAnchor="middle">搭一块积木，曲线就会出来</text>
+      {/* 刻度与图例都是叠在图外的 HTML，不是 SVG 里的 text：preserveAspectRatio="none" 会把字横向压扁，
+          而这几处读的是「灵力多少」和「心魔到没到火线」，看不清就等于少了一条线。 */}
+      <div className="curve-plot">
+        <svg className="curve-svg" viewBox={`0 0 ${CURVE_W} ${CURVE_H}`} preserveAspectRatio="none" role="img"
+          aria-label={hasData
+            ? `${model.seconds} 秒产出曲线，灵力末点 ${Math.round(last)}，阈值 ${model.threshold}，${eta}；心魔末点 ${Math.round((model.demon[model.demon.length - 1] ?? 0) * 100)}%${backlash === null ? '' : `，${backlash}`}`
+            : '曲线空态，拖积木后显示'}>
+          <defs>
+            <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(53, 224, 200, 0.18)" />
+              <stop offset="100%" stopColor="rgba(53, 224, 200, 0)" />
+            </linearGradient>
+          </defs>
+          {/* 底部基线 */}
+          <line x1="0" y1={CURVE_H - 1} x2={CURVE_W} y2={CURVE_H - 1} stroke="rgba(53, 224, 200, 0.12)" strokeWidth="1" />
+          {hasData ? (
+            <>
+              <polygon className="curve-area" points={area} />
+              <line className="curve-threshold-line" x1="0" y1={y(model.threshold).toFixed(1)} x2={CURVE_W} y2={y(model.threshold).toFixed(1)} />
+              <polyline className="curve-line" points={line} />
+              {/* 心魔线走右轴虚线：阈值那支已经是虚线了，分开两条线靠的是颜色，不许再添一种线型。 */}
+              {model.demon.length > 1 && <polyline className="curve-demon-line" points={demonLine} />}
+              {/* 裁定 2：撞线只截断心魔这一支，红点钉在命中那一格；灵力线照画满 60 秒。 */}
+              {model.backlashAtSec !== null && lastDemonIndex >= 0 && (
+                <circle className="curve-danger-dot" cx={x(lastDemonIndex).toFixed(1)} cy={dotY(model.demon[lastDemonIndex] ?? 0).toFixed(1)} r="3.5" />
+              )}
+            </>
+          ) : (
+            <text x={CURVE_W / 2} y={CURVE_H / 2} fill="rgba(255,255,255,0.4)" fontSize="12" fontFamily="system-ui, sans-serif" textAnchor="middle">搭一块积木，曲线就会出来</text>
+          )}
+          {/* 横轴标签 */}
+          <text x="0" y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace">0</text>
+          <text x={CURVE_W / 2} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="middle">30</text>
+          <text x={CURVE_W} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="end">60</text>
+        </svg>
+        {hasData && (
+          <p className="curve-legend">
+            <span className="curve-key is-qi">灵力</span>
+            <span className="curve-key is-demon">心魔</span>
+          </p>
         )}
-        {/* 横轴标签 */}
-        <text x="0" y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace">0</text>
-        <text x={CURVE_W / 2} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="middle">30</text>
-        <text x={CURVE_W} y={CURVE_H - 4} fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="JetBrains Mono, monospace" textAnchor="end">60</text>
-      </svg>
+        {hasData && (
+          <span className="curve-axis-right" aria-hidden="true">
+            <span className="curve-tick is-top">{model.demonMax.toFixed(2)}</span>
+            <span className="curve-tick is-mid">{(model.demonMax / 2).toFixed(2)}</span>
+            <span className="curve-tick is-bottom">0</span>
+          </span>
+        )}
+      </div>
       {hasData && <p className="curve-eta">{eta}</p>}
+      {hasData && backlash !== null && <p className="curve-danger">{backlash}</p>}
       {hasData && compare !== null && <p className="curve-compare">产出 {compare.from} → {compare.to} / 秒（{compare.percent}%）</p>}
       {hasData && model.truncated && <p className="curve-truncated">程序超出本 tick 指令预算，曲线只算跑得完的部分</p>}
-      {hasData && <p className="curve-note">直线执行估算，未计入「如果」分支与心魔折扣</p>}
+      {hasData && <p className="curve-note">直线执行估算，未计入「如果」分支、随机杂念与法宝/功法书的心魔倍率</p>}
     </div>
   );
 }

@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import actionsJson from '../../../../content/actions.json';
+import { COMPARE_DEFAULT_THRESHOLD, COMPARE_LEFT_LABELS } from '@gongfa/blocks';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, actionMult } from '@gongfa/core';
 import type { SaveStorage } from '@gongfa/core';
 import { compareParts } from './format';
 import {
   DEMON_HINT,
   END_DWELL_MS,
+  MIN_STEP_DWELL_MS,
+  NEW_BADGE_MS,
   RELEASE_AFTER_DRAG_MS,
   STEP4_DWELL_MS,
   TUTORIAL_DONE,
@@ -13,11 +18,18 @@ import {
   hiddenToolboxTypes,
   nextTutorialStep,
   readTutorialDone,
+  releasedBadgeText,
+  releasedBlock,
+  releasedBlocks,
+  releasedFocus,
+  releasedTarget,
   resumeTutorialStep,
+  stepDwellMs,
   tutorialActiveAt,
   tutorialBar,
   tutorialTarget,
   tutorialTargetKey,
+  tutorialTargetKeyOf,
   tutorialText,
   writeTutorialDone,
   type TutorialSignals,
@@ -25,26 +37,28 @@ import {
 
 const NO: TutorialSignals = { breath: 0, calm: 0, qi: 0, demon: 0, hasCompare: false, pressedChallenge: false };
 const sig = (over: Partial<TutorialSignals>): TutorialSignals => ({ ...NO, ...over });
-const NUM = { perSec: 10, compare: null, goalQi: 480, windowSec: 60 };
+const NUM = { perSec: 10, compare: null, goalQi: 480, windowSec: 60, demon: 0 };
 
 describe('步骤机：只往前走，条件不满足就停在原地', () => {
+  // 停留到期后的年龄：条件满足 + 待够 = 才翻页，所以每条都用它当「条件已满足」的代表值。
+  const OK = MIN_STEP_DWELL_MS;
+
   it('第 1 步等第一块吐纳落地', () => {
     expect(nextTutorialStep(1, sig({ qi: 5 }), 9_999)).toBe(1);
-    expect(nextTutorialStep(1, sig({ breath: 1 }), 0)).toBe(2);
+    expect(nextTutorialStep(1, sig({ breath: 1 }), OK)).toBe(2);
   });
 
   it('第 2 步等存量真涨起来（拖完积木到第一个 tick 之间不该就跳过去）', () => {
     expect(nextTutorialStep(2, sig({ breath: 1, qi: 0 }), 9_999)).toBe(2);
-    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0.1 }), 0)).toBe(3);
+    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0.1 }), OK)).toBe(3);
   });
 
   it('第 3 步等第二块吐纳', () => {
     expect(nextTutorialStep(3, sig({ breath: 1, qi: 50 }), 9_999)).toBe(3);
-    expect(nextTutorialStep(3, sig({ breath: 2 }), 0)).toBe(4);
+    expect(nextTutorialStep(3, sig({ breath: 2 }), OK)).toBe(4);
   });
 
   it('第 4 步要对比行出现且真停留够：同一次拖拽同时满足 3 和 4，不留停留时间这句话会一闪而过', () => {
-    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: true }), STEP4_DWELL_MS - 1)).toBe(4);
     expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: false }), STEP4_DWELL_MS)).toBe(4);
     expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: true }), STEP4_DWELL_MS)).toBe(6);
   });
@@ -56,7 +70,7 @@ describe('步骤机：只往前走，条件不满足就停在原地', () => {
 
   it('第 5 步等调息落地', () => {
     expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 0 }), 9_999)).toBe(5);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), 0)).toBe(6);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), OK)).toBe(6);
   });
 
   it('第 6 步等那一下点击，done 之后不再动', () => {
@@ -71,18 +85,44 @@ describe('步骤机：只往前走，条件不满足就停在原地', () => {
   });
 });
 
+describe('每步最短停留 3 秒（需求 13，第 4 步保留 5 秒）', () => {
+  it('条件在第一步就满足，只待 2999ms 也不许翻页', () => {
+    expect(nextTutorialStep(1, sig({ breath: 1 }), MIN_STEP_DWELL_MS - 1)).toBe(1);
+    expect(nextTutorialStep(2, sig({ qi: 0.1 }), MIN_STEP_DWELL_MS - 1)).toBe(2);
+    expect(nextTutorialStep(3, sig({ breath: 2 }), MIN_STEP_DWELL_MS - 1)).toBe(3);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), MIN_STEP_DWELL_MS - 1)).toBe(5);
+    // qi 过 0 只要一个 tick、第二块落地即满足 —— 这两处没有停留时间就会把话撤在玩家读到一半时
+    expect(nextTutorialStep(2, sig({ qi: 0.1 }), MIN_STEP_DWELL_MS)).toBe(3);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), MIN_STEP_DWELL_MS)).toBe(6);
+  });
+
+  it('第 4 步的门槛是 5 秒不是 3 秒；其余步都是 3 秒', () => {
+    expect(stepDwellMs(1)).toBe(MIN_STEP_DWELL_MS);
+    expect(stepDwellMs(3)).toBe(MIN_STEP_DWELL_MS);
+    expect(stepDwellMs(4)).toBe(STEP4_DWELL_MS);
+    expect(STEP4_DWELL_MS).toBe(5_000);
+    expect(nextTutorialStep(4, sig({ hasCompare: true }), 3_000)).toBe(4);
+    expect(nextTutorialStep(4, sig({ hasCompare: true }), STEP4_DWELL_MS)).toBe(6);
+  });
+
+  it('主动点「可渡劫」不排队：停留是给自动翻页设的，不是给玩家的点击设的', () => {
+    expect(nextTutorialStep(2, sig({ pressedChallenge: true }), 0)).toBe(6);
+    expect(nextTutorialStep(6, sig({ pressedChallenge: true }), 0)).toBe('done');
+  });
+});
+
 describe('文案：数字全部插值，不许写死', () => {
   it('第 2 步用模型速率', () => {
-    expect(tutorialText(2, { ...NUM, perSec: 10 })).toBe('每秒 +10 灵力。这就是你的第一条周天');
+    expect(tutorialText(2, { ...NUM, perSec: 10 })).toBe('每秒 +10 灵力。这个数字就是你的算法效率。');
     expect(tutorialText(2, { ...NUM, perSec: 24.666_666 }).startsWith('每秒 +25 灵力')).toBe(true);
-    expect(tutorialText(2, { ...NUM, perSec: 0 })).toBe('灵力在涨了。这就是你的第一条周天');
+    expect(tutorialText(2, { ...NUM, perSec: 0 })).toBe('灵力在涨了。这个数字就是你的算法效率。');
   });
 
   it('第 4 步复述对比行的三个数，不是 10 → 18 / +80% 的常量', () => {
     const compare = { fromPerSec: 61.234, toPerSec: 90.0, percent: 47 };
     const text = tutorialText(4, { ...NUM, compare });
     const p = compareParts(61.234, 90.0, 47);
-    expect(text).toBe(`看，${p.from} → ${p.to} 每秒（${p.percent}%）。同样的时间，多算一遍`);
+    expect(text).toBe(`看，${p.from} → ${p.to} 每秒（${p.percent}%）。同样的时间，多算一遍。`);
     expect(text).toContain('61.2');
     expect(text).toContain('90.0');
     expect(text).toContain('+47%');
@@ -104,11 +144,29 @@ describe('文案：数字全部插值，不许写死', () => {
     expect(tutorialText('done', { ...NUM, goalQi: null })).toBe('从这里开始，自己试。');
   });
 
-  it('第 1/3/5/6 步是固定话术', () => {
-    expect(tutorialText(1, NUM)).toBe('先把「吐纳」拖进「每 tick」下面的凹槽');
-    expect(tutorialText(3, NUM)).toBe('再拖一块吐纳，看看快多少');
-    expect(tutorialText(5, NUM)).toBe('心魔在涨。拖一个「调息」能压住它');
-    expect(tutorialText(6, NUM)).toBe('存量满了，点「可渡劫」');
+  it('第 1 步说清这块干什么', () => {
+    expect(tutorialText(1, NUM)).toBe('先把「吐纳」拖进「每 tick」下面的凹槽。它每 tick 产一次灵力。');
+  });
+
+  it('第 3 步的 0.8 来自 actionMult(2)，第 6 步的 10 秒 / 60% 来自 realm 常量 —— 都不是抄进句子里的字面量', () => {
+    const k2 = String(Number(actionMult(2).toFixed(2)));
+    expect(k2).toBe('0.8');
+    expect(tutorialText(3, NUM)).toBe(
+      `再拖一块试试。同样一 tick 里第二块只值 ${k2} 倍 —— 这就是边际递减，但总产出还是涨了。`,
+    );
+    expect(tutorialText(6, NUM)).toBe(
+      `存量满了。点「可渡劫」—— 渡劫有 ${CHALLENGE_TRIAL_MS / 1000} 秒，不操作会按 ${Math.round(AUTO_RATE * 100)}% 自动结算。`,
+    );
+  });
+
+  it('第 5 步的百分比是现场心魔，不是固定台词', () => {
+    expect(tutorialText(5, { ...NUM, demon: 0.1234 })).toBe(
+      '注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 12.3% 了 —— 拖一个「调息」进来压住它。',
+    );
+    expect(tutorialText(5, { ...NUM, demon: 0.2671 })).toContain('已经 26.7% 了');
+    expect(tutorialText(5, { ...NUM, demon: 0.1234 })).not.toBe(tutorialText(5, { ...NUM, demon: 0.2671 }));
+    // 心魔本来就低还说「已经 X% 了——拖调息压住它」是自相矛盾的假话
+    expect(tutorialText(5, { ...NUM, demon: 0.02 })).toContain('还压得住');
   });
 
   it('底部条：中途带步骤号，结束态不带（也没得跳过）', () => {
@@ -266,5 +324,62 @@ describe('tutorialTarget：每一步指哪个元素', () => {
     expect(tutorialTargetKey(1)).toBe('flyout:breath');
     expect(tutorialTargetKey(4)).toBe('.hud .curve-compare');
     expect(tutorialTargetKey('done')).toBe('none');
+  });
+});
+
+// 需求 15 + 裁定 3：工具箱放出新块时挂 2 秒「新」角标、气泡改指新块。
+// 这里钉的是「按块 id 查表」和「数值来自表」：文案里一个数字都不许是抄进字符串的字面量。
+describe('工具箱放出新块：「新」角标的文案与聚焦', () => {
+  it('角标窗口是 2 秒', () => {
+    expect(NEW_BADGE_MS).toBe(2_000);
+  });
+
+  it('放出来的就是刚才被藏掉的那几块，种类查得到（实测第 3 秒释放的是调息 + 比较）', () => {
+    const blocks = releasedBlocks(hiddenToolboxTypes(true, false));
+    expect(blocks.map((b) => b.id)).toEqual(['calm', 'gongfa_compare']);
+    expect(blocks.map((b) => b.kind)).toEqual(['action', 'value']);
+  });
+
+  it('调息那句的 -0.0005 就是 actions.json 里那行：换表就换口', () => {
+    const delta = actionsJson.find((action) => action.id === 'calm')?.demonDelta ?? 0;
+    expect(delta).toBe(-0.0005);
+    expect(releasedBadgeText(releasedBlock('calm'))).toBe(`调息：每次 ${delta} 心魔，代价是占一个动作槽`);
+    expect(releasedBadgeText({ id: 'calm', label: '调息', kind: 'action', demonDelta: -0.002 })).toContain('-0.002');
+  });
+
+  it('正值补「+」：「每次 0.0005 心魔」听着像在压，那是反话', () => {
+    expect(releasedBadgeText({ id: 'calm', label: '调息', kind: 'action', demonDelta: 0.0005 })).toContain('每次 +0.0005 心魔');
+  });
+
+  it('表里查不到 demonDelta 的动作块不编数字，退回「刚放出来」那句', () => {
+    expect(releasedBadgeText({ id: 'calm', label: '调息', kind: 'action', demonDelta: null })).toBe('「调息」刚放出来，可以拖进画布试试。');
+  });
+
+  it('比较块说的是它自己的定义：三个左值与默认阈值都来自积木 JSON', () => {
+    const text = releasedBadgeText(releasedBlock('gongfa_compare'));
+    expect(COMPARE_LEFT_LABELS).toEqual(['存量', '心魔', '预算']);
+    expect(COMPARE_DEFAULT_THRESHOLD).toBe(0.5);
+    expect(text).toContain('存量 / 心魔 / 预算');
+    expect(text).toContain('0.5');
+  });
+
+  it('表里没这个 id：只说它放出来了，不提它干什么', () => {
+    expect(releasedBlock('mystery').kind).toBe('unknown');
+    expect(releasedBadgeText(releasedBlock('mystery'))).toBe('「mystery」刚放出来，可以拖进画布试试。');
+  });
+
+  it('气泡优先指动作块 —— 「占一个动作槽」这句只有它有资格说，而且不写死 calm', () => {
+    expect(releasedFocus(releasedBlocks(['gongfa_compare', 'calm']))?.id).toBe('calm');
+    expect(releasedFocus([releasedBlock('gongfa_compare')])?.id).toBe('gongfa_compare');
+    expect(releasedFocus([])).toBeNull();
+  });
+
+  it('窗口内气泡改指新块，出窗口回到这一步自己的靶子', () => {
+    expect(releasedTarget(releasedBlock('calm'))).toEqual({ kind: 'flyout', type: 'calm' });
+    expect(tutorialTargetKeyOf(releasedTarget(releasedBlock('calm')))).toBe('flyout:calm');
+    expect(releasedTarget(null)).toBeNull();
+    expect(tutorialTargetKeyOf(null)).toBe('none');
+    // 目标键换了 → 气泡这一段是「移过去」，不是原地换字（需求 14 与 15 的交点）。
+    expect(tutorialTargetKeyOf(releasedTarget(releasedBlock('calm')))).not.toBe(tutorialTargetKey(2));
   });
 });

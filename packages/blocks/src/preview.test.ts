@@ -102,7 +102,7 @@ describe('预览 ↔ 真 VM（编译器产物）', () => {
   });
 
   it('线性化后是三支吐纳，调息那支被「不成立」跳过', () => {
-    expect(linearizeProgram(compiled(REFERENCE).code).actionIds).toEqual(['breath', 'breath', 'breath']);
+    expect(linearizeProgram(compiled(REFERENCE).code).kinds).toEqual(['breath', 'breath', 'breath']);
   });
 
   it('心魔真超线时两边会分叉：曲线按否则支估，实际这一 tick 只调息（面板那句免责声明的依据）', () => {

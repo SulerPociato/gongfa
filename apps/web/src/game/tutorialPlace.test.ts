@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUBBLE_GAP_PX,
+  FLIP_EPSILON_PX,
   LEFT_COLUMN_THRESHOLD,
   VIEWPORT_MARGIN_PX,
+  flipInvert,
   isTargetVisible,
   placeBubble,
   spotlightRect,
@@ -126,5 +128,33 @@ describe('placeBubble（左栏强制右侧，其余右→下→上→左，不�
 describe('spotlightRect（环 = 目标外扩 2px，与原生 outline 同位）', () => {
   it('四边各外扩 2px，尺寸 +4', () => {
     expect(spotlightRect(rect(16, 8, 50, 35))).toEqual({ x: 14, y: 6, width: 54, height: 39 });
+  });
+});
+
+describe('flipInvert（需求 14：把新坐标推回旧坐标的那一下反向位移）', () => {
+  it('没有基线就不飞：第一次贴上去没有「上一帧在哪儿」', () => {
+    expect(flipInvert(null, { left: 300, top: 120 })).toBeNull();
+  });
+
+  it('水平换目标：位移取反，气泡先被拉回旧位置再归零', () => {
+    expect(flipInvert({ left: 100, top: 50 }, { left: 260, top: 50 })).toBe('translate(-160.0px, 0.0px)');
+  });
+
+  it('垂直与斜向都按 left/top 各轴算', () => {
+    expect(flipInvert({ left: 100, top: 50 }, { left: 100, top: 400 })).toBe('translate(0.0px, -350.0px)');
+    expect(flipInvert({ left: 100, top: 50 }, { left: 60, top: 90 })).toBe('translate(40.0px, -40.0px)');
+  });
+
+  it('抖动不算位移：两轴都小于 0.5px 时返回 null，否则气泡会一直在目标边上飘', () => {
+    expect(flipInvert({ left: 100, top: 50 }, { left: 100.4, top: 50.4 })).toBeNull();
+    // 阈值是「小于」，正好 0.5 仍算一次位移
+    expect(flipInvert({ left: 100, top: 50 }, { left: 100.5, top: 50 })).toBe('translate(-0.5px, 0.0px)');
+    // 一轴超阈值就必须飞，哪怕另一轴没动
+    expect(flipInvert({ left: 100, top: 50 }, { left: 100.2, top: 70 })).toBe('translate(-0.2px, -20.0px)');
+  });
+
+  it('阈值本身就是判据：测试里不抄一个 0.5', () => {
+    expect(FLIP_EPSILON_PX).toBe(0.5);
+    expect(flipInvert({ left: 0, top: 0 }, { left: FLIP_EPSILON_PX - 0.1, top: 0 })).toBeNull();
   });
 });
