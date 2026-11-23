@@ -261,6 +261,8 @@ export interface Runtime {
   setDao(path: DaoPath): void;
   /** 批次 23：功法谱的永久产出加成（1 = 无加成）。宿主按发现数算好传进来。 */
   setInsightRate(mult: number): void;
+  /** 批次 24：本境考校达标 → 渡劫失败不扣存量（宿主按效率算好传进来）。 */
+  setFailureMercy(enabled: boolean): void;
   /**
    * 服丹（批次 8）：存量 ×5% 换心魔 -0.15，30 秒冷却。
    * 存在的理由：心魔是唯一风险系统，而"调息"只压不换；丹药让存量从"只用来突破"
@@ -414,6 +416,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.12 : 1);
   // 批次 23：功法谱加成。与道途相乘，但只作用产出，不碰心魔。
   let insightRate = 1;
+  let failureMercy = false;
   // 灵根（批次 8）：seed 派生，只影响心魔增速（×0.9/1.0/1.1），不动产出 ——
   // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
   const lingGenIndex = (state.seed >>> 0) % 3;
@@ -606,6 +609,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       seed: state.seed,
       attempt,
       mode,
+      mercy: failureMercy,
     });
     trialUntil = 0;
     if (outcome.errors.length > 0) {
@@ -962,6 +966,11 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       return { ...target, threshold: currentRealm().threshold };
     },
     settleOffline: settleOfflineMethod,
+    setFailureMercy: (enabled: boolean) => {
+      if (enabled === failureMercy) return;
+      failureMercy = enabled;
+      markDirty();
+    },
     setInsightRate: (mult: number) => {
       const next = Number.isFinite(mult) && mult > 0 ? mult : 1;
       if (next === insightRate) return;

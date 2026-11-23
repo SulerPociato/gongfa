@@ -279,6 +279,14 @@ if (n === 5 && acc >= 100) {
 - 实现：`apps/web/src/game/insight.ts` 的 `insightRate(foundCount)`，运行时 `setInsightRate`。
 - 称号：3 入门 / 6 小成 / 9 通幽 / 13 通晓，跨过时一次性 toast。
 
+### 4.10 本境考校（批次 24）
+
+- 双条件：**存量 ≥ 阈值**（进度）+ **效率 ≥ 本境门槛**（质量）。
+- 效率口径 = HUD 的「灵力/步」= 本 tick 产出 ÷ 本 tick 步数；步数为 0 不算达标。
+- 门槛（`apps/web/src/game/errand.ts`）：炼气 0.5 / 筑基 0.8 / 金丹 1.2 / 元婴 2.0。
+- 奖励：达标时渡劫**失败不扣存量**（`resolveChallenge({ mercy: true })`，不改成功率、不改蓄势）。
+- 契约 §7.1 的 ×0.85 仍是缺省值：只有本境考校达标的那一境才免罚。
+
 ## 5. 存档 v1
 
 ### 5.1 Schema

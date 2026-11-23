@@ -35,6 +35,7 @@ import { nextStepOf } from './game/nextStep';
 import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
+import { errandOf } from './game/errand';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -88,6 +89,9 @@ function realmModel(state: RuntimeState, found: readonly PatternId[]): RealmMode
     })),
     dao: state.dao,
     patternsBonus: insightBonusText(found.length),
+    errandGoal: errandOf(state.realmIndex, state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0).goal,
+    perQi: state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
+    errandMet: errandOf(state.realmIndex, state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0).met,
   };
 }
 
@@ -1546,6 +1550,11 @@ export function App() {
         curveRealm = state.realmIndex;
         syncCurve(cache[0] ?? null);
       }
+        // 批次 24：考校达标 → 宽恕。逐帧同步（很便宜），达标立刻生效。
+        runtime.setFailureMercy(errandOf(
+          state.realmIndex,
+          state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
+        ).mercy);
       setHud((previous) => ({
         ...previous,
         qi,

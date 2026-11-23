@@ -2118,6 +2118,19 @@ body::before {
 }
 
 
+
+/* 批次 24：本境考校（存量 + 效率）。达标变青，未达标保持灰。 */
+.errand {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.errand.is-met {
+  color: rgba(53, 224, 200, 0.9);
+}
+
 /* 批次 22：炼器炉提示灯 —— 有可改写直列时在「更多工具」上亮一个点。 */
 .furnace-dot {
   display: inline-block;

@@ -59,6 +59,11 @@ export interface RealmModel {
   readonly dao: 'orthodox' | 'heretic' | null;
   /** 批次 23：功法谱带来的产出入成（如「产出 +2%」；0 个发现时为空串）。 */
   readonly patternsBonus: string;
+  /** 批次 24：本境考校门槛（灵力/步）；null = 这一境没有考校。 */
+  readonly errandGoal: number | null;
+  /** 当前效率（灵力/步），用于和门槛对比。 */
+  readonly perQi: number;
+  readonly errandMet: boolean;
   /** 批次 8：丹药冷却剩余毫秒；>0 时按钮显示倒计时。 */
   readonly pillCooldownMs: number;
   /** 批次 3：功法谱（算法识别）。 */
@@ -450,6 +455,13 @@ function RealmPanel({ model, qi, onTakePill, onOpenCodex }: { readonly model: Re
       {/* 批次 3：功法谱。 */}
       <div className="realm-patterns">
         <p className="patterns-label">灵根 · {model.lingGen}{model.dao === null ? '' : ` · 道途 ${model.dao === 'orthodox' ? '守正' : '入魔'}`}</p>
+        {/* 批次 24：存量是进度，效率是质量。达标就给「失败不扣存量」。 */}
+        {model.errandGoal !== null && (
+          <p className={`errand${model.errandMet ? ' is-met' : ''}`}>
+            考校：效率 ≥{model.errandGoal.toFixed(1)} 灵力/步（现在 {model.perQi.toFixed(2)}）
+            {model.errandMet ? ' · 达标，渡劫失败不扣存量' : ''}
+          </p>
+        )}
         {/* 批次 10：功法谱那行就是图鉴入口。评审说得对——藏进设置抽屉没人会点，
             而"N/12"本身就是进度，看到差几个才会想点。 */}
         <button className="patterns-label is-link" type="button" onClick={onOpenCodex}>
@@ -785,8 +797,6 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
         <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} onOpenCodex={onOpenCodex} />
-        {/* 批次 15：试炼只在筑基后出现。炼气阶段连循环都没有，60 秒目标只会莫名其妙地弹。 */}
-        {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}
       </div>
     </aside>
 
@@ -796,6 +806,8 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
     <section className="hud-bottom" aria-label="更多信息">
         {/* 批次 19：横条顺序按「先看结果，再看手段」：曲线 → 功法与道具 → 道途 → 工具 → 红字/存档 → 提示。 */}
         <CurvePanel model={model.curve} />
+        {/* 批次 24：试炼挪进横条 —— 右列在 900px 高度下要塞 4 张卡，试炼会被裁掉一半。 */}
+        {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}
         <BookArtifactPanel
           bookModel={model.book}
           artifactRows={model.artifacts}

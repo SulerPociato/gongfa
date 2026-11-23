@@ -119,6 +119,11 @@ export interface ChallengeInput {
   readonly seed: number;
   // 本境界内第 N 次挑战，从 1 起（成功后由宿主清零，失败后 +1 继续）
   readonly attempt: number;
+  /**
+   * 批次 24：本境考校达标（存量与效率双条件）时，失败不扣存量。
+   * 缺省 false = 契约 §7.1 的 ×0.85 照旧。
+   */
+  readonly mercy?: boolean | undefined;
   readonly mode: ChallengeMode;
 }
 
@@ -170,7 +175,7 @@ export function resolveChallenge(input: ChallengeInput): ChallengeOutcome {
     roll,
     forced: false,
     realmIndex: input.realmIndex,
-    state: { qi: input.state.qi * FAILURE_QI_MULT, demon: 0, realm: current.id },
+    state: { qi: input.mercy === true ? input.state.qi : input.state.qi * FAILURE_QI_MULT, demon: 0, realm: current.id },
     insight: 1,
     errors: [],
   };
