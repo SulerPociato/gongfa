@@ -295,6 +295,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     nextStep: extra.nextStep,
     dao: extra.dao,
     trace: state.trace,
+    palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
   };
 }
 
@@ -354,6 +355,8 @@ export function App() {
   const pillActionRef = useRef<(() => void) | null>(null);
   // 批次 15：引导「继续」按钮转发（effect 闭包里的 tutClicked 只能这样改）。
   const tutAdvanceRef = useRef<(() => void) | null>(null);
+  // 批次 19：窄屏积木库 —— 点一下就加一块，不依赖 Blockly 的侧边飞行栏。
+  const addBlockRef = useRef<((type: string) => void) | null>(null);
   // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
   const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
@@ -518,6 +521,9 @@ export function App() {
     const workspace = Blockly.inject(container, {
       theme: Blockly.Theme.defineTheme(GONGFA_THEME.name, GONGFA_THEME as unknown as ThemeConfig),
       toolbox: toolboxForRealm(booted.realmIndex, booted.demo) as unknown as NonNullable<InjectOptions['toolbox']>,
+      // 批次 19：手机上一块积木按 1.0 画出来有半个屏大，工具箱直接溢出。
+      // 窄屏统一 0.72 起步，桌面保持 1.0。
+      zoom: { startScale: window.innerWidth < 900 ? 0.72 : 1, minScale: 0.4, maxScale: 1.6, controls: true, wheel: true, pinch: true },
     });
 
     // 批次 18：手机/窄屏下 Blockly 的 SVG 尺寸是在 inject 时定的，布局换成堆叠后
@@ -531,7 +537,36 @@ export function App() {
       }
     };
     resizeCanvas();
-    const resizeLater = window.setTimeout(resizeCanvas, 260);
+    // 窄屏：存档里的画布坐标来自桌面，手机上「每 tick」会落在右边缘外。
+    // 只居中，不 zoomToFit —— 后者会把积木放大到塞满，反而更难拖。
+    if (window.innerWidth < 900) {
+      const hat = workspace.getBlocksByType('tick_hat', false)[0];
+      if (hat !== undefined) workspace.centerOnBlock(hat.id);
+    }
+    const resizeLater = window.setTimeout(() => {
+      resizeCanvas();
+      // 手机：Blockly 恢复视口要晚于首帧，600ms 再居中一次，否则「每 tick」贴在最右边。
+      if (window.innerWidth < 900) {
+        const hat = workspace.getBlocksByType('tick_hat', false)[0];
+        if (hat !== undefined) workspace.centerOnBlock(hat.id);
+      }
+    }, 600);
+    addBlockRef.current = (type: string): void => {
+      const block = workspace.newBlock(type);
+      block.initSvg();
+      block.render();
+      // 先试着接到「每 tick」的 BODY：手机上画布小，让新块自动落位比手动拖更省事。
+      const hat = workspace.getBlocksByType('tick_hat', false)[0];
+      const body = hat?.getInput('BODY')?.connection;
+      if (body && !body.isConnected() && block.previousConnection) {
+        body.connect(block.previousConnection);
+      } else {
+        block.moveBy(80, 120);
+      }
+      block.select();
+      workspace.centerOnBlock(block.id);
+    };
+
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('orientationchange', resizeCanvas);
     if (typeof ResizeObserver !== 'undefined') {
@@ -1473,6 +1508,8 @@ export function App() {
         }),
         dao: state.dao,
         trace: state.trace,
+        // 批次 19：积木库清单跟境界走（突破后新块要立刻出现在手机上）
+        palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
       }));
     });
     loop.start();
@@ -1606,7 +1643,6 @@ export function App() {
         <span className="topbar-logo">代码修仙</span>
         <div className="topbar-right">
           {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
-          {!hud.demo && <span className="topbar-badge">在线</span>}
           <span className="topbar-mode">在线 ×1.0 ｜ 闭关 ×0.6</span>
           <button className="topbar-settings" type="button" aria-label="设置" onClick={() => setDrawerOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1618,6 +1654,17 @@ export function App() {
       </div>
       <div className="canvas-wrap" style={{ position: 'relative', height: '100%' }}>
         <div className="canvas" ref={containerRef} />
+        {/* 批次 19：窄屏专用积木库。Blockly 的侧栏在手机上会吃掉半屏并把积木画到视口外，
+            改成「点一下加一块」，画布独占整行。桌面隐藏，仍用原来的工具箱。 */}
+        {hud.palette.length > 0 && (
+          <div className="palette" role="toolbar" aria-label="积木库">
+            {hud.palette.map((type) => (
+              <button key={type} className="palette-item" type="button" onClick={() => { addBlockRef.current?.(type); }}>
+                {BLOCK_SPECS[type]?.label ?? type}
+              </button>
+            ))}
+          </div>
+        )}
         <QiParticles rate={hud.rate} />
         {/* 走火入魔的整屏红闪：只闪 0.6 秒，pointer-events:none 不挡操作。 */}
         {backlashFlash && <div className="backlash-flash" aria-hidden="true" />}

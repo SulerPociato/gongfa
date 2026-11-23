@@ -208,6 +208,8 @@ export interface HudModel {
   readonly dao: 'orthodox' | 'heretic' | null;
   /** 批次 12：最近一分钟的观测快照（内存态，随刷新清空）。 */
   readonly trace: readonly TraceSample[];
+  /** 批次 19：窄屏积木库的积木类型（点一下就加一块，替代 Blockly 侧栏）。 */
+  readonly palette: readonly string[];
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -748,6 +750,14 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         玩家原话：「右侧有一个能滚动的区域，我想把它拆到屏幕下方」。
         横条是横向滚动的多列卡片，画布因此拿回整列高度。 */}
     <section className="hud-bottom" aria-label="更多信息">
+        {/* 批次 19：横条顺序按「先看结果，再看手段」：曲线 → 功法与道具 → 道途 → 工具 → 红字/存档 → 提示。 */}
+        <CurvePanel model={model.curve} />
+        <BookArtifactPanel
+          bookModel={model.book}
+          artifactRows={model.artifacts}
+          onBookAction={onBookAction}
+          onArtifactToggle={onArtifactAction}
+        />
         {/* 批次 15：进阶工具默认收起。首屏塞满五张卡的结果是"没有探索欲望"，
             所以只留基础三块（曲线 / 功法与道具 / 道途），工具折叠在「更多工具」里。 */}
         <details className="hud-tools">
@@ -777,13 +787,6 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
             </button>
           </section>
         )}
-        <CurvePanel model={model.curve} />
-        <BookArtifactPanel
-          bookModel={model.book}
-          artifactRows={model.artifacts}
-          onBookAction={onBookAction}
-          onArtifactToggle={onArtifactAction}
-        />
         {model.stall !== null && (
           <p className="stall">
             第 {model.stall.steps} 步没跑完（{STALL_REASON[model.stall.reason]}，停在第 {model.stall.pc + 1} 条指令，tick {model.stall.tick}）

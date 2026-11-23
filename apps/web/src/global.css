@@ -28,7 +28,7 @@
   /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
   --hud-width: 320px;
   /* 批次 18：画布下方的信息横条高度（可拖动感不必，固定即可）。 */
-  --bottom-height: 200px;
+  --bottom-height: clamp(260px, 30vh, 360px);
   /* 批次 15：面板加宽档（画布让位）。300 → 420，画布仍保留可用宽度。 */
   --hud-width-wide: 420px;
   --topbar-height: 48px;
@@ -268,16 +268,16 @@ body::before {
 }
 
 /* 玻璃卡片：HUD 里的每个区块（支持固定区/滚动区嵌套） */
-.hud .qi-card,
-.hud .realm,
-.hud .curve,
-.hud .artifacts,
-.hud .book,
-.hud .challenge,
-.hud .sprint,
-.hud .retreat,
-.hud .settings-panel,
-.hud .book-artifacts {
+:is(.hud, .hud-bottom) .qi-card,
+:is(.hud, .hud-bottom) .realm,
+:is(.hud, .hud-bottom) .curve,
+:is(.hud, .hud-bottom) .artifacts,
+:is(.hud, .hud-bottom) .book,
+:is(.hud, .hud-bottom) .challenge,
+:is(.hud, .hud-bottom) .sprint,
+:is(.hud, .hud-bottom) .retreat,
+:is(.hud, .hud-bottom) .settings-panel,
+:is(.hud, .hud-bottom) .book-artifacts {
   background: var(--glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -290,16 +290,16 @@ body::before {
 }
 
 /* 卡片顶部 1px 渐变高光条 */
-.hud .qi-card::before,
-.hud .realm::before,
-.hud .curve::before,
-.hud .artifacts::before,
-.hud .book::before,
-.hud .challenge::before,
-.hud .sprint::before,
-.hud .retreat::before,
-.hud .settings-panel::before,
-.hud .book-artifacts::before {
+:is(.hud, .hud-bottom) .qi-card::before,
+:is(.hud, .hud-bottom) .realm::before,
+:is(.hud, .hud-bottom) .curve::before,
+:is(.hud, .hud-bottom) .artifacts::before,
+:is(.hud, .hud-bottom) .book::before,
+:is(.hud, .hud-bottom) .challenge::before,
+:is(.hud, .hud-bottom) .sprint::before,
+:is(.hud, .hud-bottom) .retreat::before,
+:is(.hud, .hud-bottom) .settings-panel::before,
+:is(.hud, .hud-bottom) .book-artifacts::before {
   content: '';
   position: absolute;
   top: 0;
@@ -311,12 +311,12 @@ body::before {
 }
 
 /* 首屏卡片自下而上淡入，错开 60ms */
-.hud .qi-card { animation-delay: 0ms; padding: 8px; }
-.hud .realm { animation-delay: 60ms; padding: 12px; }
-.hud .sprint { animation-delay: 120ms; padding: 12px; }
-.hud .curve { animation-delay: 180ms; }
-.hud .challenge { animation-delay: 240ms; }
-.hud .book-artifacts { animation-delay: 300ms; }
+:is(.hud, .hud-bottom) .qi-card { animation-delay: 0ms; padding: 8px; }
+:is(.hud, .hud-bottom) .realm { animation-delay: 60ms; padding: 12px; }
+:is(.hud, .hud-bottom) .sprint { animation-delay: 120ms; padding: 12px; }
+:is(.hud, .hud-bottom) .curve { animation-delay: 180ms; }
+:is(.hud, .hud-bottom) .challenge { animation-delay: 240ms; }
+:is(.hud, .hud-bottom) .book-artifacts { animation-delay: 300ms; }
 
 @keyframes card-fade-in {
   from {
@@ -354,7 +354,7 @@ body::before {
   opacity: 0.75;
 }
 
-.hud .label {
+:is(.hud, .hud-bottom) .label {
   font-size: 12px;
   letter-spacing: 0.2em;
   margin: 0 0 4px;
@@ -362,7 +362,7 @@ body::before {
   text-transform: uppercase;
 }
 
-.hud .qi {
+:is(.hud, .hud-bottom) .qi {
   font-family: 'JetBrains Mono', monospace;
   font-size: 38px;
   font-weight: 800;
@@ -376,7 +376,7 @@ body::before {
   transition: transform 0.2s ease-out;
 }
 
-.hud .qi.is-rolling {
+:is(.hud, .hud-bottom) .qi.is-rolling {
   animation: qi-roll 0.2s ease-out;
 }
 
@@ -385,29 +385,29 @@ body::before {
   100% { transform: translateY(0); opacity: 1; }
 }
 
-.hud .rate {
+:is(.hud, .hud-bottom) .rate {
   font-family: 'JetBrains Mono', monospace;
   font-size: 14px;
   margin: 0;
 }
 
-.hud .book {
+:is(.hud, .hud-bottom) .book {
   margin: 0;
 }
 
 /* 任务 6：境界块。数字都在文案里，条只画比例 */
-.hud .realm {
+:is(.hud, .hud-bottom) .realm {
   margin: 0;
 }
 
-.hud .realm-name {
+:is(.hud, .hud-bottom) .realm-name {
   font-size: 15px;
   letter-spacing: 0.1em;
   margin: 0;
   flex-shrink: 0;
 }
 
-.hud .realm-stock {
+:is(.hud, .hud-bottom) .realm-stock {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   margin: 0;
@@ -415,7 +415,7 @@ body::before {
   flex-shrink: 0;
 }
 
-.hud .realm-header {
+:is(.hud, .hud-bottom) .realm-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -423,12 +423,12 @@ body::before {
   margin: 0 0 4px;
 }
 
-.hud .realm-header .bar {
+:is(.hud, .hud-bottom) .realm-header .bar {
   flex: 1;
   margin: 0;
 }
 
-.hud .bar {
+:is(.hud, .hud-bottom) .bar {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--paper);
   border-radius: 999px;
@@ -437,14 +437,14 @@ body::before {
   overflow: hidden;
 }
 
-.hud .bar-fill {
+:is(.hud, .hud-bottom) .bar-fill {
   background: linear-gradient(90deg, var(--spirit) 0%, rgba(53, 224, 200, 0.8) 100%);
   height: 100%;
   border-radius: 999px;
   position: relative;
 }
 
-.hud .bar-fill::after {
+:is(.hud, .hud-bottom) .bar-fill::after {
   content: '';
   position: absolute;
   right: 0;
@@ -455,18 +455,18 @@ body::before {
   border-radius: 0 999px 999px 0;
 }
 
-.hud .bar.demon .bar-fill {
+:is(.hud, .hud-bottom) .bar.demon .bar-fill {
   background: var(--danger);
 }
 
-.hud .realm-text,
-.hud .demon-row {
+:is(.hud, .hud-bottom) .realm-text,
+:is(.hud, .hud-bottom) .demon-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.hud .demon-label {
+:is(.hud, .hud-bottom) .demon-label {
   font-size: 12px;
   letter-spacing: 0.2em;
   margin: 0;
@@ -475,13 +475,13 @@ body::before {
   flex-shrink: 0;
 }
 
-.hud .demon-row .bar {
+:is(.hud, .hud-bottom) .demon-row .bar {
   width: 60px;
   flex-shrink: 0;
   margin: 0;
 }
 
-.hud .demon-text {
+:is(.hud, .hud-bottom) .demon-text {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   margin: 0;
@@ -493,35 +493,35 @@ body::before {
    达成后填色从主色转强调金，让「这一格已经结清」在还没读字之前就能看出来。
    24px：HUD 文字偏密，试炼与功法之间加 6px（实测 103px → 109px；渡劫面板夹在两者中间，
    所以这一条 margin 就是它们之间唯一的调节量）。 */
-.hud .sprint {
+:is(.hud, .hud-bottom) .sprint {
   margin: 0;
 }
 
-.hud .bar.sprint {
+:is(.hud, .hud-bottom) .bar.sprint {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.hud .bar.sprint .bar-fill {
+:is(.hud, .hud-bottom) .bar.sprint .bar-fill {
   background: linear-gradient(90deg, #e8c978 0%, #f5e3b0 100%);
 }
 
-.hud .sprint.is-reached .bar-fill {
+:is(.hud, .hud-bottom) .sprint.is-reached .bar-fill {
   background: linear-gradient(90deg, #e8c978 0%, #f5e3b0 100%);
 }
 
-.hud .sprint-header {
+:is(.hud, .hud-bottom) .sprint-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 0 4px;
 }
 
-.hud .sprint-header .bar {
+:is(.hud, .hud-bottom) .sprint-header .bar {
   flex: 1;
   margin: 0;
 }
 
-.hud .sprint-progress {
+:is(.hud, .hud-bottom) .sprint-progress {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   margin: 0;
@@ -529,7 +529,7 @@ body::before {
   color: var(--gold);
 }
 
-.hud .sprint-text {
+:is(.hud, .hud-bottom) .sprint-text {
   font-size: 11px;
   line-height: 1.6;
   margin: 0;
@@ -538,11 +538,11 @@ body::before {
 
 /* 任务 8 P0-B：曲线预览。窄栏 260px，SVG 用 viewBox 缩放而不是固定像素，
    横轴充满可用宽度、纵轴保持 120 单位高，折线才不会在小窗口里被压成一坨。 */
-.hud .curve {
+:is(.hud, .hud-bottom) .curve {
   margin: 0;
 }
 
-.hud .curve-svg {
+:is(.hud, .hud-bottom) .curve-svg {
   display: block;
   width: 100%;
   height: 108px;
@@ -600,7 +600,7 @@ body::before {
   }
 }
 
-.hud .curve-line {
+:is(.hud, .hud-bottom) .curve-line {
   fill: none;
   stroke: var(--spirit);
   stroke-width: 1.5;
@@ -608,12 +608,12 @@ body::before {
 }
 
 /* 曲线下方的渐变填充 */
-.hud .curve-area {
+:is(.hud, .hud-bottom) .curve-area {
   fill: url(#curveGradient);
 }
 
 /* 阈值线是参考线，故意比曲线细且虚：玩家一眼分得清「这条是目标，那条是我」。 */
-.hud .curve-threshold-line {
+:is(.hud, .hud-bottom) .curve-threshold-line {
   stroke: var(--gold);
   stroke-width: 1;
   stroke-dasharray: 4 3;
@@ -622,7 +622,7 @@ body::before {
 
 /* 批次 2 第二条线：心魔读右轴（0 在底、火线在顶），虚线 + 红是 HUD 心魔条同一支颜色。
    它与阈值那支虚线的区别靠颜色不靠线型：三种线型在一米宽的图上分不出来。 */
-.hud .curve-demon-line {
+:is(.hud, .hud-bottom) .curve-demon-line {
   fill: none;
   stroke: var(--danger);
   stroke-width: 1.5;
@@ -632,7 +632,7 @@ body::before {
 }
 
 /* 撞线那一格的红点：半径走非缩放像素，横向拉伸 viewBox 不该把它拉成椭圆。 */
-.hud .curve-danger-dot {
+:is(.hud, .hud-bottom) .curve-danger-dot {
   fill: var(--danger);
   stroke: rgba(7, 11, 16, 0.8);
   stroke-width: 1;
@@ -641,19 +641,19 @@ body::before {
 
 /* 图例与右轴刻度都是 HTML：viewBox + preserveAspectRatio="none" 会把 SVG 里的 text 横向压扁
    （实测窄栏里 getScreenCTM = scale(0.697, 0.983)，横向少掉三成），10px 的字经不起这一压。 */
-.hud .curve-plot {
+:is(.hud, .hud-bottom) .curve-plot {
   position: relative;
   padding-right: 30px;
 }
 
-.hud .curve-axis-right {
+:is(.hud, .hud-bottom) .curve-axis-right {
   position: absolute;
   inset: 0 0 0 auto;
   width: 28px;
   pointer-events: none;
 }
 
-.hud .curve-tick {
+:is(.hud, .hud-bottom) .curve-tick {
   position: absolute;
   right: 0;
   font-family: 'JetBrains Mono', monospace;
@@ -663,21 +663,21 @@ body::before {
   opacity: 0.7;
 }
 
-.hud .curve-tick.is-top {
+:is(.hud, .hud-bottom) .curve-tick.is-top {
   top: 1px;
 }
 
-.hud .curve-tick.is-mid {
+:is(.hud, .hud-bottom) .curve-tick.is-mid {
   top: 50%;
   transform: translateY(-50%);
 }
 
-.hud .curve-tick.is-bottom {
+:is(.hud, .hud-bottom) .curve-tick.is-bottom {
   bottom: 2px;
 }
 
 /* 图例在左上角：那里是曲线永远够不着的空角（起点恒在左下），压不住任何一条线。 */
-.hud .curve-legend {
+:is(.hud, .hud-bottom) .curve-legend {
   position: absolute;
   left: 6px;
   top: 4px;
@@ -689,7 +689,7 @@ body::before {
   pointer-events: none;
 }
 
-.hud .curve-key {
+:is(.hud, .hud-bottom) .curve-key {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -697,50 +697,50 @@ body::before {
 }
 
 /* 色块与两条线同色同样子：图例说的是图上那两条，不该再有第三种颜色。 */
-.hud .curve-key::before {
+:is(.hud, .hud-bottom) .curve-key::before {
   content: "";
   width: 10px;
   height: 2px;
   border-radius: 1px;
 }
 
-.hud .curve-key.is-qi::before {
+:is(.hud, .hud-bottom) .curve-key.is-qi::before {
   background: var(--spirit);
 }
 
-.hud .curve-key.is-demon::before {
+:is(.hud, .hud-bottom) .curve-key.is-demon::before {
   background: repeating-linear-gradient(90deg, var(--danger) 0 4px, transparent 4px 6px);
 }
 
 /* 撞线那句是警告不是说明：与心魔条、红点同一个红，读三处是同一件事。 */
-.hud .curve-danger {
+:is(.hud, .hud-bottom) .curve-danger {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   margin: 4px 0 0;
   color: var(--danger);
 }
 
-.hud .curve-eta {
+:is(.hud, .hud-bottom) .curve-eta {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   margin: 4px 0 0;
 }
 
-.hud .curve-compare {
+:is(.hud, .hud-bottom) .curve-compare {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   margin: 4px 0 0;
   color: var(--gold);
 }
 
-.hud .curve-truncated {
+:is(.hud, .hud-bottom) .curve-truncated {
   font-size: 11px;
   margin: 4px 0 0;
   color: var(--danger);
 }
 
 /* 免责那句不许省：模型不建模心魔与分支，把它当承诺看就会二次退坑。 */
-.hud .curve-note {
+:is(.hud, .hud-bottom) .curve-note {
   font-size: 11px;
   line-height: 1.6;
   margin: 6px 0 0;
@@ -748,7 +748,13 @@ body::before {
 }
 
 /* 任务 8 P0-B：产出跳涨的一次性提示。role=status 的可见文本，读屏与截图同源。 */
-.hud .toast {
+:is(.hud, .hud-bottom) .toast {
+  position: fixed;
+  left: 24px;
+  bottom: calc(var(--bottom-height) + 16px);
+  z-index: 36;
+  max-width: 460px;
+  margin: 0;
   background: rgba(232, 201, 120, 0.14);
   border: 1px solid var(--gold);
   border-radius: 0;
@@ -760,11 +766,11 @@ body::before {
 }
 
 /* 任务 6.5：渡劫面板。按钮灰不灰只看 canChallenge，相位只决定说哪句话 */
-.hud .challenge {
+:is(.hud, .hud-bottom) .challenge {
   margin: 0;
 }
 
-.hud .challenge-button {
+:is(.hud, .hud-bottom) .challenge-button {
   background: rgba(53, 224, 200, 0.12);
   border: 1px solid var(--spirit);
   border-radius: var(--radius-btn);
@@ -776,23 +782,23 @@ body::before {
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.hud .challenge-button:hover:not(:disabled) {
+:is(.hud, .hud-bottom) .challenge-button:hover:not(:disabled) {
   background: rgba(53, 224, 200, 0.22);
   transform: translateY(-1px);
   box-shadow: var(--glow);
 }
 
-.hud .challenge-button:active:not(:disabled) {
+:is(.hud, .hud-bottom) .challenge-button:active:not(:disabled) {
   transform: scale(0.98);
 }
 
-.hud .challenge-button:disabled {
+:is(.hud, .hud-bottom) .challenge-button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
 }
 
 /* 「可渡劫」≠「已经进阶」：这句紧跟按钮，把 10 秒窗口和两个档位在点之前就讲清 */
-.hud .challenge-hint {
+:is(.hud, .hud-bottom) .challenge-hint {
   color: rgba(255, 255, 255, 0.5);
   font-size: 10px;
   line-height: 1.5;
@@ -800,7 +806,7 @@ body::before {
 }
 
 /* 保底与悟道是「本档」口径：刷新清零这句不能缩到看不见 */
-.hud .challenge-meta {
+:is(.hud, .hud-bottom) .challenge-meta {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   line-height: 1.6;
@@ -810,7 +816,7 @@ body::before {
 
 /* 任务 9：演示角标。HUD 的第一个子元素（不是渡劫面板里的一行说明）——
    截图左上角就写着「演示模式 · 3×」，评审不必先滚到面板底才知道这一屏的数字不是正式玩法跑出来的。 */
-.hud .demo-badge {
+:is(.hud, .hud-bottom) .demo-badge {
   border: 1px dashed var(--gold);
   border-radius: 0;
   color: var(--gold);
@@ -823,7 +829,7 @@ body::before {
 }
 
 /* 走火入魔是正在生效的惩罚，不是提示：用危险色，倒计时留在文案里 */
-.hud .backlash {
+:is(.hud, .hud-bottom) .backlash {
   color: var(--danger);
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
@@ -831,20 +837,20 @@ body::before {
   margin: 8px 0 0;
 }
 
-.hud .book-text {
+:is(.hud, .hud-bottom) .book-text {
   font-size: 12px;
   line-height: 1.6;
   margin: 0 0 8px;
   opacity: 0.85;
 }
 
-.hud .book-actions {
+:is(.hud, .hud-bottom) .book-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.hud .book-actions button {
+:is(.hud, .hud-bottom) .book-actions button {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--paper);
   border-radius: var(--radius-btn);
@@ -856,27 +862,27 @@ body::before {
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.hud .book-actions button:hover:not(:disabled) {
+:is(.hud, .hud-bottom) .book-actions button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
   transform: translateY(-1px);
   box-shadow: var(--glow);
 }
 
-.hud .book-actions button:active:not(:disabled) {
+:is(.hud, .hud-bottom) .book-actions button:active:not(:disabled) {
   transform: scale(0.98);
 }
 
-.hud .book-actions button:disabled {
+:is(.hud, .hud-bottom) .book-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.4;
 }
 
 /* 任务 7A：道具面板。数值都在 artifacts.json 里，面板只转述，不另写一份 */
-.hud .artifacts {
+:is(.hud, .hud-bottom) .artifacts {
   margin: 0;
 }
 
-.hud .artifact {
+:is(.hud, .hud-bottom) .artifact {
   align-items: baseline;
   display: flex;
   flex-wrap: wrap;
@@ -884,7 +890,7 @@ body::before {
   margin: 0 0 6px;
 }
 
-.hud .artifact-toggle {
+:is(.hud, .hud-bottom) .artifact-toggle {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--paper);
   border-radius: var(--radius-btn);
@@ -896,23 +902,23 @@ body::before {
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.hud .artifact-toggle:hover {
+:is(.hud, .hud-bottom) .artifact-toggle:hover {
   background: rgba(255, 255, 255, 0.14);
   transform: translateY(-1px);
   box-shadow: var(--glow);
 }
 
-.hud .artifact-toggle:active {
+:is(.hud, .hud-bottom) .artifact-toggle:active {
   transform: scale(0.98);
 }
 
 /* 装上的那件换成灵光色描边：截图、读屏、扫一眼三种看法都能指出哪件正在生效 */
-.hud .artifact-toggle[aria-pressed='true'] {
+:is(.hud, .hud-bottom) .artifact-toggle[aria-pressed='true'] {
   border-color: var(--spirit);
   color: var(--spirit);
 }
 
-.hud .artifact-effect {
+:is(.hud, .hud-bottom) .artifact-effect {
   font-size: 11px;
   line-height: 1.6;
   margin: 0;
@@ -920,24 +926,24 @@ body::before {
 }
 
 /* 功法与道具合并卡片（B3 续） */
-.hud .book-artifacts {
+:is(.hud, .hud-bottom) .book-artifacts {
   margin: 0;
 }
 
-.hud .book-artifact-row {
+:is(.hud, .hud-bottom) .book-artifact-row {
   margin: 0 0 8px;
 }
 
-.hud .book-artifact-row:last-child {
+:is(.hud, .hud-bottom) .book-artifact-row:last-child {
   margin: 0;
 }
 
 /* 任务 7B：设置面板 */
-.hud .settings-panel {
+:is(.hud, .hud-bottom) .settings-panel {
   margin: 0;
 }
 
-.hud .settings-toggle {
+:is(.hud, .hud-bottom) .settings-toggle {
   align-items: center;
   display: flex;
   gap: 6px;
@@ -947,12 +953,12 @@ body::before {
   opacity: 0.85;
 }
 
-.hud .settings-toggle input[type='checkbox'] {
+:is(.hud, .hud-bottom) .settings-toggle input[type='checkbox'] {
   cursor: pointer;
 }
 
 /* 任务 7B：闭关报告面板 */
-.hud .retreat {
+:is(.hud, .hud-bottom) .retreat {
   background: rgba(53, 224, 200, 0.08);
   border: 1px solid var(--spirit);
   border-radius: 0;
@@ -960,39 +966,39 @@ body::before {
   padding: 10px 12px;
 }
 
-.hud .retreat-title {
+:is(.hud, .hud-bottom) .retreat-title {
   font-size: 13px;
   letter-spacing: 0.1em;
   margin: 0 0 8px;
   opacity: 0.9;
 }
 
-.hud .retreat-line {
+:is(.hud, .hud-bottom) .retreat-line {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   line-height: 1.6;
   margin: 0;
 }
 
-.hud .retreat-note {
+:is(.hud, .hud-bottom) .retreat-note {
   font-size: 10px;
   line-height: 1.6;
   margin: 6px 0 0;
   opacity: 0.6;
 }
 
-.hud .retreat-breakthrough {
+:is(.hud, .hud-bottom) .retreat-breakthrough {
   color: var(--spirit);
   font-size: 11px;
   line-height: 1.6;
   margin: 6px 0 0;
 }
 
-.hud .retreat-breakthrough.failed {
+:is(.hud, .hud-bottom) .retreat-breakthrough.failed {
   color: var(--danger);
 }
 
-.hud .retreat-close {
+:is(.hud, .hud-bottom) .retreat-close {
   background: rgba(53, 224, 200, 0.12);
   border: 1px solid var(--spirit);
   border-radius: 0;
@@ -1004,25 +1010,25 @@ body::before {
   padding: 4px 10px;
 }
 
-.hud .retreat-close:hover {
+:is(.hud, .hud-bottom) .retreat-close:hover {
   background: rgba(53, 224, 200, 0.22);
 }
 
-.hud .hint {
+:is(.hud, .hud-bottom) .hint {
   font-size: 12px;
   line-height: 1.7;
   opacity: 0.6;
 }
 
 /* 工具箱被境界挡住几块：和上一句同色同体，它是补充不是告警 */
-.hud .tool-hint {
+:is(.hud, .hud-bottom) .tool-hint {
   font-size: 12px;
   line-height: 1.7;
   margin: 6px 0 0;
   opacity: 0.6;
 }
 
-.hud .errors {
+:is(.hud, .hud-bottom) .errors {
   color: var(--danger);
   font-size: 12px;
   line-height: 1.7;
@@ -1030,7 +1036,7 @@ body::before {
   padding-left: 16px;
 }
 
-.hud .stall {
+:is(.hud, .hud-bottom) .stall {
   color: var(--danger);
   font-size: 13px;
   line-height: 1.7;
@@ -1038,7 +1044,7 @@ body::before {
 }
 
 /* 存档那一行是状态不是故障：靠下、弱显，落档时间用等宽字体 */
-.hud .save {
+:is(.hud, .hud-bottom) .save {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   line-height: 1.7;
@@ -1048,7 +1054,7 @@ body::before {
 }
 
 /* 可继续但玩家该知道：回退备用槽、功法降级停用 */
-.hud .notices {
+:is(.hud, .hud-bottom) .notices {
   color: var(--gold);
   font-size: 12px;
   line-height: 1.7;
@@ -1057,7 +1063,7 @@ body::before {
 }
 
 /* 「详情」是收尾的小按钮，别抢红字的注意力 */
-.hud .details-toggle {
+:is(.hud, .hud-bottom) .details-toggle {
   background: none;
   border: 1px solid currentColor;
   border-radius: 0;
@@ -1071,7 +1077,7 @@ body::before {
 }
 
 /* 逐字段明细只在展开时出现，可滚动，不撑破 HUD */
-.hud .details {
+:is(.hud, .hud-bottom) .details {
   background: rgba(0, 0, 0, 0.35);
   border-left: 2px solid currentColor;
   color: #9aa0a6;
@@ -1348,7 +1354,7 @@ body::before {
 }
 
 /* 首次「可渡劫」的脉冲（P0-C 第 4 项）：按钮是 HTML，box-shadow 扩散一圈就够，不用缩放。 */
-.hud .challenge-button.is-ready {
+:is(.hud, .hud-bottom) .challenge-button.is-ready {
   animation: tut-pulse 1.6s ease-in-out infinite;
 }
 
@@ -1372,14 +1378,14 @@ body::before {
 }
 
 /* 心魔条旁那句「调息 -0.0005/次」：是补充说明，别和百分比抢注意力 */
-.hud .demon-calm {
+:is(.hud, .hud-bottom) .demon-calm {
   color: var(--gold);
   margin-left: 8px;
   opacity: 0.85;
 }
 
 /* 渡劫挑战面板首行（P0-C 第 5 项）：这句是给「不敢松手」的人的安慰，排在规则之前 */
-.hud .trial-first {
+:is(.hud, .hud-bottom) .trial-first {
   color: var(--spirit);
   font-size: 11px;
   line-height: 1.6;
@@ -1756,8 +1762,10 @@ body::before {
 /* 批次 3：算法发现卡片（右上角玻璃卡，3 秒自动消失）。 */
 .algorithm-card {
   position: fixed;
-  top: 80px;
-  right: 24px;
+  /* 批次 19：从右上挪到画布左下 —— 原来压在右列上，正好盖住灵力与渡劫。 */
+  bottom: calc(var(--bottom-height) + 20px);
+  left: 24px;
+  right: auto;
   z-index: 30;
   background: rgba(20, 20, 30, 0.85);
   backdrop-filter: blur(12px);
@@ -1766,7 +1774,7 @@ body::before {
   padding: 16px 20px;
   min-width: 240px;
   opacity: 0;
-  transform: translateY(-20px);
+  transform: translateY(16px);
   transition: opacity 0.3s ease, transform 0.3s ease;
   pointer-events: none;
 }
@@ -1939,25 +1947,74 @@ body::before {
   display: flex;
   gap: 12px;
   align-items: stretch;
-  padding: 10px 14px 14px;
+  padding: 12px 16px 16px;
   overflow-x: auto;
   overflow-y: hidden;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(10, 14, 18, 0.72);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(10, 14, 18, 0.92), rgba(8, 11, 15, 0.96));
   scrollbar-width: thin;
+  scroll-snap-type: x proximity;
 }
 
-/* 横条里的每张卡给一个下限宽度：太窄的话曲线会压成一条线。 */
+.hud-bottom::-webkit-scrollbar {
+  height: 6px;
+}
+
+.hud-bottom::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+}
+
+/* 横条里的每张卡：统一卡片外观 + 自己内部滚动，避免内容被 232px 高度裁掉。 */
 .hud-bottom > * {
   flex: 0 0 auto;
   min-width: 300px;
   max-width: 460px;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  scroll-snap-align: start;
+}
+
+.hud-bottom > *::-webkit-scrollbar {
+  width: 4px;
+}
+
+.hud-bottom > *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+/* 曲线最宽：它是横条里唯一有纵轴的东西。 */
+.hud-bottom > .curve {
+  min-width: 380px;
+  max-width: 520px;
+}
+
+.hud-bottom > .book-artifacts {
+  min-width: 360px;
+  max-width: 420px;
+}
+
+/* 卡片底部留 8px：内容正好顶到边时，看起来像被裁掉 */
+.hud-bottom > * {
+  padding-bottom: 8px;
 }
 
 .hud-bottom > .hud-tools {
   min-width: 320px;
 }
 
+/* 折叠状态下不该占一整张卡的位置：收起来就只剩一行标题 */
+.hud-bottom > details:not([open]) {
+  min-width: 0;
+  max-width: none;
+  align-self: flex-start;
+  padding: 10px 14px;
+}
+
+/* 文字类块（红字/存档/提示）不该被撑成卡片，靠左排即可。 */
 .hud-bottom > .errors,
 .hud-bottom > .save,
 .hud-bottom > .notices,
@@ -1965,7 +2022,12 @@ body::before {
 .hud-bottom > .tool-hint,
 .hud-bottom > .stall {
   align-self: flex-start;
-  max-width: 360px;
+  max-width: 340px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* 批次 15：面板加宽。玩家嫌画布占地方时，一键把右侧从 300 换到 420。 */
@@ -2004,6 +2066,56 @@ body::before {
   margin-top: 8px;
 }
 
+
+/* 批次 19：窄屏积木库。桌面隐藏（仍用 Blockly 侧栏），手机显示成一条可横滑的胶囊。 */
+.palette {
+  display: none;
+}
+
+@media (max-width: 899px) {
+  .palette {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 12;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 6px;
+    border-radius: 12px;
+    background: rgba(10, 16, 20, 0.82);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(53, 224, 200, 0.22);
+    scrollbar-width: none;
+  }
+
+  .palette::-webkit-scrollbar {
+    display: none;
+  }
+
+  .palette-item {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 13px;
+    color: #06231f;
+    background: var(--gold);
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  .palette-item:active {
+    transform: scale(0.96);
+  }
+
+  /* 手机上不要 Blockly 侧栏：它的宽度会吃掉半屏 */
+  .blocklyToolboxDiv,
+  .blocklyFlyout {
+    display: none !important;
+  }
+}
 /* 批次 15：引导气泡的「继续」按钮 —— 翻页交回玩家。 */
 .tutorial-bubble-next {
   align-self: flex-start;
@@ -2418,6 +2530,13 @@ body::before {
 
   .topbar-mode {
     display: none;
+  }
+
+  /* 手机：toast 回文档流（固定定位会正好压在灵力卡上） */
+  :is(.hud, .hud-bottom) .toast {
+    position: static;
+    max-width: none;
+    margin: 8px 0 0;
   }
 }
 
