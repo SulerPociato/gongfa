@@ -272,6 +272,13 @@ if (n === 5 && acc >= 100) {
 - 只播一次提示：`心魔久踞不散 · 已堕入魔道`；HUD 境界卡会显示 `道途 入魔`。
 - 常量：`DEMON_FALL_LINE=0.8`、`DEMON_FALL_RELEASE=0.6`、`DEMON_FALL_MS=30000`，纯函数 `demonFallStep` 可单测。
 
+### 4.9 功法谱加成（批次 23）
+
+- 每发现一种算法图案，**全产出永久 +0.5%**（`INSIGHT_PER_PATTERN = 0.005`），13 种封顶 **+6.5%**。
+- 只乘产出，不碰心魔；与道途（§9）相乘，不影响 §3 的基准（基准不含图案加成）。
+- 实现：`apps/web/src/game/insight.ts` 的 `insightRate(foundCount)`，运行时 `setInsightRate`。
+- 称号：3 入门 / 6 小成 / 9 通幽 / 13 通晓，跨过时一次性 toast。
+
 ## 5. 存档 v1
 
 ### 5.1 Schema

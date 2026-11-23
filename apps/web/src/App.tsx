@@ -34,6 +34,7 @@ import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type Moment
 import { nextStepOf } from './game/nextStep';
 import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
+import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -86,6 +87,7 @@ function realmModel(state: RuntimeState, found: readonly PatternId[]): RealmMode
       found: found.includes(pattern.id),
     })),
     dao: state.dao,
+    patternsBonus: insightBonusText(found.length),
   };
 }
 
@@ -1261,10 +1263,6 @@ export function App() {
           // 走完六步和点「跳过引导」是同一个结局：这条引导一辈子只来一遍，下次清档也不再重播。
           writeTutorialDone(storage);
           if (tutEndTimer !== null) clearTimeout(tutEndTimer);
-      window.clearTimeout(resizeLater);
-      window.removeEventListener('resize', resizeCanvas);
-      window.removeEventListener('orientationchange', resizeCanvas);
-      cleanupResizeObserver?.();
           tutEndTimer = setTimeout(() => {
             tutEndTimer = null;
             tutActive = false;
@@ -1422,24 +1420,21 @@ export function App() {
         const merged = [...previous, ...fresh.filter((id) => !previous.includes(id))];
         return merged;
       });
-      // 集齐全部 → 一次性 toast。
-      if (next.length === PATTERN_TOTAL && known.length < PATTERN_TOTAL) {
-        showToast('已通晓全部算法 · 功法谱集齐');
+      // 批次 23：每发现一种写法，全产出永久 +0.5%（最多 +6.5%）。
+      // 这是"研究算法比多叠一块吐纳更划算"的唯一长期依据。
+      runtimeRef.current?.setInsightRate(insightRate(next.length));
+      const rank = rankReached(known.length, next.length);
+      if (rank !== null) {
+        showToast(`功法谱 ${next.length} / ${PATTERN_TOTAL} · ${rank.name}：${rank.line}（${insightBonusText(next.length)}）`);
       } else if (fresh.length > 0) {
-        // 里程碑鼓励（评审：第一次自主实现算法要有正反馈）。
-        // 跨过 1/3、2/3 时各说一句，且只在"刚跨过"触发，同一会话不重播。
-        const before = next.length - fresh.length;
-        const mark = [Math.ceil(PATTERN_TOTAL / 3), Math.ceil((PATTERN_TOTAL * 2) / 3)]
-          .find((m) => before < m && next.length >= m);
-        if (mark !== undefined) {
-          showToast(`功法谱 ${next.length} / ${PATTERN_TOTAL} · 刚发现「${patternDef(fresh[0] ?? 'linear').name}」这种写法`);
-        }
+        showToast(`刚发现「${patternDef(fresh[0] ?? 'linear').name}」· ${insightBonusText(next.length)}`);
       }
       // HUD 的功法谱行要刷新：把 found 计数塞进 lastHudKey 的派生源。
       lastHudKey = '';
     }
 
     // 首次挂载后立刻识别一次（存档里可能已经有符合条件的结构）。
+    runtime.setInsightRate(insightRate(readFound(storage, slot).length));
     recognizePatterns();
 
     // 任务 7B：离线结算触发。条件：有存档 && 有程序 && 本会话首次。
@@ -1638,6 +1633,10 @@ export function App() {
 
     return () => {
       loop.stop();
+      window.clearTimeout(resizeLater);
+      window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('orientationchange', resizeCanvas);
+      cleanupResizeObserver?.();
       window.removeEventListener('keydown', onDemoKey);
       if (toastTimer !== null) clearTimeout(toastTimer);
       if (tutReleaseTimer !== null) clearTimeout(tutReleaseTimer);

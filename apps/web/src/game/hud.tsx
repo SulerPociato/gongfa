@@ -57,6 +57,8 @@ export interface RealmModel {
   readonly lingGen: string;
   /** 批次 16：当前道途（null = 还没选）。 */
   readonly dao: 'orthodox' | 'heretic' | null;
+  /** 批次 23：功法谱带来的产出入成（如「产出 +2%」；0 个发现时为空串）。 */
+  readonly patternsBonus: string;
   /** 批次 8：丹药冷却剩余毫秒；>0 时按钮显示倒计时。 */
   readonly pillCooldownMs: number;
   /** 批次 3：功法谱（算法识别）。 */
@@ -451,7 +453,8 @@ function RealmPanel({ model, qi, onTakePill, onOpenCodex }: { readonly model: Re
         {/* 批次 10：功法谱那行就是图鉴入口。评审说得对——藏进设置抽屉没人会点，
             而"N/12"本身就是进度，看到差几个才会想点。 */}
         <button className="patterns-label is-link" type="button" onClick={onOpenCodex}>
-          功法谱 {model.patterns.filter((p) => p.found).length} / {model.patterns.length} →
+          功法谱 {model.patterns.filter((p) => p.found).length} / {model.patterns.length}
+          {model.patternsBonus === '' ? '' : ` · ${model.patternsBonus}`} →
         </button>
       </div>
     </div>

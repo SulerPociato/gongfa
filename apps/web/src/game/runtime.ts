@@ -259,6 +259,8 @@ export interface Runtime {
    * 会重建 sink —— 邪修的代价是 demonBase，而 sink 在构造时就把 demonBase 固定了。
    */
   setDao(path: DaoPath): void;
+  /** 批次 23：功法谱的永久产出加成（1 = 无加成）。宿主按发现数算好传进来。 */
+  setInsightRate(mult: number): void;
   /**
    * 服丹（批次 8）：存量 ×5% 换心魔 -0.15，30 秒冷却。
    * 存在的理由：心魔是唯一风险系统，而"调息"只压不换；丹药让存量从"只用来突破"
@@ -410,6 +412,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let demonHighMs = 0;
   let daoFallback = false;
   const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.12 : 1);
+  // 批次 23：功法谱加成。与道途相乘，但只作用产出，不碰心魔。
+  let insightRate = 1;
   // 灵根（批次 8）：seed 派生，只影响心魔增速（×0.9/1.0/1.1），不动产出 ——
   // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
   const lingGenIndex = (state.seed >>> 0) % 3;
@@ -721,7 +725,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 杂念只砍程序产出 result.gain（D2）：契约 §2.3 把境界被动列为独立加法项，不参与这一刀。
       const mult = noiseGainMult({ demon: state.demon, seed: state.seed, tick: result.tick });
       if (mult < 1) noteTick(noiseTicks, result.tick);
-      const gained = (result.gain * mult + passivePerTick(currentRealm())) * daoRate(dao);
+      const gained = (result.gain * mult + passivePerTick(currentRealm())) * daoRate(dao) * insightRate;
       state.qi += gained;
       state.rate = gained * TICKS_PER_SEC;
       state.ticks += 1;
@@ -958,6 +962,12 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       return { ...target, threshold: currentRealm().threshold };
     },
     settleOffline: settleOfflineMethod,
+    setInsightRate: (mult: number) => {
+      const next = Number.isFinite(mult) && mult > 0 ? mult : 1;
+      if (next === insightRate) return;
+      insightRate = next;
+      markDirty();
+    },
     setDao: (path: DaoPath) => {
       if (dao === path) return;
       dao = path;
