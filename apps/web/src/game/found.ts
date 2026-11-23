@@ -1,4 +1,4 @@
-import type { PatternId, SaveStorage } from '@gongfa/core';
+import { PATTERNS, type PatternId, type SaveStorage } from '@gongfa/core';
 
 // 批次 3：功法谱发现记录（任务 8 续）。
 // 与 gongfa:save:A / gongfa:active 同命名空间，按槽隔离：B 档不该看到 A 档的谱。
@@ -36,5 +36,7 @@ export function writeFound(storage: SaveStorage, slot: 'A' | 'B', ids: readonly 
 }
 
 function isValidPatternId(id: string): id is PatternId {
-  return id === 'linear' || id === 'loop' || id === 'feedback' || id === 'cache';
+  // 白名单必须跟着 PATTERNS 表走：第一版手写了 4 个 id，新增 break/while 之后
+  // 读档时被这里过滤掉 —— 谱永远停在 4/6，且集齐 toast 每次都重弹（评审实测）。
+  return PATTERNS.some((pattern) => pattern.id === id);
 }

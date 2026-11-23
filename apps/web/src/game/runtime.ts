@@ -68,6 +68,12 @@ export interface RuntimeState {
   readonly rate: number;
   readonly ticks: number;
   readonly stall: StallEvent | null;
+  /**
+   * 本 tick 实际执行的指令数（批次 5：步数经济学）。
+   * 与 budgetPool 一起构成「效率 = 每 tick 产出 ÷ 步数」，让玩家能看见"多算一遍"的代价；
+   * 0 = 没有程序在跑（空画布/编译失败），不是"程序 0 步"。
+   */
+  readonly stepsThisTick: number;
   /** 存档 §5.1 带回来的境界 id（新档从 realms.json 首行起，突破成功后 +1 档） */
   readonly realm: number;
   readonly seed: number;
@@ -220,7 +226,7 @@ export interface Runtime {
 }
 
 // 开局默认值。seed 由 ?seed= 或真随机定（验收 5 要同种子复现），这里 0 是没查询参数时的起点。
-const DEFAULTS: Omit<RuntimeState, 'stall' | DerivedField> = {
+const DEFAULTS: Omit<RuntimeState, 'stall' | 'stepsThisTick' | DerivedField> = {
   qi: 0,
   demon: 0,
   rate: 0,
@@ -324,7 +330,7 @@ type MutableState = { -readonly [K in keyof Omit<RuntimeState, DerivedField>]: R
 const EVENT_LOG_MAX = 64;
 
 export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock): Runtime {
-  const state: MutableState = { ...DEFAULTS, demon: seedDemon(), seed: deps.seed ?? urlSeed() ?? 0, stall: null };
+  const state: MutableState = { ...DEFAULTS, demon: seedDemon(), seed: deps.seed ?? urlSeed() ?? 0, stall: null, stepsThisTick: 0 };
   const noiseTicks: number[] = [];
   const backlashTicks: number[] = [];
   const noteTick = (list: number[], tick: number): void => {
@@ -576,6 +582,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     for (const result of results) {
       processed += 1;
       state.tick = result.tick;
+      state.stepsThisTick = result.steps;
       // 杂念只砍程序产出 result.gain（D2）：契约 §2.3 把境界被动列为独立加法项，不参与这一刀。
       const mult = noiseGainMult({ demon: state.demon, seed: state.seed, tick: result.tick });
       if (mult < 1) noteTick(noiseTicks, result.tick);

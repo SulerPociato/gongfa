@@ -98,6 +98,24 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
   const loopBreaks: Map<number, boolean> = new Map();
   const loopRanges: { begin: number; end: number; count: number; depth: number; isWhile: boolean }[] = [];
 
+  // WHILE 的「出口在哪」必须提前算：WHILE_BEGIN 自己不携带 exit，
+  // 而 JMP 判定"是否跳出本层"要用它。第一版把 endPc 留在 -1，导致 while 体内
+  // 任何 JMP（包括普通 if-else 的尾部跳转）都被当成 BREAK —— 评审实测
+  // 「重复直到 + 继续」被判成 ['loop','break','while']。这里先配对再扫描。
+  const whileExitByBegin = new Map<number, number>();
+  {
+    const stack: number[] = [];
+    for (let i = 0; i < code.length; i += 1) {
+      const op = code[i];
+      if (op === undefined) continue;
+      if (op.op === 'WHILE_BEGIN') stack.push(i);
+      else if (op.op === 'WHILE_EXIT') {
+        const begin = stack.pop();
+        if (begin !== undefined) whileExitByBegin.set(begin, i);
+      }
+    }
+  }
+
   for (let index = 0; index < code.length; index += 1) {
     const op = code[index];
     if (op === undefined) continue;
@@ -128,8 +146,8 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
       }
       case 'WHILE_BEGIN': {
         const depth = loopStack.length;
-        // endPc 暂时 -1，WHILE_EXIT 时回填
-        loopStack.push({ begin: index, depth, isWhile: true, endPc: -1 });
+        // 配对表在第一遍扫描里建好，这里直接取；取不到才退回 -1（坏 IR 由 verifier 先拦）。
+        loopStack.push({ begin: index, depth, isWhile: true, endPc: whileExitByBegin.get(index) ?? -1 });
         loopBodies.set(index, []);
         loopBranches.set(index, false);
         loopBreaks.set(index, false);

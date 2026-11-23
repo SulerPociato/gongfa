@@ -157,6 +157,11 @@ export interface HudModel {
   readonly errors: readonly string[];
   readonly corrupt: CorruptLineModel | null;
   readonly stall: StallEvent | null;
+  /**
+   * 步数经济学（批次 5）：本 tick 用了多少步、上限多少、每步换多少灵力。
+   * 三个数同源（runtime.state），HUD 不自己除——除错了就是第二个口径。
+   */
+  readonly steps: { readonly used: number; readonly pool: number; readonly perQi: number };
   /** 存档这条档是怎么来的：加载结果 + 每次落盘回报 */
   readonly save: readonly string[];
   /** 可继续但玩家该知道（回退备用槽、降级空程序），不挡玩法 */
@@ -597,6 +602,11 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           <p className="label">灵力</p>
           <p ref={qiRef} className="qi tut-target">{model.qi}</p>
           <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
+          {model.steps.used > 0 && (
+            <p className={`steps${model.steps.used >= model.steps.pool ? ' is-full' : ''}`}>
+              本 tick {model.steps.used} / {model.steps.pool} 步 · 效率 {model.steps.perQi.toFixed(3)} 灵力/步
+            </p>
+          )}
         </div>
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}

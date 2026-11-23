@@ -251,4 +251,42 @@ describe('patternsOf — 组合', () => {
     expect(patterns).toContain('while');
     expect(patterns).toContain('break');
   });
+
+  // 评审实测的误判：while 的 endPc 曾是 -1，于是 while 体内任何 JMP（普通 if-else 尾部、
+  // continue）都被判成「跳出循环」。这条钉住"没有 BREAK 就不算 break"。
+  it('重复直到 + 继续：不该被判成「见好就收」', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' },
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.7 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 8 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'JMP', target: 1 },
+      { op: 'WHILE_END', begin: 1 },
+      { op: 'WHILE_EXIT' },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('while');
+    expect(patterns).not.toContain('break');
+  });
+
+  it('重复直到 + 中断：仍然判成「见好就收」', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' },
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.7 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 9 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'BREAK' },
+      { op: 'WHILE_END', begin: 1 },
+      { op: 'WHILE_EXIT' },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('while');
+    expect(patterns).toContain('break');
+  });
 });

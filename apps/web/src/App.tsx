@@ -215,6 +215,12 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     qi: Math.floor(state.qi),
     rate: state.rate,
     stall: state.stall,
+    // 批次 5：步数经济学。perQi = 本 tick 产出 ÷ 本 tick 步数，0 步时不显示（空程序不是"效率 0"）。
+    steps: {
+      used: state.stepsThisTick,
+      pool: state.budgetPool,
+      perQi: state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
+    },
     realm: realmModel(state, found),
     curve: extra.curve,
     sprint: sprintModel(state),
@@ -352,9 +358,10 @@ export function App() {
     setAlgoCards((previous) => previous.slice(1));
   };
 
-  // 批次 5：境界解锁 toast 自动消失（3 秒一条，不叠加）。
+  // 批次 5：moment 队列（解锁 / 走火 / 杂念 / 试炼 / 首次 stall）共用一条 toast 通道。
+  // 时长与 showToast 用同一个 TOAST_MS：之前队列自己写 3 秒、showToast 写 6 秒，
+  // 两条定时器会互相覆盖（实测 toast 停在屏上 5.6 秒才消失），这里是唯一的口径。
   // 时序：等结果层（outcome）消失后 300ms 再开始播放，避免被结果层盖住。
-  const UNLOCK_TOAST_DURATION = 3_000;
   const UNLOCK_DELAY_AFTER_OUTCOME = 300;
   useEffect(() => {
     if (unlockToasts.length === 0) {
@@ -378,7 +385,7 @@ export function App() {
       unlockToastTimerRef.current = setTimeout(() => {
         setHud((previous) => ({ ...previous, toast: null }));
         setUnlockToasts((previous) => previous.slice(1));
-      }, UNLOCK_TOAST_DURATION);
+      }, TOAST_MS);
     }, UNLOCK_DELAY_AFTER_OUTCOME);
     return () => {
       clearTimeout(delayTimer);
@@ -1205,6 +1212,10 @@ export function App() {
       if (state.sprintReached && !prevSprintReached) pushMoment('sprint');
       prevSprintReached = state.sprintReached;
       if (state.stall !== null) pushMoment('stall');
+      // 道具说明卡：拥有即提示一次（"什么时候能用"由玩家自己的进度决定，
+      // 不按境界或时间硬塞）。玉简提醒"配循环"，算盘提醒"撞上限时再用"。
+      if (game.equippedArtifacts.includes('jade') || game.ownedArtifacts.includes('jade')) pushMoment('art-jade');
+      if (game.equippedArtifacts.includes('abacus') || game.ownedArtifacts.includes('abacus')) pushMoment('art-abacus');
       const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}|${tutBarSig}`;
       if (key === lastHudKey) return;
       lastHudKey = key;
@@ -1221,6 +1232,13 @@ export function App() {
         qi,
         rate: state.rate,
         stall: state.stall,
+        // 批次 5：步数与效率必须逐帧更新 —— 只放在 hudModel() 里只会更新"初始快照"，
+        // 页面跑起来之后那行永远是 0（这次就踩了：hudModel 只被 useState 用过一次）。
+        steps: {
+          used: state.stepsThisTick,
+          pool: state.budgetPool,
+          perQi: state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
+        },
         realm: realmModel(state, algoFoundState),
         sprint: sprintModel(state),
         challenge: challengeModel(state),

@@ -11,17 +11,20 @@ import { activeSlot } from '@gongfa/core';
  * 文案里的数字一律由调用方现取（剩余蓄势、预算上限等），表里只放固定句式，
  * 避免第二天改了数值、提示还在说旧话。
  */
-export type MomentId = 'noise' | 'backlash' | 'sprint' | 'stall';
+export type MomentId = 'noise' | 'backlash' | 'sprint' | 'stall' | 'art-jade' | 'art-abacus';
 
 export const MOMENT_TEXTS: Readonly<Record<MomentId, string>> = {
   noise: '杂念开始了：这一 tick 的产出减半。拖「调息」压住心魔。',
   backlash: '走火入魔：弟子调息 5 秒，期间不产出。',
   sprint: '试炼达成：本境界蓄势减半。',
   stall: '预算用完了：装备算盘可 +50 步，或减少循环层数。',
+  // 道具说明卡（评审要求：不要在开局把说明书一次塞给玩家，等它第一次可用时再说）。
+  'art-jade': '玉简：同一 tick 内重复的动作产出 ×0.7，但那一步不占预算——要配合循环才划算。',
+  'art-abacus': '算盘：每 tick 指令预算 +50 步。程序越深、动作越多，越先撞上限，那时它会明显提速。',
 };
 
-/** 只有 stall 要"一辈子一次"：其余三个是事件，同一会话内可以反复发生。 */
-export const PERSISTED_MOMENTS: readonly MomentId[] = ['stall'];
+/** 只有这些要"一辈子一次"：其余是事件，同一会话内可以反复发生。 */
+export const PERSISTED_MOMENTS: readonly MomentId[] = ['stall', 'art-jade', 'art-abacus'];
 
 const SEEN_PREFIX = 'gongfa:seen:';
 

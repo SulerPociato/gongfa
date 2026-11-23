@@ -80,4 +80,16 @@ describe('readFound / writeFound', () => {
     writeFound(storage, 'A', ['loop']);
     expect(readFound(storage, 'A')).toEqual(['linear']);
   });
+
+  // 白名单必须跟着 PATTERNS 表：手写 4 个 id 时 break/while 读档会被静默丢掉，
+  // 玩家刷新后谱从 6 退回 4，且集齐 toast 会重弹。
+  it('break / while 不会被读档过滤掉', () => {
+    const storage: SaveStorage = {
+      read: () => '["linear","loop","break","while"]',
+      write: () => false,
+      remove: () => {},
+      keys: () => [],
+    };
+    expect(readFound(storage, 'A')).toEqual(['linear', 'loop', 'break', 'while']);
+  });
 });
