@@ -1038,8 +1038,25 @@ export function App() {
         body: `会用这套功法覆盖当前画布（当前程序会丢）。\n\n${item.teach}`,
         confirmText: '覆盖并抄录',
         onConfirm: () => {
+          // 批次 30：抄录前后各取一次速率，3 秒后报差值 —— 「学功法」要在当场看见收益，
+          // 而不是让玩家自己去盯 HUD 数字。3 秒足够跑满 30 个 tick，比 10 秒不磨人。
+          const before = runtime.state().rate;
           reloadCanvas(item.workspace() as WorkspaceJson);
           showToast(`已抄录《${item.name}》：${item.algorithm}`);
+          window.setTimeout(() => {
+            const after = runtime.state().rate;
+            if (before <= 0) {
+              showToast(`《${item.name}》：现在 ${after.toFixed(1)} / 秒`);
+              return;
+            }
+            const ratio = after / before;
+            // 倍数小的时候说百分比（+23% 比 ×1.23 直观），大的时候说倍数
+            // （+2134% 这种数字没有意义，×22 才读得懂）。
+            const delta = ratio >= 1.5
+              ? `×${ratio.toFixed(1)}`
+              : `${Math.round((ratio - 1) * 100) >= 0 ? '+' : ''}${Math.round((ratio - 1) * 100)}%`;
+            showToast(`抄录前 ${before.toFixed(1)} / 秒 → 现在 ${after.toFixed(1)} / 秒（${delta}）`);
+          }, 3000);
         },
       });
     };
