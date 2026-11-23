@@ -304,7 +304,6 @@ export function App() {
   // 批次 3：功法谱发现记录。algoFound 从 localStorage 初始化，algoCards 是待展示的卡片队列。
   const [algoFound, setAlgoFound] = useState<readonly PatternId[]>([]);
   const [algoCards, setAlgoCards] = useState<readonly PatternId[]>([]);
-  const algoCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
   // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
   // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
@@ -317,22 +316,8 @@ export function App() {
   // 面板里两个按钮的实现在 useEffect 里才拿得到 runtime，这里同样只留转发口。
   const trialPressRef = useRef<((mode: 'manual' | 'auto') => void) | null>(null);
 
-  // 批次 3：功法谱卡片队列。每张卡 3 秒，自动消失后弹出下一张。
-  useEffect(() => {
-    if (algoCards.length === 0) return;
-    // 如果已经有定时器在跑，不重复起（卡片会按顺序自动轮转）。
-    if (algoCardTimerRef.current !== null) return;
-    algoCardTimerRef.current = setTimeout(() => {
-      algoCardTimerRef.current = null;
-    }, 3_000);
-  }, [algoCards]);
-
   const handleDismissAlgoCard = (): void => {
     setAlgoCards((previous) => previous.slice(1));
-    if (algoCardTimerRef.current !== null) {
-      clearTimeout(algoCardTimerRef.current);
-      algoCardTimerRef.current = null;
-    }
   };
 
   useEffect(() => {
@@ -1000,7 +985,7 @@ export function App() {
 
     // 批次 3：算法识别。引导期间不识别（裁定 5），引导结束或跳过的当下立刻识别一次。
     // 识别结果写入 localStorage（按槽隔离），并触发卡片队列与 HUD 更新。
-    const recognizePatterns = (): void => {
+    function recognizePatterns(): void {
       if (tutActive) return;
       const program = cache[0];
       if (program === undefined) return;
@@ -1020,7 +1005,7 @@ export function App() {
       }
       // HUD 的功法谱行要刷新：把 found 计数塞进 lastHudKey 的派生源。
       lastHudKey = '';
-    };
+    }
 
     // 首次挂载后立刻识别一次（存档里可能已经有符合条件的结构）。
     recognizePatterns();
@@ -1222,7 +1207,7 @@ export function App() {
       {/* 批次 3：算法发现卡片（右上角，3 秒自动消失）。 */}
       {algoCards.length > 0 && (() => {
         const first = algoCards[0];
-        return first === undefined ? null : <AlgorithmCard patternId={first} onDismiss={handleDismissAlgoCard} />;
+        return first === undefined ? null : <AlgorithmCard key={first} patternId={first} onDismiss={handleDismissAlgoCard} />;
       })()}
       {drawerOpen && (
         <div className="settings-drawer-overlay" onClick={() => setDrawerOpen(false)}>
