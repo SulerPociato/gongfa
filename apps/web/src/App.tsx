@@ -5,10 +5,12 @@ import * as Blockly from 'blockly/core';
 import * as zhHans from 'blockly/msg/zh-hans';
 import {
   BLOCK_DEFINITIONS,
+  BLOCK_SPECS,
   PROGRAM_ID,
   compileWorkspace,
   GONGFA_THEME,
   STARTER_WORKSPACE_JSON,
+  TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
 import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
@@ -22,9 +24,10 @@ import { DEMO_SPEED } from './game/demo';
 import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
-import { lockedCount, toolboxForRealm } from './game/toolbox';
+import { lockedCount, MIN_REALM, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialPlayStep, type TutorialStep } from './game/tutorial';
 import { readFound, writeFound } from './game/found';
+import { readUnlocked, writeUnlocked } from './game/unlocked';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -189,6 +192,16 @@ function curveModel(preview: CurvePreview, compare: CurveCompare | null): CurveM
   };
 }
 
+// 批次 5：境界解锁的 toast 文案。文案里的块名从 BLOCK_SPECS 取，不写死。
+const UNLOCK_TOAST_TEXTS: Readonly<Record<string, string>> = {
+  gongfa_break: '解锁：中断 —— 立刻跳出循环，找到就不必再算',
+  gongfa_continue: '解锁：继续 —— 跳过本轮剩下的动作，直接下一轮',
+  gongfa_while: '解锁：重复直到 —— 条件满足才停，次数由你定',
+};
+function getUnlockToastText(blockId: string): string {
+  return UNLOCK_TOAST_TEXTS[blockId] ?? `解锁：${BLOCK_SPECS[blockId]?.label ?? blockId}`;
+}
+
 function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial'>): HudModel {
   return {
     qi: Math.floor(state.qi),
@@ -304,6 +317,12 @@ export function App() {
   // 批次 3：功法谱发现记录。algoFound 从 localStorage 初始化，algoCards 是待展示的卡片队列。
   const [algoFound, setAlgoFound] = useState<readonly PatternId[]>([]);
   const [algoCards, setAlgoCards] = useState<readonly PatternId[]>([]);
+  // 批次 5：境界解锁的块提示队列。每条 toast 显示 3 秒后自动消失，不叠加。
+  const [unlockToasts, setUnlockToasts] = useState<readonly string[]>([]);
+  const unlockToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 境界解锁的「新」角标：和 tutRelease 分开，避免挂 .tut class 导致界面变暗。
+  const [unlockNewIds, setUnlockNewIds] = useState<readonly string[]>([]);
+  const unlockNewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
   // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
   // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
@@ -319,6 +338,30 @@ export function App() {
   const handleDismissAlgoCard = (): void => {
     setAlgoCards((previous) => previous.slice(1));
   };
+
+  // 批次 5：境界解锁 toast 自动消失（3 秒一条，不叠加）。
+  const UNLOCK_TOAST_DURATION = 3_000;
+  useEffect(() => {
+    if (unlockToasts.length === 0) {
+      if (unlockToastTimerRef.current !== null) {
+        clearTimeout(unlockToastTimerRef.current);
+        unlockToastTimerRef.current = null;
+      }
+      return;
+    }
+    const first = unlockToasts[0];
+    if (first === undefined) return;
+    // 内联 toast 逻辑：showToast 在另一个 useEffect 里，这里直接 setHud。
+    setHud((previous) => ({ ...previous, toast: getUnlockToastText(first) }));
+    if (unlockToastTimerRef.current !== null) clearTimeout(unlockToastTimerRef.current);
+    unlockToastTimerRef.current = setTimeout(() => {
+      setHud((previous) => ({ ...previous, toast: null }));
+      setUnlockToasts((previous) => previous.slice(1));
+    }, UNLOCK_TOAST_DURATION);
+    return () => {
+      if (unlockToastTimerRef.current !== null) clearTimeout(unlockToastTimerRef.current);
+    };
+  }, [unlockToasts]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -695,6 +738,8 @@ export function App() {
     let lastHudKey = '';
     // 上一次播报过的结算（同一份引用 = 同一发），用来把托管结算也只说一次。
     let seenChallenge: ChallengeResult | null = null;
+    // 批次 5：渡劫前的境界下标，用来计算新解锁的块。
+    let realmIndexBeforeChallenge = runtime.state().realmIndex;
 
     // 结算的播报不挂在点击上：托管那一发是 run() 里结算的，没有回调可挂，所以逐帧观察 state.lastChallenge。
     // 境界一变要重推书的衰减（新境按新 realmIndex 算），所以成功路径走一次 refreshBook（同任务 6）。
@@ -707,6 +752,34 @@ export function App() {
       const dice = `第 ${result.attempt} 次 · ${(result.rate * 100).toFixed(0)}% 档 · 骰 ${result.roll.toFixed(4)}`;
       if (result.ok) {
         pushNotice(`渡劫${result.forced ? `（保底第 ${result.attempt} 次）` : ''}成功：进入${result.realmName}，存量与心魔清零 · ${dice}`);
+        // 批次 5：检测新解锁的块并排队提示。
+        const newRealmIndex = runtime.state().realmIndex;
+        if (newRealmIndex !== realmIndexBeforeChallenge) {
+          const oldBlocks = TOOLBOX_JSON.contents
+            .filter((item) => (MIN_REALM[item.type] ?? 0) <= realmIndexBeforeChallenge)
+            .map((item) => item.type);
+          const newBlocks = TOOLBOX_JSON.contents
+            .filter((item) => (MIN_REALM[item.type] ?? 0) <= newRealmIndex)
+            .map((item) => item.type);
+          const unlocked = newBlocks.filter((b) => !oldBlocks.includes(b));
+          if (unlocked.length > 0) {
+            const slot = activeSlot(storage);
+            const known = readUnlocked(storage, slot);
+            const fresh = unlocked.filter((b) => !known.includes(b));
+            if (fresh.length > 0) {
+              writeUnlocked(storage, slot, [...known, ...fresh]);
+              // 挂「新」角标（2 秒）
+              setUnlockNewIds(fresh);
+              if (unlockNewTimerRef.current !== null) clearTimeout(unlockNewTimerRef.current);
+              unlockNewTimerRef.current = setTimeout(() => setUnlockNewIds([]), NEW_BADGE_MS);
+              // 排队 toast（每条 3 秒，不叠加）
+              setUnlockToasts((previous) => {
+                const merged = [...previous, ...fresh.filter((id) => !previous.includes(id))];
+                return merged;
+              });
+            }
+          }
+        }
       } else {
         pushNotice(`渡劫失败：存量 ×${FAILURE_QI_MULT} → ${Math.floor(result.qi)}、心魔归 0、悟道 +1 · ${dice}`);
       }
@@ -726,6 +799,8 @@ export function App() {
     challengeActionRef.current = (): void => {
       // 引导把它当「这一套他会了」：点过就一直算点过（第 5 步不设单独跳过，裁定 3）。
       tutPressed = true;
+      // 批次 5：记录渡劫前的境界，用来计算新解锁的块。
+      realmIndexBeforeChallenge = runtime.state().realmIndex;
       const result = runtime.pressChallenge();
       if (result.phase === 'trial') {
         lastHudKey = '';
@@ -1209,6 +1284,16 @@ export function App() {
       {outcome !== null && <ChallengeResultLayer outcome={outcome} onDismiss={handleDismissOutcome} />}
       {hud.tutorial !== null && hud.tutorial.step !== null && (
         <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} onStepPainted={onTutPainted} />
+      )}
+      {/* 批次 5：境界解锁的「新」角标（不挂 .tut class，避免界面变暗）。 */}
+      {unlockNewIds.length > 0 && (
+        <div className="toolbox-new-badges" aria-hidden="true">
+          {unlockNewIds.map((id) => (
+            <span key={id} className="toolbox-new-badge is-on" data-block={id}>
+              新
+            </span>
+          ))}
+        </div>
       )}
       {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
       {/* 批次 3：算法发现卡片（右上角，3 秒自动消失）。 */}

@@ -407,7 +407,9 @@ function buildExitMap(programs: readonly Program[]): Map<number, number> {
         map.set(op.begin, pc);
       } else if (op.op === 'WHILE_END') {
         // WHILE_EXIT 紧跟 WHILE_END（verifier 保证），exit = pc + 1
-        map.set(op.begin, pc + 1);
+        // WHILE_END.begin = WHILE_BEGIN pc + 1（编译器设置），帧 begin = WHILE_BEGIN pc
+        // 所以需要 op.begin - 1 才能匹配帧的 begin
+        map.set(op.begin - 1, pc + 1);
       }
     }
   }

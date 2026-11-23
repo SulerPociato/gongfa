@@ -201,4 +201,54 @@ describe('patternsOf — 组合', () => {
     expect(patterns).toContain('cache');
     expect(patterns).toContain('feedback');
   });
+
+  it('循环内 BREAK → break 图案', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 4, count: 3 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'BREAK' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    const shape = shapeOf(code, []);
+    const patterns = patternsOf(shape);
+    expect(patterns).toContain('break');
+    expect(patterns).toContain('loop'); // loop 也命中（循环体全是吐纳，没有分支）
+  });
+
+  it('WHILE 循环 → while 图案', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' },
+      { op: 'LOAD', key: 'budget' },
+      { op: 'PUSH', value: 0 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 6 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'WHILE_END', begin: 1 },
+      { op: 'WHILE_EXIT' },
+      { op: 'HALT' },
+    ];
+    const shape = shapeOf(code, []);
+    const patterns = patternsOf(shape);
+    expect(patterns).toContain('while');
+  });
+
+  it('WHILE 循环内 BREAK → while ∩ break', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' },
+      { op: 'LOAD', key: 'budget' },
+      { op: 'PUSH', value: 0 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 7 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'BREAK' },
+      { op: 'WHILE_END', begin: 1 },
+      { op: 'WHILE_EXIT' },
+      { op: 'HALT' },
+    ];
+    const shape = shapeOf(code, []);
+    const patterns = patternsOf(shape);
+    expect(patterns).toContain('while');
+    expect(patterns).toContain('break');
+  });
 });

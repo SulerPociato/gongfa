@@ -6,7 +6,7 @@ import type { CmpArg, LoadKey, Op } from '../vm/program';
 // 展开后的 kinds 会把「则分支里的动作」丢掉（profile.ts 的 jmp 一律走 false 路径），
 // 用它判反馈控制等于把整条 then-branch 抹掉，判据就错了。
 
-export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache';
+export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while';
 
 /**
  * 谱的分母从这张表来，不写死 4：表里加一行新图案，HUD 的「功法谱 N/4」自动变 N/5，
@@ -27,6 +27,8 @@ export const PATTERNS: readonly PatternDef[] = [
   { id: 'loop', name: '周天循环', algorithm: 'for 循环', requires: '「循环」里放「吐纳」' },
   { id: 'feedback', name: '清心诀', algorithm: '反馈控制', requires: '「如果 心魔 > x」里放「调息」' },
   { id: 'cache', name: '玉简缓存', algorithm: '缓存命中', requires: '循环跑两遍以上 + 装备玉简' },
+  { id: 'break', name: '见好就收', algorithm: '提前退出（early exit / 剪枝）', requires: '循环里放「中断」' },
+  { id: 'while', name: '不定周天', algorithm: '条件循环（while）', requires: '「重复直到」里放动作' },
 ];
 
 export const PATTERN_TOTAL = PATTERNS.length;
@@ -56,12 +58,17 @@ export interface ProgramShape {
 export interface LoopRange {
   readonly begin: number;
   readonly end: number;
+  /** repeat 的循环次数；while 没有静态次数，记 0。 */
   readonly count: number;
   readonly depth: number;
   /** 这一层循环体里的动作 id（按出现顺序）。 */
   readonly actionIds: readonly string[];
   /** 循环体里是否含 JMP_IF_FALSE（反馈控制嵌在循环里也算「有分支」）。 */
   readonly hasBranch: boolean;
+  /** 循环体里是否含 BREAK（提前退出）。 */
+  readonly hasBreak: boolean;
+  /** 是否为 while 循环（WHILE_BEGIN 产生）。 */
+  readonly isWhile: boolean;
 }
 
 export interface BranchRange {
@@ -76,20 +83,20 @@ export interface BranchRange {
 
 /**
  * 单趟扫描 code 出快照。
- * 循环区间用栈维护：LOOP_BEGIN 压栈、LOOP_END 弹栈，depth = 栈长 − 1。
+ * 循环区间用栈维护：LOOP_BEGIN/WHILE_BEGIN 压栈、LOOP_END/WHILE_EXIT 弹栈，depth = 栈长 − 1。
  * 分支区间靠 JMP_IF_FALSE 的 target 直接定位 then-body 的右端；
  * 若 then-body 末尾是 JMP（有 else），else-body 的右端就是那个 JMP 的 target。
+ * BREAK 和跳出循环的 JMP 标记最内层循环的 hasBreak。
  */
 export function shapeOf(code: readonly Op[], equipped: readonly string[]): ProgramShape {
   const actions: string[] = [];
   const branches: BranchRange[] = [];
-  const loopStack: { begin: number; depth: number }[] = [];
-  // 循环体的动作清单：LOOP_BEGIN 时建，LOOP_END 时不删（最后要拿来填 loops[i].actionIds）。
-  // 嵌套上限 16（契约 §4.2），内存开销可忽略。
+  // 统一循环栈：repeat 和 while 共用，靠 isWhile 区分。
+  const loopStack: { begin: number; depth: number; isWhile: boolean; endPc: number }[] = [];
   const loopBodies: Map<number, string[]> = new Map();
   const loopBranches: Map<number, boolean> = new Map();
-  // 循环区间表：LOOP_END 时定稿，最后与 loopBodies 合并成 loops[]。
-  const loopRanges: { begin: number; end: number; count: number; depth: number }[] = [];
+  const loopBreaks: Map<number, boolean> = new Map();
+  const loopRanges: { begin: number; end: number; count: number; depth: number; isWhile: boolean }[] = [];
 
   for (let index = 0; index < code.length; index += 1) {
     const op = code[index];
@@ -105,9 +112,10 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
       }
       case 'LOOP_BEGIN': {
         const depth = loopStack.length;
-        loopStack.push({ begin: index, depth });
+        loopStack.push({ begin: index, depth, isWhile: false, endPc: op.end });
         loopBodies.set(index, []);
         loopBranches.set(index, false);
+        loopBreaks.set(index, false);
         break;
       }
       case 'LOOP_END': {
@@ -115,7 +123,37 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
         if (top === undefined) break;
         const beginOp = code[top.begin];
         const count = beginOp !== undefined && beginOp.op === 'LOOP_BEGIN' ? beginOp.count : 0;
-        loopRanges.push({ begin: top.begin, end: index + 1, count, depth: top.depth });
+        loopRanges.push({ begin: top.begin, end: index + 1, count, depth: top.depth, isWhile: false });
+        break;
+      }
+      case 'WHILE_BEGIN': {
+        const depth = loopStack.length;
+        // endPc 暂时 -1，WHILE_EXIT 时回填
+        loopStack.push({ begin: index, depth, isWhile: true, endPc: -1 });
+        loopBodies.set(index, []);
+        loopBranches.set(index, false);
+        loopBreaks.set(index, false);
+        break;
+      }
+      case 'WHILE_EXIT': {
+        // 找栈顶的 WHILE_BEGIN（应该是最后一个 isWhile=true 的）
+        const top = loopStack.pop();
+        if (top === undefined) break;
+        loopRanges.push({ begin: top.begin, end: index + 1, count: 0, depth: top.depth, isWhile: true });
+        break;
+      }
+      case 'BREAK': {
+        // BREAK 在最内层循环里 → 标记 hasBreak
+        const innermost = loopStack[loopStack.length - 1];
+        if (innermost !== undefined) loopBreaks.set(innermost.begin, true);
+        break;
+      }
+      case 'JMP': {
+        // 检查是否为 break（跳出最内层循环）：target > 最内层循环的 endPc
+        const innermost = loopStack[loopStack.length - 1];
+        if (innermost !== undefined && op.target > innermost.endPc) {
+          loopBreaks.set(innermost.begin, true);
+        }
         break;
       }
       case 'JMP_IF_FALSE': {
@@ -131,9 +169,8 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
           elseIds = collectActions(code, thenEnd, jumpOp.target);
         }
         branches.push({ at: index, ...condition, thenIds, elseIds });
-        // 标记「这条分支落在哪个循环体内」：用于 loop.hasBranch。
         for (const entry of loopStack) {
-          const loopEnd = findLoopEnd(code, entry.begin);
+          const loopEnd = entry.endPc;
           if (index > entry.begin && index < loopEnd) {
             loopBranches.set(entry.begin, true);
           }
@@ -149,6 +186,7 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
     ...range,
     actionIds: loopBodies.get(range.begin) ?? [],
     hasBranch: loopBranches.get(range.begin) ?? false,
+    hasBreak: loopBreaks.get(range.begin) ?? false,
   }));
 
   return { actions, loops, branches, equipped };
@@ -165,12 +203,6 @@ function readCondition(code: readonly Op[], jmpIndex: number): Pick<BranchRange,
   if (cmp === undefined || push === undefined || load === undefined) return null;
   if (cmp.op !== 'CMP' || push.op !== 'PUSH' || load.op !== 'LOAD') return null;
   return { key: load.key, cmp: cmp.arg, threshold: push.value };
-}
-
-function findLoopEnd(code: readonly Op[], beginIndex: number): number {
-  const loop = code[beginIndex];
-  if (loop === undefined || loop.op !== 'LOOP_BEGIN') return code.length;
-  return loop.end;
 }
 
 function collectActions(code: readonly Op[], from: number, to: number): string[] {
@@ -193,6 +225,8 @@ export function patternsOf(shape: ProgramShape): readonly PatternId[] {
   if (matchesLoop(shape)) hits.push('loop');
   if (matchesFeedback(shape)) hits.push('feedback');
   if (matchesCache(shape)) hits.push('cache');
+  if (matchesBreak(shape)) hits.push('break');
+  if (matchesWhile(shape)) hits.push('while');
   return hits;
 }
 
@@ -237,4 +271,20 @@ function matchesFeedback(shape: ProgramShape): boolean {
 function matchesCache(shape: ProgramShape): boolean {
   const hasLoop = shape.loops.some((loop) => loop.count >= 2 && loop.actionIds.length > 0);
   return hasLoop && shape.equipped.includes('jade');
+}
+
+/**
+ * break：存在至少一个循环体内含 BREAK 或跳出该循环的 JMP（hasBreak 标记）。
+ * 「见好就收」的语义是「条件满足就提前退出」，所以循环里得有 break 才算。
+ */
+function matchesBreak(shape: ProgramShape): boolean {
+  return shape.loops.some((loop) => loop.hasBreak);
+}
+
+/**
+ * while：存在至少一个 WHILE 循环（count === 0 && isWhile === true）。
+ * 「不定周天」的语义是「不确定跑多少圈，看条件」，和固定次数的 repeat 区分。
+ */
+function matchesWhile(shape: ProgramShape): boolean {
+  return shape.loops.some((loop) => loop.isWhile);
 }

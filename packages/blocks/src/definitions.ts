@@ -95,18 +95,55 @@ export const GONGFA_COMPARE_JSON = {
   style: 'gongfa_logic',
 } as const;
 
+// 批次 5：中断/继续/重复直到。break/continue 是语句块（previousStatement + nextStatement），
+// 只能放在循环体内；while 是控件块，和 repeat 一样有 statement 输入。
+export const GONGFA_BREAK_JSON = {
+  kind: 'block_definition',
+  type: 'gongfa_break',
+  message0: '中断',
+  previousStatement: null,
+  nextStatement: null,
+  style: 'gongfa_control',
+} as const;
+
+export const GONGFA_CONTINUE_JSON = {
+  kind: 'block_definition',
+  type: 'gongfa_continue',
+  message0: '继续',
+  previousStatement: null,
+  nextStatement: null,
+  style: 'gongfa_control',
+} as const;
+
+export const GONGFA_WHILE_JSON = {
+  kind: 'block_definition',
+  type: 'gongfa_while',
+  message0: '重复直到 %1 不成立 %2',
+  args0: [
+    { type: 'input_value', name: 'CONDITION', check: 'Boolean' },
+    { type: 'input_statement', name: 'DO' },
+  ],
+  previousStatement: null,
+  nextStatement: null,
+  style: 'gongfa_control',
+} as const;
+
 /**
  * 交给 `Blockly.defineBlocksWithJsonArray`。
- * 境界门控（筑基才给「如果 / 循环」）推迟到任务 6：现在工具箱一次性给全 5 块，属已知偏差。
+ * 境界门控（筑基才给「如果 / 循环」，金丹给「中断 / 继续」，元婴给「重复直到」）由
+ * apps/web 的 toolbox.ts 按 realmIndex 过滤，这里先把全部 8 块列出来。
  */
-export const BLOCK_DEFINITIONS: readonly unknown[] = [TICK_HAT_JSON, BREATH_JSON, CALM_JSON, GONGFA_IF_JSON, GONGFA_REPEAT_JSON, GONGFA_COMPARE_JSON];
+export const BLOCK_DEFINITIONS: readonly unknown[] = [
+  TICK_HAT_JSON, BREATH_JSON, CALM_JSON, GONGFA_IF_JSON, GONGFA_REPEAT_JSON, GONGFA_COMPARE_JSON,
+  GONGFA_BREAK_JSON, GONGFA_CONTINUE_JSON, GONGFA_WHILE_JSON,
+];
 
 /** 开局预置：画布上只有一个入口块，玩家从工具箱拖「吐纳」进来。 */
 export const STARTER_WORKSPACE_JSON = {
   blocks: { languageVersion: 0, blocks: [{ type: 'tick_hat', x: 32, y: 32 }] },
 } as const;
 
-/** 工具箱：入口块不出现（画布已预置），其余 5 块全部可选。 */
+/** 工具箱：入口块不出现（画布已预置），其余 8 块全部可选（境界门控在 toolbox.ts 叠）。 */
 export const TOOLBOX_JSON = {
   kind: 'flyoutToolbox',
   contents: [
@@ -115,6 +152,9 @@ export const TOOLBOX_JSON = {
     { kind: 'block', type: 'gongfa_if' },
     { kind: 'block', type: 'gongfa_repeat' },
     { kind: 'block', type: 'gongfa_compare' },
+    { kind: 'block', type: 'gongfa_break' },
+    { kind: 'block', type: 'gongfa_continue' },
+    { kind: 'block', type: 'gongfa_while' },
   ],
 } as const;
 
@@ -131,4 +171,7 @@ export const BLOCK_SPECS: Readonly<Record<string, BlockSpec>> = {
   gongfa_if: { kind: 'control', label: '如果' },
   gongfa_repeat: { kind: 'control', label: '循环' },
   gongfa_compare: { kind: 'value', label: '比较' },
+  gongfa_break: { kind: 'control', label: '中断' },
+  gongfa_continue: { kind: 'control', label: '继续' },
+  gongfa_while: { kind: 'control', label: '重复直到' },
 };

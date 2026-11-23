@@ -3,9 +3,12 @@ import { TOOLBOX_JSON } from '@gongfa/blocks';
 // 工具箱的门控表：块型 → 最低境界下标（契约 §4.3 的「解锁」列）。
 // 没在这张表里的（每 tick / 吐纳 / 调息 / 比较）炼气就给。固化不列进来 —— 书是开局赠送的，
 // 01-design §5.2.1 的「抄模板 → 改模板」没有境界门槛，卡住它等于把 P0 的成长路径拦腰截断。
-const MIN_REALM: Record<string, number> = {
+export const MIN_REALM: Record<string, number> = {
   gongfa_if: 1,
   gongfa_repeat: 1,
+  gongfa_break: 2,
+  gongfa_continue: 2,
+  gongfa_while: 3,
 };
 
 type ToolboxContent = (typeof TOOLBOX_JSON.contents)[number];

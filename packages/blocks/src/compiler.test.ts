@@ -409,11 +409,17 @@ describe('条件与循环编译（任务 4）', () => {
 });
 
 describe('积木定义与内容表对齐', () => {
-  it('P0 六块：入口 + 吐纳/调息 + 如果/循环/比较，工具箱含除入口外的全部', () => {
-    expect(BLOCK_DEFINITIONS.length).toBe(6);
-    expect(Object.keys(BLOCK_SPECS).sort()).toEqual(['breath', 'calm', 'gongfa_compare', 'gongfa_if', 'gongfa_repeat', 'tick_hat']);
+  it('P0 九块：入口 + 吐纳/调息 + 如果/循环/比较 + 中断/继续/重复直到，工具箱含除入口外的全部', () => {
+    expect(BLOCK_DEFINITIONS.length).toBe(9);
+    expect(Object.keys(BLOCK_SPECS).sort()).toEqual([
+      'breath', 'calm', 'gongfa_break', 'gongfa_compare', 'gongfa_continue', 'gongfa_if',
+      'gongfa_repeat', 'gongfa_while', 'tick_hat',
+    ]);
     expect(BLOCK_SPECS['breath']?.actionId).toBe('breath');
     expect(BLOCK_SPECS['calm']?.actionId).toBe('calm');
+    expect(BLOCK_SPECS['gongfa_break']?.kind).toBe('control');
+    expect(BLOCK_SPECS['gongfa_continue']?.kind).toBe('control');
+    expect(BLOCK_SPECS['gongfa_while']?.kind).toBe('control');
     expect(TICK_HAT_JSON.message0).toBe('每 tick %1');
     expect(BREATH_JSON.message0).toBe('吐纳');
     expect(TOOLBOX_JSON.contents).toEqual([
@@ -422,7 +428,170 @@ describe('积木定义与内容表对齐', () => {
       { kind: 'block', type: 'gongfa_if' },
       { kind: 'block', type: 'gongfa_repeat' },
       { kind: 'block', type: 'gongfa_compare' },
+      { kind: 'block', type: 'gongfa_break' },
+      { kind: 'block', type: 'gongfa_continue' },
+      { kind: 'block', type: 'gongfa_while' },
     ]);
     expect(STARTER_WORKSPACE_JSON.blocks.blocks.length).toBe(1);
+  });
+});
+
+// 批次 5：break / continue / while 编译测试
+describe('中断/继续/重复直到编译', () => {
+  function breakBlock(): SerializedBlock {
+    return { type: 'gongfa_break', id: 'brk1' };
+  }
+  function continueBlock(): SerializedBlock {
+    return { type: 'gongfa_continue', id: 'cont1' };
+  }
+  function repeatBlock(count: number, body: SerializedBlock): SerializedBlock {
+    return {
+      type: 'gongfa_repeat',
+      id: 'rep1',
+      fields: { NUM: count },
+      inputs: { DO: { block: body } },
+    };
+  }
+  function whileBlock(cond: SerializedBlock, body: SerializedBlock): SerializedBlock {
+    return {
+      type: 'gongfa_while',
+      id: 'whl1',
+      inputs: { CONDITION: { block: cond }, DO: { block: body } },
+    };
+  }
+  function compareBlock(left: string, op: string, threshold: number): SerializedBlock {
+    return {
+      type: 'gongfa_compare',
+      id: 'cmp1',
+      fields: { LEFT: left, OP: op, THRESHOLD: threshold },
+    };
+  }
+  function hatWith(body: SerializedBlock): WorkspaceJson {
+    return {
+      blocks: {
+        languageVersion: 0,
+        blocks: [{ type: 'tick_hat', id: 'hat', inputs: { BODY: { block: body } } }],
+      },
+    };
+  }
+
+  it('repeat 内 break → BREAK op', () => {
+    const result = compileWorkspace(hatWith(repeatBlock(3, breakBlock())));
+    expect(result.ok).toBe(true);
+    const code = result.program!.code;
+    // LOOP_BEGIN, BREAK, LOOP_END, HALT
+    expect(code).toEqual([
+      { op: 'LOOP_BEGIN', end: 2, count: 3 },
+      { op: 'BREAK' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ]);
+  });
+
+  it('repeat 内 continue → JMP{LOOP_END pc}', () => {
+    const result = compileWorkspace(hatWith(repeatBlock(3, continueBlock())));
+    expect(result.ok).toBe(true);
+    const code = result.program!.code;
+    // LOOP_BEGIN@0, JMP{target:2}@1, LOOP_END@2, HALT@3
+    expect(code).toEqual([
+      { op: 'LOOP_BEGIN', end: 2, count: 3 },
+      { op: 'JMP', target: 2 },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ]);
+  });
+
+  it('while 基础编译：条件 + 体 + WHILE_END + WHILE_EXIT', () => {
+    const body = breath();
+    const cond = compareBlock('demon', '>', 0.5);
+    const result = compileWorkspace(hatWith(whileBlock(cond, body)));
+    expect(result.ok).toBe(true);
+    const code = result.program!.code;
+    // WHILE_BEGIN@0, LOAD@1, PUSH@2, CMP@3, JMP_IF_FALSE@4→8, ACTION@5, WHILE_END@6{begin:0}, WHILE_EXIT@7, HALT@8
+    expect(code.length).toBe(9);
+    expect(code[0]).toEqual({ op: 'WHILE_BEGIN' });
+    expect(code[1]).toEqual({ op: 'LOAD', key: 'demon' });
+    expect(code[2]).toEqual({ op: 'PUSH', value: 0.5 });
+    expect(code[3]).toEqual({ op: 'CMP', arg: '>' });
+    expect(code[4]).toEqual({ op: 'JMP_IF_FALSE', target: 7 });
+    expect(code[5]).toEqual({ op: 'ACTION', actionId: 'breath' });
+    expect(code[6]).toEqual({ op: 'WHILE_END', begin: 1 });
+    expect(code[7]).toEqual({ op: 'WHILE_EXIT' });
+    expect(code[8]).toEqual({ op: 'HALT' });
+  });
+
+  it('while 内 break → BREAK op', () => {
+    const cond = compareBlock('qi', '>', 0);
+    const result = compileWorkspace(hatWith(whileBlock(cond, breakBlock())));
+    expect(result.ok).toBe(true);
+    const code = result.program!.code;
+    // WHILE_BEGIN, LOAD, PUSH, CMP, JMP_IF_FALSE→6, BREAK, WHILE_END, WHILE_EXIT, HALT
+    expect(code[5]).toEqual({ op: 'BREAK' });
+  });
+
+  it('while 内 continue → JMP{WHILE_END pc}', () => {
+    const cond = compareBlock('qi', '>', 0);
+    const result = compileWorkspace(hatWith(whileBlock(cond, continueBlock())));
+    expect(result.ok).toBe(true);
+    const code = result.program!.code;
+    // WHILE_BEGIN@0, LOAD@1, PUSH@2, CMP@3, JMP_IF_FALSE@4→6, JMP@5→6(WHILE_END), WHILE_END@6, WHILE_EXIT@7, HALT@8
+    expect(code[5]).toEqual({ op: 'JMP', target: 6 });
+  });
+
+  it('break 不在循环内 → 编译错误', () => {
+    const result = compileWorkspace(hatWith(breakBlock()));
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('中断');
+    expect(result.errors.join(' ')).toContain('循环');
+  });
+
+  it('continue 不在循环内 → 编译错误', () => {
+    const result = compileWorkspace(hatWith(continueBlock()));
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('继续');
+    expect(result.errors.join(' ')).toContain('循环');
+  });
+
+  it('while 缺条件 → 编译错误', () => {
+    const result = compileWorkspace(hatWith({
+      type: 'gongfa_while',
+      id: 'whl',
+      inputs: { DO: { block: breath() } },
+    }));
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('条件');
+  });
+
+  it('while 空体 → 编译错误', () => {
+    const cond = compareBlock('qi', '>', 0);
+    const result = compileWorkspace(hatWith({
+      type: 'gongfa_while',
+      id: 'whl',
+      inputs: { CONDITION: { block: cond } },
+    }));
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('循环体');
+  });
+
+  it('嵌套 repeat 里 break 只跳内层', () => {
+    // repeat(2) { repeat(3) { break }; breath }
+    const inner = repeatBlock(3, breakBlock());
+    const outerWithBreath: SerializedBlock = {
+      type: 'gongfa_repeat',
+      id: 'rep2',
+      fields: { NUM: 2 },
+      inputs: { DO: { block: { ...inner, next: { block: breath('b2') } } } },
+    };
+    // 简化：直接测外层 repeat 里放 inner repeat + breath
+    const result = compileWorkspace(hatWith(outerWithBreath));
+    expect(result.ok).toBe(true);
+    const code = result.program!.code;
+    // 确认 BREAK 在内层循环区间里（pc < 内层 LOOP_END）
+    const breakIdx = code.findIndex((op) => op.op === 'BREAK');
+    expect(breakIdx).toBeGreaterThan(0);
+    // 内层 LOOP_END 的 begin 应该指向内层 LOOP_BEGIN
+    const innerLoopEnd = code.find((op) => op.op === 'LOOP_END' && op.begin !== 0);
+    expect(innerLoopEnd).toBeDefined();
+    expect(breakIdx).toBeLessThan(code.indexOf(innerLoopEnd!));
   });
 });

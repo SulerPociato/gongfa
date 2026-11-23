@@ -43,6 +43,19 @@ interface Emitter {
   readonly errors: string[];
   readonly warnings: string[];
   blocks: number;
+  // 循环上下文栈：break/continue 编译时查栈顶，决定 JMP 目标。repeat 和 while 都压帧。
+  loopStack: LoopCtx[];
+}
+
+interface LoopCtx {
+  kind: 'repeat' | 'while';
+  // continue 的 JMP 目标：repeat → LOOP_BEGIN pc（编译期已知）；while → WHILE_END pc（需回填）。
+  continueTarget: number;
+  // while 循环里 continue 的 JMP 占位下标，WHILE_END 发射后统一回填。
+  continuePatchSlots: number[];
+  // 循环出口参照：repeat → LOOP_END pc；while → WHILE_EXIT pc。break 用 BREAK op（VM 弹帧跳 exit+1），
+  // 这里只存参照地址供编译器校验，实际 BREAK 指令不带 target。
+  exitRef: number;
 }
 
 export function compileWorkspace(json: WorkspaceJson): CompileResult {
@@ -60,7 +73,7 @@ export function compileWorkspace(json: WorkspaceJson): CompileResult {
 
   const code: Op[] = [];
   if (hats.length === 1) {
-    const emitter: Emitter = { code, errors, warnings, blocks: 0 };
+    const emitter: Emitter = { code, errors, warnings, blocks: 0, loopStack: [] };
     emitSequence(emitter, hats[0]?.inputs?.BODY?.block);
   }
   code.push({ op: 'HALT' });
@@ -115,6 +128,15 @@ function emitControl(emitter: Emitter, block: SerializedBlock): void {
       return;
     case 'gongfa_repeat':
       emitRepeat(emitter, block);
+      return;
+    case 'gongfa_while':
+      emitWhile(emitter, block);
+      return;
+    case 'gongfa_break':
+      emitBreak(emitter);
+      return;
+    case 'gongfa_continue':
+      emitContinue(emitter);
       return;
     default:
       emitter.errors.push(`控件「${label(block.type)}」没有编译规则`);
@@ -193,10 +215,88 @@ function emitRepeat(emitter: Emitter, block: SerializedBlock): void {
   }
   const begin = emitter.code.length;
   emitter.code.push({ op: 'LOOP_BEGIN', end: -1, count });
+  // 压循环上下文：continue → JMP{LOOP_END pc}（跳过剩余 body，让 LOOP_END 处理回跳/退出）
+  // continueTarget 先占位 -1，LOOP_END 发射后再回填。
+  emitter.loopStack.push({ kind: 'repeat', continueTarget: -1, continuePatchSlots: [], exitRef: -1 });
   emitSequence(emitter, body);
   const end = emitter.code.length;
   emitter.code.push({ op: 'LOOP_END', begin });
   emitter.code[begin] = { op: 'LOOP_BEGIN', end, count };
+  // 回填 continue JMP 的目标（LOOP_END 的 pc）
+  const ctx = emitter.loopStack.pop();
+  if (ctx !== undefined) {
+    ctx.continueTarget = end;
+    ctx.exitRef = end;
+    for (const slot of ctx.continuePatchSlots) {
+      emitter.code[slot] = { op: 'JMP', target: end };
+    }
+  }
+}
+
+// 批次 5：重复直到（while）。条件在循环顶部求值，WHILE_BEGIN/END/EXIT 三 op 结构。
+// 语义：当 CONDITION 为真时执行 DO，为假时跳出。和 Blockly 的 "repeat until" 相反——
+// 那里是"直到条件为真才停"，这里是"条件为真才继续"。名字沿用用户习惯的"重复直到"。
+function emitWhile(emitter: Emitter, block: SerializedBlock): void {
+  const cond = block.inputs?.CONDITION?.block;
+  if (cond === undefined) {
+    emitter.errors.push('「重复直到」缺少条件：请把「比较」积木接进条件位');
+    return;
+  }
+  const body = block.inputs?.DO?.block;
+  if (body === undefined) {
+    emitter.errors.push('「重复直到」的循环体为空');
+    return;
+  }
+  const beginPc = emitter.code.length;
+  emitter.code.push({ op: 'WHILE_BEGIN' });
+  // 条件求值：条件为真时继续（JMP_IF_FALSE 不跳），为假时跳出（跳到 WHILE_EXIT）
+  emitCondition(emitter, cond);
+  const jumpToExit = emitter.code.length;
+  emitter.code.push({ op: 'JMP_IF_FALSE', target: -1 });
+  // 压循环上下文：continue → JMP{whileEndPc}（稍后回填）；break → BREAK op
+  emitter.loopStack.push({ kind: 'while', continueTarget: -1, continuePatchSlots: [], exitRef: -1 });
+  emitSequence(emitter, body);
+  const whileEndPc = emitter.code.length;
+  // WHILE_END.begin = WHILE_BEGIN + 1（verifier 要求 begin 指向条件首条指令，VM 跳到这里重判条件）
+  emitter.code.push({ op: 'WHILE_END', begin: beginPc + 1 });
+  // 回填所有 continue JMP 的目标
+  const ctx = emitter.loopStack.pop();
+  if (ctx !== undefined) {
+    for (const slot of ctx.continuePatchSlots) {
+      emitter.code[slot] = { op: 'JMP', target: whileEndPc };
+    }
+    ctx.exitRef = whileEndPc + 2; // WHILE_EXIT 在 WHILE_END+1
+  }
+  const exitPc = emitter.code.length;
+  emitter.code.push({ op: 'WHILE_EXIT' });
+  // 回填 JMP_IF_FALSE 目标
+  emitter.code[jumpToExit] = { op: 'JMP_IF_FALSE', target: exitPc };
+  if (ctx !== undefined) ctx.exitRef = exitPc;
+}
+
+// BREAK：编译为 BREAK op（不是 JMP）。VM 执行时弹最内层帧并跳到循环出口之后。
+// 不在循环内时 emitter.loopStack 为空，报错。
+function emitBreak(emitter: Emitter): void {
+  if (emitter.loopStack.length === 0) {
+    emitter.errors.push('「中断」必须在循环内使用');
+    return;
+  }
+  emitter.code.push({ op: 'BREAK' });
+}
+
+// CONTINUE：编译为 JMP 到 continueTarget。repeat → LOOP_END pc（需回填）；
+// while → WHILE_END pc（需回填）。两种都要先占位再记录 slot。
+function emitContinue(emitter: Emitter): void {
+  if (emitter.loopStack.length === 0) {
+    emitter.errors.push('「继续」必须在循环内使用');
+    return;
+  }
+  const ctx = emitter.loopStack[emitter.loopStack.length - 1];
+  if (ctx === undefined) return;
+  // repeat 和 while 都需要回填：continueTarget 在循环体发射完后才知道
+  const slot = emitter.code.length;
+  emitter.code.push({ op: 'JMP', target: -1 }); // 占位
+  ctx.continuePatchSlots.push(slot);
 }
 
 // Blockly 的 field_number 在 JSON 里是 number，手写产物可能是 string，空串一律当缺字段。

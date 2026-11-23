@@ -789,7 +789,7 @@ describe('BREAK op（批次 5 补充）', () => {
       { op: 'JMP_IF_FALSE', target: 5 }, // 2
       BREATH, // 3
       { op: 'BREAK' }, // 4: 弹帧，跳到 WHILE_EXIT(6)+1=7
-      { op: 'WHILE_END', begin: 0 }, // 5
+      { op: 'WHILE_END', begin: 1 }, // 5: begin = WHILE_BEGIN pc + 1 = 1
       { op: 'WHILE_EXIT' }, // 6
       HALT, // 7
     ];
