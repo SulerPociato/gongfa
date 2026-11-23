@@ -28,6 +28,7 @@ import { lockedCount, MIN_REALM, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialPlayStep, type TutorialStep } from './game/tutorial';
 import { readFound, writeFound } from './game/found';
 import { readUnlocked, writeUnlocked } from './game/unlocked';
+import { Modal, type ModalRequest } from './game/Modal';
 import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
@@ -340,6 +341,8 @@ export function App() {
   // 走火入魔的整屏红闪：0.6 秒一次，不遮操作（pointer-events:none）。
   const [backlashFlash, setBacklashFlash] = useState(false);
   const backlashFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 批次 6：应用内确认弹窗（替代 window.confirm）。null = 没有弹窗。
+  const [modal, setModal] = useState<ModalRequest | null>(null);
   // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
   // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
   // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
@@ -681,15 +684,28 @@ export function App() {
       }
       if (event.t === 'load') {
         const target = bookById(BOOK_CATALOGUE, STARTER_BOOK_ID);
+        // 真正的装载动作：FROZEN 分支要等弹窗确认后才执行，所以抽成闭包。
+        const applyLoad = (): void => {
+          if (target.book === null) {
+            pushActionErrors(target.errors);
+            return;
+          }
+          game = { ...game, equippedBook: target.book.id, ownedBooks: [...new Set([...game.ownedBooks, target.book.id])] };
+          reloadCanvas(target.book.workspace);
+          pushNotice(`已用《${target.book.name.zh}》覆盖当前程序`);
+        };
         // O2：IDLE / LOADED / DIRTY 直接覆盖 + 灰字；FROZEN 的个人程序不在任何一本书里，覆盖前先问一句
-        if (bookPhase === 'FROZEN' && !window.confirm('将覆盖你已固化的个人功法，且无法恢复，确定？')) return;
-        if (target.book === null) {
-          pushActionErrors(target.errors);
+        if (bookPhase === 'FROZEN') {
+          setModal({
+            title: '覆盖已固化的个人功法？',
+            body: '装载功法书会覆盖你当前固化的个人功法，且无法恢复。',
+            confirmText: '覆盖',
+            danger: true,
+            onConfirm: applyLoad,
+          });
           return;
         }
-        game = { ...game, equippedBook: target.book.id, ownedBooks: [...new Set([...game.ownedBooks, target.book.id])] };
-        reloadCanvas(target.book.workspace);
-        pushNotice(`已用《${target.book.name.zh}》覆盖当前程序`);
+        applyLoad();
         return;
       }
       if (event.t === 'discard') {
@@ -1086,9 +1102,16 @@ export function App() {
         return;
       }
       if (event.key !== 'r' && event.key !== 'R') return;
-      if (!window.confirm('演示重置：清空本机全部修仙存档并回到新档？\n灵力、境界、心魔、功法书、道具、引导记录都会没。')) return;
-      requestDemoReset(demoFlags);
-      window.location.reload();
+      setModal({
+        title: '演示重置',
+        body: '清空本机全部修仙存档并回到新档？灵力、境界、心魔、功法书、道具、引导记录都会没。',
+        confirmText: '清空并重开',
+        danger: true,
+        onConfirm: () => {
+          requestDemoReset(demoFlags);
+          window.location.reload();
+        },
+      });
     };
     window.addEventListener('keydown', onDemoKey);
 
@@ -1336,11 +1359,18 @@ export function App() {
   // 清档走 resetAllSaves 的死顺序：先断写入 → 再清键 → 再 reload。
   // 少第一步的话，reload 触发的 pagehide 会带着内存里的旧状态再 flush 一次，玩家看到的是「重置没生效」。
   const handleResetSave = (): void => {
-    if (!window.confirm(RESET_CONFIRM_TEXT)) return;
-    resetAllSaves({
-      storage: createLocalStorageSaveStorage(),
-      blockWrites: blockLocalStorageWrites,
-      reload: () => window.location.reload(),
+    setModal({
+      title: '重置存档',
+      body: RESET_CONFIRM_TEXT,
+      confirmText: '清空并重开',
+      danger: true,
+      onConfirm: () => {
+        resetAllSaves({
+          storage: createLocalStorageSaveStorage(),
+          blockWrites: blockLocalStorageWrites,
+          reload: () => window.location.reload(),
+        });
+      },
     });
   };
 
@@ -1369,6 +1399,8 @@ export function App() {
         <QiParticles rate={hud.rate} />
         {/* 走火入魔的整屏红闪：只闪 0.6 秒，pointer-events:none 不挡操作。 */}
         {backlashFlash && <div className="backlash-flash" aria-hidden="true" />}
+        {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
+        {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
       <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。

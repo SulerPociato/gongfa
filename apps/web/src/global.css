@@ -1832,6 +1832,94 @@ body::before {
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* 批次 6：应用内确认弹窗（替代 window.confirm）。原生弹窗会阻塞 JS、
+   样式不可控，而且在录屏里一眼是半成品。 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(7, 11, 16, 0.66);
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  width: min(420px, 100%);
+  padding: 20px;
+  background: var(--glass, rgba(28, 34, 40, 0.92));
+  border: 1px solid rgba(53, 224, 200, 0.28);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.modal.is-danger {
+  border-color: rgba(224, 75, 58, 0.55);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: var(--spirit);
+}
+
+.modal.is-danger .modal-title {
+  color: #ff8a77;
+}
+
+.modal-body {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: pre-line;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-cancel,
+.modal-confirm {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.modal-cancel {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.modal-cancel:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.modal-confirm {
+  background: var(--spirit);
+  color: #06231f;
+  font-weight: 700;
+}
+
+.modal.is-danger .modal-confirm {
+  background: var(--danger);
+  color: #fff;
+}
+
+.modal-confirm:focus-visible,
+.modal-cancel:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
 /* 批次 5：步数经济学。本 tick 用了多少步、每步换多少灵力。 */
 .steps {
   margin: 4px 0 0;
