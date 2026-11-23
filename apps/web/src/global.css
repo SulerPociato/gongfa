@@ -1920,6 +1920,11 @@ body::before {
   color: rgba(255, 255, 255, 0.62);
 }
 
+.trace-note {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.38);
+}
+
 /* 批次 11：炼器炉（P1 纵切）。放在滚动区，不抢首屏；按钮是唯一入口。 */
 .furnace {
   display: flex;

@@ -477,6 +477,7 @@ function TracePanel({ samples }: { readonly samples: readonly TraceSample[] }) {
       </svg>
       <p className="trace-line">峰值 {maxRate.toFixed(1)} / 秒 · 平均步数 {avgSteps} · 心魔峰值 {(maxDemon * 100).toFixed(0)}%</p>
       <p className="trace-line">当前 {last.rate.toFixed(1)} / 秒 · {last.realmName} · 第 {last.tick} tick</p>
+      <p className="trace-line trace-note">内存态：刷新清空</p>
     </section>
   );
 }
@@ -705,7 +706,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           <button className="furnace-button" type="button" onClick={onOptimize}>
             分析当前功法
           </button>
-          <p className="furnace-hint">找连续 3 块以上的相同动作，建议改成循环</p>
+          <p className="furnace-hint">找连续 3 块以上的相同动作，建议改成循环（省指令，但多花步数）</p>
         </section>
         {/* 批次 7：道途。筑基后第一次出现，选中即消失（一次定终身）。
             两条路都是"全产出"倍率；入魔的代价加在心魔基础增速上，调息压不住它。 */}

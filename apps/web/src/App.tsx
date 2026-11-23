@@ -1671,7 +1671,14 @@ export function App() {
               <p><b>本 tick N / 200 步</b>：这一 tick 执行了多少条指令。撞满会变红，说明程序被预算截断。</p>
               <p><b>效率 X 灵力/步</b>：本 tick 产出 ÷ 步数。两个程序每秒产出一样时，效率高的那个更抗预算。</p>
               <p><b>产出曲线</b>：青线是灵力累计、红线是心魔；虚线是突破阈值。红线撞到 1.0 就是走火入魔。</p>
-              <p><b>试炼</b>：60 秒窗口内的产出与步数，达成目标可把本境蓄势减半。</p>
+              <p><b>试炼</b>：60 秒窗口内的产出与步数，达成目标可把本境蓄势减半；「本境最好」是历史最高效率。</p>
+              <p><b>观测（Trace）</b>：最近 60 秒每秒一条：峰值/平均步数/心魔峰值 + 当前值。它只存在内存里，刷新就清空——它是"刚才发生了什么"，不是进度。</p>
+            </details>
+            <details className="codex-section">
+              <summary>炼器炉为什么不是免费优化</summary>
+              <p>它把「连续 N 块相同动作」折叠成「循环 N 次」：<b>IR 指令变少</b>（代码短了），但<b>每 tick 步数变多</b>（循环每次迭代都要执行 LOOP_BEGIN/LOOP_END）。</p>
+              <p>如果折叠的是<b>吐纳</b>，心魔增速还会 ×1.5：循环把动作深度从 0 提到 1，而心魔增长按「1 + 0.5 × 深度」算。</p>
+              <p>调息折叠是真等价（调息不涨心魔）。所以炼器炉只给数字，点不点由你决定。</p>
             </details>
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
