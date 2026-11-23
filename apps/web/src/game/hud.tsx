@@ -192,6 +192,8 @@ export interface HudModel {
   readonly demo: boolean;
   /** 批次 7：下一步提示（一句话，由宿主用 nextStepOf 算好）。空串 = 不显示。 */
   readonly nextStep: string;
+  /** 批次 7：道途（null = 还没选）。选过之后这张卡消失。 */
+  readonly dao: 'orthodox' | 'heretic' | null;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -594,7 +596,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -639,6 +641,21 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           曲线必须在这里：它一进固定区，固定区就吃掉整列高度（实测 858px），
           滚动区 clientHeight 变 0 —— 红字和道具面板一起消失，比"曲线看不见"更糟。 */}
       <div className="hud-scroll">
+        {/* 批次 7：道途。筑基后第一次出现，选中即消失（一次定终身）。
+            两条路都是"全产出"倍率；入魔的代价加在心魔基础增速上，调息压不住它。 */}
+        {model.dao === null && model.realm.name !== '炼气' && (
+          <section className="dao-card">
+            <p className="label">选择道途（一次定终身）</p>
+            <button className="dao-option" type="button" onClick={() => onChooseDao('orthodox')}>
+              <span className="dao-name">守正</span>
+              <span className="dao-effect">全产出 +8%，心魔照旧</span>
+            </button>
+            <button className="dao-option is-heretic" type="button" onClick={() => onChooseDao('heretic')}>
+              <span className="dao-name">入魔</span>
+              <span className="dao-effect">全产出 +20%，但心魔基础增速 +40%</span>
+            </button>
+          </section>
+        )}
         <CurvePanel model={model.curve} />
         <BookArtifactPanel
           bookModel={model.book}

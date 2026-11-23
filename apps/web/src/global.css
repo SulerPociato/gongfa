@@ -1974,6 +1974,53 @@ body::before {
   outline-offset: 2px;
 }
 
+/* 批次 7：道途选择卡。两条路必须并排、代价写在同一行，玩家才会真比较。 */
+.dao-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(232, 201, 120, 0.35);
+  border-radius: 12px;
+  background: rgba(232, 201, 120, 0.06);
+}
+
+.dao-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  color: var(--spirit);
+  background: rgba(53, 224, 200, 0.08);
+  border: 1px solid rgba(53, 224, 200, 0.35);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.dao-option.is-heretic {
+  color: #ff9a86;
+  background: rgba(224, 75, 58, 0.1);
+  border-color: rgba(224, 75, 58, 0.45);
+}
+
+.dao-option:hover {
+  filter: brightness(1.15);
+}
+
+.dao-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.dao-effect {
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
 /* 批次 7：下一步提示。放在灵力卡里（不是独立卡片），所以只做一行、金色、无边框，
    避免把固定区撑高、把曲线挤出首屏。 */
 .next-step {

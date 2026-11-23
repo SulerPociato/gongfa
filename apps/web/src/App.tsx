@@ -31,6 +31,7 @@ import { readUnlocked, writeUnlocked } from './game/unlocked';
 import { Modal, type ModalRequest } from './game/Modal';
 import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
 import { nextStepOf } from './game/nextStep';
+import { readDao, writeDao } from './game/dao';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -237,7 +238,7 @@ function momentToastText(id: string): string {
   return moment ?? getUnlockToastText(id);
 }
 
-function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep'>): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -264,6 +265,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     tutorial: extra.tutorial,
     demo: state.demo,
     nextStep: extra.nextStep,
+    dao: extra.dao,
   };
 }
 
@@ -336,6 +338,9 @@ export function App() {
   if (runtimeRef.current === null) {
     runtimeRef.current = createRuntime({
       seed: urlSeed() ?? randomSeed(),
+      // 道途是元进度（gongfa:dao:<slot>），开局读一次交给 runtime：
+      // 产出倍率在 run() 里现读，心魔基数在 sink 构造时固定。
+      dao: readDao(createLocalStorageSaveStorage()),
       markDirty: () => saveRef.current?.markDirty(),
       allowBreakthrough: () => readSettings(createLocalStorageSaveStorage()).settings.offlineBreakthrough,
       onOfflineReport: (result) => {
@@ -347,7 +352,7 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '' }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 引导气泡（需求变更 2026-11-21）：贴得上目标 → 底部条降级成「n/6 · 跳过引导」；贴不上 → 底部条说完整文案。
@@ -1306,6 +1311,7 @@ export function App() {
         // 批次 7：下一步提示。cache 是宿主才知道的"有没有可执行程序"，
         // runtime 分不清"空画布"与"编译失败保留 lastGood"，所以这里传进去。
         nextStep: nextStepOf({ state, hasProgram: cache.length > 0 }),
+        dao: state.dao,
       }));
     });
     loop.start();
@@ -1397,8 +1403,17 @@ export function App() {
 
   // 清档走 resetAllSaves 的死顺序：先断写入 → 再清键 → 再 reload。
   // 少第一步的话，reload 触发的 pagehide 会带着内存里的旧状态再 flush 一次，玩家看到的是「重置没生效」。
-  const handleResetSave = (): void => {
-    setModal({
+  // 道途（批次 7）：选中即写元进度（gongfa:dao:<slot>），并让 runtime 立刻重建 sink
+  // （邪修的代价在 demonBase 上，sink 构造时固定，不重建就要等下一次读档才生效）。
+  const handleChooseDao = (path: 'orthodox' | 'heretic'): void => {
+    const rt = runtimeRef.current;
+    if (rt === null) return;
+    const storage = createLocalStorageSaveStorage();
+    rt.setDao(path);
+    writeDao(storage, path);
+  };
+
+  const handleResetSave = (): void => {    setModal({
       title: '重置存档',
       body: RESET_CONFIRM_TEXT,
       confirmText: '清空并重开',
@@ -1441,7 +1456,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} />
+      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (

@@ -34,6 +34,7 @@ import {
   TICK_MS,
   TICKS_PER_SEC,
   Vm,
+  DEMON_BASE_PER_ACTION,
   type ActionRequest,
   type ArtifactEquipment,
   type BookDef,
@@ -140,6 +141,8 @@ export interface RuntimeState {
   readonly sprintWindowMs: number;
   /** 本境界是否已拿到「蓄势减半」：换境界后回到 false（§7.1.1 只生效一次、不可叠加）。 */
   readonly sprintReached: boolean;
+  /** 批次 7：当前道途（null = 还没选）。元进度，不入档。 */
+  readonly dao: DaoPath | null;
   /** 同一 60 秒窗口内累计执行的指令数（批次 6：试炼评分）。0 = 没有程序在跑。 */
   readonly sprintSteps: number;
   /** 窗口内「每步换多少灵力」= sprintProgressQi / sprintSteps；0 步时为 0。 */
@@ -160,7 +163,8 @@ export interface RuntimeState {
 type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
   | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
-  | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi';
+  | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi'
+  | 'dao';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -216,6 +220,11 @@ export interface Runtime {
    * 或表里根本没有元婴那一行），不静默退回首境。
    */
   jumpToDemoTarget(): DemoJumpResult | null;
+  /**
+   * 选道途（批次 7）。一次定终身：重复调用只会覆盖当前会话，宿主负责只让玩家选一次。
+   * 会重建 sink —— 邪修的代价是 demonBase，而 sink 在构造时就把 demonBase 固定了。
+   */
+  setDao(path: DaoPath): void;
   /**
    * 离线结算入口（任务 7B，契约 §7.2）：快进指定时长的 tick，按 0.6 折算入账，
    * 期间心魔不涨、杂念不砍、走火不罚。返回结算结果（null = 没跑，例如 0 tick）。
@@ -277,7 +286,15 @@ export function urlSeed(): number | null {
   return Number.isInteger(value) && value >= 0 ? value >>> 0 : null;
 }
 
+export type DaoPath = 'orthodox' | 'heretic';
+
 export interface RuntimeDeps {
+  /**
+   * 道途（批次 7）：元进度，不进 GameState（不入档）。
+   * null = 还没选；'orthodox' 守正 = 全产出 +8%；'heretic' 入魔 = 全产出 +20%、心魔基础增速 +40%。
+   * 代价刻意放在 demonBase 上而不是 demonMult：后者会把调息的减量一起放大。
+   */
+  readonly dao?: DaoPath | null;
   /**
    * 这一局的随机种子。新档由宿主掷一次 crypto，同时喂给 createRuntime 与 newGameState ——
    * 两边必须同一个值，否则落盘的 state.seed 描述的不是眼前跑的随机流
@@ -335,6 +352,12 @@ const EVENT_LOG_MAX = 64;
 
 export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock): Runtime {
   const state: MutableState = { ...DEFAULTS, demon: seedDemon(), seed: deps.seed ?? urlSeed() ?? 0, stall: null, stepsThisTick: 0 };
+
+  // 道途（批次 7）：只影响两处 —— 全产出倍率、心魔基础增速。
+  // dao 变化必须重建 sink：demonBase 在 makeActionSink 构造时就固定了。
+  let dao: DaoPath | null = deps.dao ?? null;
+  const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.2 : 1);
+  const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 1.4 : 1);
   const noiseTicks: number[] = [];
   const backlashTicks: number[] = [];
   const noteTick = (list: number[], tick: number): void => {
@@ -429,6 +452,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       sprintProgressQi: sprint.total(),
       sprintWindowMs: SPRINT_WINDOW_MS,
       sprintReached: sprintReachedRealm === realmIndex,
+      dao,
       // 试炼效率（批次 6）：同窗口内用了多少步、每步换多少灵力。
       // steps 为 0 时效率给 0，HUD 那边用「有没有程序在跑」来决定显不显示，不在这里造 NaN。
       sprintSteps: sprintStepSum,
@@ -442,7 +466,15 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 卸下或固化时传 null 就得到完全中性的 1 / []，不可能只剩一半。
   // 玉简（§2.4）挤在同一个 sink 里：命中折扣与命中步数都来自 currentJadeCache，null = 两样都不生效。
   const resetSink = (): void => {
-    sink = makeActionSink({ content, realmIndex, jadeCache: currentJadeCache, ...bookSettleDeps(currentBook, state.realm) });
+    sink = makeActionSink({
+      content,
+      realmIndex,
+      jadeCache: currentJadeCache,
+      // 道途（批次 7）：邪修的代价只加在「心魔基础增速」上，所以走 demonBase，
+      // 不走 demonMult —— demonMult 会把调息的减量一起放大，等于惩罚变奖励。
+      demonBase: demonBaseOf(dao),
+      ...bookSettleDeps(currentBook, state.realm),
+    });
     state.bookId = currentBook?.id ?? null;
     state.bookDecay = sink.mults.bookDecay;
     state.rateMult = sink.mults.rateMult;
@@ -612,7 +644,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 杂念只砍程序产出 result.gain（D2）：契约 §2.3 把境界被动列为独立加法项，不参与这一刀。
       const mult = noiseGainMult({ demon: state.demon, seed: state.seed, tick: result.tick });
       if (mult < 1) noteTick(noiseTicks, result.tick);
-      const gained = result.gain * mult + passivePerTick(currentRealm());
+      const gained = (result.gain * mult + passivePerTick(currentRealm())) * daoRate(dao);
       state.qi += gained;
       state.rate = gained * TICKS_PER_SEC;
       state.ticks += 1;
@@ -831,6 +863,13 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       return { ...target, threshold: currentRealm().threshold };
     },
     settleOffline: settleOfflineMethod,
+    setDao: (path: DaoPath) => {
+      if (dao === path) return;
+      dao = path;
+      // 产出倍率在 run() 里现读，心魔基数在 sink 里固定：两者都要立刻生效，所以重建 sink。
+      resetSink();
+      markDirty();
+    },
     preview: (program) => program === null
       ? null
       : previewCurve({ content, realmIndex, code: program.code, budget: vm.budget }),
