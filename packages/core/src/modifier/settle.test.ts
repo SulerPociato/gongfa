@@ -67,8 +67,8 @@ describe('makeActionSink（契约 §2.1 / §2.2）', () => {
     const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
     // breath 表里 demonDelta=0，增长 0.00005×(1+0.5×0)
     expect(sink.execute(req('breath', 1)).demonDelta).toBeCloseTo(0.00005, 12);
-    // calm 表里 -0.0005，kind≠gain 不增长
-    expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo(-0.0005, 12);
+    // calm 表里 -0.0005，kind≠gain 不增长。批次 5：k=2 时边际递减 -0.0005/1.6
+    expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo(-0.0005 / 1.6, 12);
     expect(() => sink.execute(req('herb', 1))).toThrow(RangeError);
   });
 
@@ -80,10 +80,41 @@ describe('makeActionSink（契约 §2.1 / §2.2）', () => {
     expect(at(2)).toBeCloseTo(0.0001, 12);
   });
 
-  it('调息在任何深度都不增长，只保留表里的 -0.0005', () => {
+  it('调息在任何深度都不增长，只保留表里的 -0.0005（k=1 时）', () => {
     const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    // k=1 时不递减，任何深度都是 -0.0005
     expect(sink.execute(req('calm', 1, 3)).demonDelta).toBeCloseTo(-0.0005, 12);
-    expect(sink.execute(req('calm', 2, 8)).demonDelta).toBeCloseTo(-0.0005, 12);
+    // k=2 时边际递减：-0.0005 / 1.6，与深度无关
+    expect(sink.execute(req('calm', 2, 8)).demonDelta).toBeCloseTo(-0.0005 / 1.6, 12);
+  });
+
+  // 批次 5：调息边际递减——同一 tick 内第 k 次调息效果 = -0.0005 / (1 + 0.6 × (k-1))。
+  it('调息边际递减：k=1 不递减，k=2 效果减半，k=3 继续递减', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    // k=1: -0.0005 / (1 + 0.6 × 0) = -0.0005
+    expect(sink.execute(req('calm', 1)).demonDelta).toBeCloseTo(-0.0005, 12);
+    // k=2: -0.0005 / (1 + 0.6 × 1) = -0.0005 / 1.6 = -0.0003125
+    expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo(-0.0005 / 1.6, 12);
+    // k=3: -0.0005 / (1 + 0.6 × 2) = -0.0005 / 2.2 ≈ -0.000227272...
+    expect(sink.execute(req('calm', 3)).demonDelta).toBeCloseTo(-0.0005 / 2.2, 12);
+  });
+
+  it('调息边际递减与 demonMult 同链：×0.95 作用在递减后的值上', () => {
+    const sink = makeActionSink({
+      content: CONTENT,
+      realmIndex: 0,
+      modifiers: [{ id: 'test_demon', target: 'demonRate', kind: 'mul', value: 0.95 }],
+    });
+    // k=2 递减后 -0.0003125，再 ×0.95
+    expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo((-0.0005 / 1.6) * 0.95, 12);
+  });
+
+  it('调息边际递减只在 kind=calm 生效，不影响其他动作', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    // breath 的 demonDelta 不受递减影响（kind='gain'，走增长公式，与 k 无关）
+    const breath1 = sink.execute(req('breath', 1)).demonDelta;
+    const breath2 = sink.execute(req('breath', 2)).demonDelta;
+    expect(breath2).toBe(breath1); // breath 的 demonDelta 与 k 无关
   });
 
   it('demonBase 可注入（任务 10 要跑 0.00004 / 0.00005 两档）', () => {
@@ -115,8 +146,8 @@ describe('功法书结算（契约 §6 + 架构 §4「先加后乘」，任务 5
     const sink = makeActionSink({ content: CONTENT, realmIndex: 0, bookDecay: 0.5, modifiers: [ZHOUTIAN] });
     // breath 表 0 + §2.2.1 增长 0.00005×1.5（loopDepth 1）= 0.000075，再 ×0.95
     expect(sink.execute(req('breath', 1, 1)).demonDelta).toBeCloseTo(0.000075 * 0.95, 12);
-    // calm 表 -0.0005、kind≠gain 不增长：负值同样先加后乘
-    expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo(-0.0005 * 0.95, 12);
+    // calm 表 -0.0005、kind≠gain 不增长：负值同样先加后乘。批次 5：k=2 时边际递减 -0.0005/1.6
+    expect(sink.execute(req('calm', 2)).demonDelta).toBeCloseTo((-0.0005 / 1.6) * 0.95, 12);
     // qi 侧只吃 decay：1 × actionMult(3) × 0.5，书衰减不放大心魔
     expect(sink.execute(req('breath', 3)).qi).toBeCloseTo((1 / 1.5) * 0.5, 12);
   });

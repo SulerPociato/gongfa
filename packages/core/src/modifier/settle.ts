@@ -136,7 +136,13 @@ export function makeActionSink(deps: SettleDeps): SettleSink {
       const qi = def.baseGain * actionMult(request.k) * (hit ? jade.hitGainMultiplier : 1) * realm.actionMult * bookDecay * mods.rateMult;
       // 累加后的 demon 由调用方夹到 0..1；契约 §2.4 明确写了缓存命中不减免心魔：§2.2.1 的增长按「执行」计。
       // 架构 §4 的先加后乘（O1）：心魔乘数作用在「表值 + 增长项」整体之上，负 demonDelta（调息）同样被缩放。
-      const demonDelta = (def.demonDelta + demonGrowth(demonBase, def.kind, request.loopDepth)) * mods.demonMult;
+      // 批次 5：调息边际递减——同一 tick 内第 k 次调息效果 = def.demonDelta / (1 + 0.6 × (k-1))。
+      // 口径与 actionMult 一致（同 tick、同 actionId、跨程序共享），计数由 VM 的 request.k 提供。
+      let baseDemonDelta = def.demonDelta;
+      if (def.kind === 'calm' && request.k > 1) {
+        baseDemonDelta = def.demonDelta / (1 + 0.6 * (request.k - 1));
+      }
+      const demonDelta = (baseDemonDelta + demonGrowth(demonBase, def.kind, request.loopDepth)) * mods.demonMult;
       return hit ? { qi, demonDelta, stepCost: jade.hitStepCost } : { qi, demonDelta };
     },
   };

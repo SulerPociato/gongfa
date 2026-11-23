@@ -2,6 +2,9 @@
 TICK = 0.1
 def am(k): return 1/(1+0.25*(k-1))
 
+# 批次 5：调息边际递减——同一 tick 内第 k 次调息效果 = -0.0005 / (1 + 0.6 × (k-1))
+def calm_delta(k): return -0.0005 / (1 + 0.6 * (k - 1))
+
 def run(demon_base=0.00005, calm=True, cap_ticks=30000):
     plan=[(1,1,0,False),(3,3,5,True),(5,25,30,True),(8,100,150,True)]
     depth=[0,1,1,1]; th=[1e3,1e4,1.2e5,8e5]
@@ -18,7 +21,7 @@ def run(demon_base=0.00005, calm=True, cap_ticks=30000):
                     g=am(k)
                     if jade and aid in seen: g*=0.7
                     gain+=g*rm; demon+=demon_base*(1+0.5*depth[i]); seen.add(aid)
-                else: demon=max(0.0,demon-0.0005)
+                else: demon=max(0.0,demon+calm_delta(k))  # 批次 5：边际递减
             qi+=gain+ps*TICK
             if demon>=1.0: qi*=0.7; demon=0.0; fires+=1
             t+=TICK; n+=1
