@@ -19,6 +19,13 @@ export type Op =
   | { op: 'WHILE_BEGIN' }
   | { op: 'WHILE_END'; begin: number }
   | { op: 'WHILE_EXIT' }
+  /**
+   * 批次 13（P1 沙漏）：批窗口起点。
+   * 语义：付 `steps` 步固定开销，把「同 tick 内同一动作的边际递减计数」清零 ——
+   * 下一次 ACTION 重新从 k=1 算。这是微批处理（micro-batching）的代价模型：
+   * 批越大，摊薄得越划算；批与批之间要重新付启动成本。
+   */
+  | { op: 'BATCH_BEGIN'; steps: number }
   | { op: 'BREAK' }
   | { op: 'HALT' };
 
@@ -40,6 +47,7 @@ export const OP_TAGS: readonly OpTag[] = [
   'WHILE_BEGIN',
   'WHILE_END',
   'WHILE_EXIT',
+  'BATCH_BEGIN',
   'BREAK',
   'HALT',
 ];

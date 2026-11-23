@@ -7,7 +7,7 @@ import algorithmsJson from '../../../../content/algorithms.json';
 // 展开后的 kinds 会把「则分支里的动作」丢掉（profile.ts 的 jmp 一律走 false 路径），
 // 用它判反馈控制等于把整条 then-branch 抹掉，判据就错了。
 
-export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive' | 'nested' | 'switch' | 'guard' | 'prune' | 'batch';
+export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive' | 'nested' | 'switch' | 'guard' | 'prune' | 'batch' | 'microbatch';
 
 /**
  * 谱的分母从这张表来，不写死 4：表里加一行新图案，HUD 的「功法谱 N/4」自动变 N/5，
@@ -62,6 +62,8 @@ export interface ProgramShape {
   readonly loops: readonly LoopRange[];
   readonly branches: readonly BranchRange[];
   readonly equipped: readonly string[];
+  /** 批次 13：程序里有没有「沙漏」批窗口（BATCH_BEGIN）。 */
+  readonly hasBatch: boolean;
 }
 
 export interface LoopRange {
@@ -105,6 +107,7 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
   const loopBodies: Map<number, string[]> = new Map();
   const loopBranches: Map<number, boolean> = new Map();
   const loopBreaks: Map<number, boolean> = new Map();
+  let hasBatch = false;
   const loopRanges: { begin: number; end: number; count: number; depth: number; isWhile: boolean }[] = [];
 
   // WHILE 的「出口在哪」必须提前算：WHILE_BEGIN 自己不携带 exit，
@@ -169,6 +172,10 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
         loopRanges.push({ begin: top.begin, end: index + 1, count: 0, depth: top.depth, isWhile: true });
         break;
       }
+      case 'BATCH_BEGIN': {
+        hasBatch = true;
+        break;
+      }
       case 'BREAK': {
         // BREAK 在最内层循环里 → 标记 hasBreak
         const innermost = loopStack[loopStack.length - 1];
@@ -220,7 +227,7 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
     hasBreak: loopBreaks.get(range.begin) ?? false,
   }));
 
-  return { actions, loops, branches, equipped };
+  return { actions, loops, branches, equipped, hasBatch };
 }
 
 /**
@@ -264,6 +271,7 @@ export function patternsOf(shape: ProgramShape): readonly PatternId[] {
   if (matchesGuard(shape)) hits.push('guard');
   if (matchesPrune(shape)) hits.push('prune');
   if (matchesBatch(shape)) hits.push('batch');
+  if (matchesMicrobatch(shape)) hits.push('microbatch');
   return hits;
 }
 
@@ -372,6 +380,11 @@ function matchesPrune(shape: ProgramShape): boolean {
  * batch：没有控制流、直列 6 块以上动作 = 固定一批事一次做完（批处理/展开）。
  * 它是"反模式"的正面对照：不循环也不判断，代价可预测但没有弹性。
  */
+/** 批次 13：程序里有沙漏批窗口 = 微批处理（micro-batching）：用启动成本换边际递减清零。 */
+function matchesMicrobatch(shape: ProgramShape): boolean {
+  return shape.hasBatch;
+}
+
 function matchesBatch(shape: ProgramShape): boolean {
   return shape.loops.length === 0
     && shape.branches.length === 0

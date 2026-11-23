@@ -1680,6 +1680,12 @@ export function App() {
               <p>如果折叠的是<b>吐纳</b>，心魔增速还会 ×1.5：循环把动作深度从 0 提到 1，而心魔增长按「1 + 0.5 × 深度」算。</p>
               <p>调息折叠是真等价（调息不涨心魔）。所以炼器炉只给数字，点不点由你决定。</p>
             </details>
+            <details className="codex-section">
+              <summary>沙漏为什么要付启动成本</summary>
+              <p>同一 tick 里，第 k 次相同动作只值「1/(1+0.25(k-1))」——越堆越不值钱。</p>
+              <p>「沙漏」把一段动作攒成新的一批：批内重新从第 1 次算，边际递减清零；代价是每批固定 4 步（3 步配置 + 它自己一条指令）。</p>
+              <p>所以批不是越大越好，也不是越小越好：<b>批越大，摊得越薄；批越多，启动费越贵</b>。</p>
+            </details>
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
                 重置存档

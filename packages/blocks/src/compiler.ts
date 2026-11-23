@@ -1,5 +1,5 @@
 import type { Op, Program } from '@gongfa/core/vm';
-import { BLOCK_SPECS } from './definitions';
+import { BATCH_START_COST, BLOCK_SPECS } from './definitions';
 
 // Blockly 序列化 JSON 的结构类型（`Blockly.serialization.workspaces.save` 的输出）。
 // 这里刻意不 import Blockly：packages/blocks 只在类型层依赖 core，Node 侧可测、浏览器无关。
@@ -138,9 +138,27 @@ function emitControl(emitter: Emitter, block: SerializedBlock): void {
     case 'gongfa_continue':
       emitContinue(emitter);
       return;
+    case 'gongfa_batch':
+      emitBatch(emitter, block);
+      return;
     default:
       emitter.errors.push(`控件「${label(block.type)}」没有编译规则`);
   }
+}
+
+/**
+ * 沙漏（批次 13 / P1）：批窗口起点。
+ * 发射 BATCH_BEGIN（付固定步数 + 重置边际递减计数），再展开批内动作。
+ * 批内不需要结束标记：`k` 由 VM 的 actionSeq 控制，下一次 BATCH_BEGIN 自然会再清零。
+ */
+function emitBatch(emitter: Emitter, block: SerializedBlock): void {
+  const body = block.inputs?.DO?.block;
+  if (body === undefined) {
+    emitter.errors.push('「沙漏」是空的：把要攒成一批的动作放进去');
+    return;
+  }
+  emitter.code.push({ op: 'BATCH_BEGIN', steps: BATCH_START_COST });
+  emitSequence(emitter, body);
 }
 
 // 如果 → JMP_IF_FALSE 占位，分支发射完再回补跳转目标（契约 §4.1）。

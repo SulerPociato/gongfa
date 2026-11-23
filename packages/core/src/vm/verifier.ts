@@ -199,6 +199,14 @@ function inspectOp(pc: number, raw: unknown, sink: Sink): void {
     case 'WHILE_EXIT': {
       break;
     }
+    // 批次 13：批窗口起点只付步数 + 重置 k，没有栈与跳转，静态检查只校验字段。
+    case 'BATCH_BEGIN': {
+      const stepCost = field(raw, 'steps');
+      if (typeof stepCost !== 'number' || !Number.isInteger(stepCost) || stepCost < 0) {
+        sink.add('type', pc, `BATCH_BEGIN 的 steps 需要非负整数，收到 ${String(stepCost)}`);
+      }
+      break;
+    }
     case 'ADD':
     case 'SUB':
     case 'MUL':
@@ -458,6 +466,7 @@ function walkStackModel(program: Program, sink: Sink, warnings: string[]): Set<n
         break;
       }
       case 'ACTION':
+      case 'BATCH_BEGIN':
         next(state.pc + 1, state.stack, state.frames);
         break;
       case 'JMP': {

@@ -58,6 +58,24 @@ export const GONGFA_REPEAT_JSON = {
   style: 'gongfa_control',
 } as const;
 
+/**
+ * 批次 13（P1 沙漏）：批窗口起点。
+ * 包住的一段动作会被当成「一批」：付固定启动步数，换来边际递减计数清零。
+ * 数值只有一处：BATCH_START_COST，编译器和图鉴文案都从这里取。
+ */
+export const BATCH_START_COST = 3;
+
+export const GONGFA_BATCH_JSON = {
+  kind: 'block_definition',
+  type: 'gongfa_batch',
+  message0: '沙漏 · 新的一批 %1',
+  args0: [{ type: 'input_statement', name: 'DO' }],
+  previousStatement: null,
+  nextStatement: null,
+  style: 'gongfa_control',
+  tooltip: `批内动作重新从第一次算（边际递减清零），代价是每批 ${BATCH_START_COST} 步`,
+} as const;
+
 // 阈值与左值只在这里写一次：引导要复述「默认比的是 0.5」，从同一份定义里取才不会两处漂移。
 export const COMPARE_DEFAULT_THRESHOLD = 0.5;
 
@@ -135,7 +153,7 @@ export const GONGFA_WHILE_JSON = {
  */
 export const BLOCK_DEFINITIONS: readonly unknown[] = [
   TICK_HAT_JSON, BREATH_JSON, CALM_JSON, GONGFA_IF_JSON, GONGFA_REPEAT_JSON, GONGFA_COMPARE_JSON,
-  GONGFA_BREAK_JSON, GONGFA_CONTINUE_JSON, GONGFA_WHILE_JSON,
+  GONGFA_BREAK_JSON, GONGFA_CONTINUE_JSON, GONGFA_WHILE_JSON, GONGFA_BATCH_JSON,
 ];
 
 /** 开局预置：画布上只有一个入口块，玩家从工具箱拖「吐纳」进来。 */
@@ -155,6 +173,7 @@ export const TOOLBOX_JSON = {
     { kind: 'block', type: 'gongfa_break' },
     { kind: 'block', type: 'gongfa_continue' },
     { kind: 'block', type: 'gongfa_while' },
+    { kind: 'block', type: 'gongfa_batch' },
   ],
 } as const;
 
@@ -174,4 +193,5 @@ export const BLOCK_SPECS: Readonly<Record<string, BlockSpec>> = {
   gongfa_break: { kind: 'control', label: '中断' },
   gongfa_continue: { kind: 'control', label: '继续' },
   gongfa_while: { kind: 'control', label: '重复直到' },
+  gongfa_batch: { kind: 'control', label: '沙漏' },
 };

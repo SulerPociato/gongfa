@@ -348,6 +348,18 @@ export class Vm {
             pc += 1;
             break;
           }
+          // BATCH_BEGIN（批次 13 / P1 沙漏）：付固定启动步数，把同 tick 的边际递减计数清零。
+          // actionSeq 是 VM 的局部量（每个 tick 从 0 起、每 ACTION +1），所以"重置"只需要把它归零：
+          // 下一个 ACTION 会拿到 k=1，sink 那边按 k 算 actionMult，不需要新接口。
+          case 'BATCH_BEGIN': {
+            if (!Number.isInteger(op.steps) || op.steps < 0) {
+              throw new VmError(`BATCH_BEGIN 的 steps 需要非负整数，收到 ${String(op.steps)}（pc ${pc}）`);
+            }
+            steps += op.steps;
+            actionSeq = 0;
+            pc += 1;
+            break;
+          }
           // BREAK：弹最内层帧，跳到该循环的出口之后。exitMap 在装载时预计算，
           // frame.begin 是 LOOP_BEGIN/WHILE_BEGIN 的 pc，查表拿到 LOOP_END/WHILE_EXIT 的 pc。
           case 'BREAK': {

@@ -409,10 +409,10 @@ describe('条件与循环编译（任务 4）', () => {
 });
 
 describe('积木定义与内容表对齐', () => {
-  it('P0 九块：入口 + 吐纳/调息 + 如果/循环/比较 + 中断/继续/重复直到，工具箱含除入口外的全部', () => {
-    expect(BLOCK_DEFINITIONS.length).toBe(9);
+  it('P1 十块：入口 + 吐纳/调息 + 如果/循环/比较 + 中断/继续/重复直到 + 沙漏，工具箱含除入口外的全部', () => {
+    expect(BLOCK_DEFINITIONS.length).toBe(10);
     expect(Object.keys(BLOCK_SPECS).sort()).toEqual([
-      'breath', 'calm', 'gongfa_break', 'gongfa_compare', 'gongfa_continue', 'gongfa_if',
+      'breath', 'calm', 'gongfa_batch', 'gongfa_break', 'gongfa_compare', 'gongfa_continue', 'gongfa_if',
       'gongfa_repeat', 'gongfa_while', 'tick_hat',
     ]);
     expect(BLOCK_SPECS['breath']?.actionId).toBe('breath');
@@ -431,6 +431,7 @@ describe('积木定义与内容表对齐', () => {
       { kind: 'block', type: 'gongfa_break' },
       { kind: 'block', type: 'gongfa_continue' },
       { kind: 'block', type: 'gongfa_while' },
+      { kind: 'block', type: 'gongfa_batch' },
     ]);
     expect(STARTER_WORKSPACE_JSON.blocks.blocks.length).toBe(1);
   });
