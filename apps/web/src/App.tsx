@@ -30,6 +30,7 @@ import { readFound, writeFound } from './game/found';
 import { readUnlocked, writeUnlocked } from './game/unlocked';
 import { Modal, type ModalRequest } from './game/Modal';
 import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
+import { nextStepOf } from './game/nextStep';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -236,7 +237,7 @@ function momentToastText(id: string): string {
   return moment ?? getUnlockToastText(id);
 }
 
-function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial'>): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -262,6 +263,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     toast: extra.toast,
     tutorial: extra.tutorial,
     demo: state.demo,
+    nextStep: extra.nextStep,
   };
 }
 
@@ -345,7 +347,7 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '' }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 引导气泡（需求变更 2026-11-21）：贴得上目标 → 底部条降级成「n/6 · 跳过引导」；贴不上 → 底部条说完整文案。
@@ -1301,6 +1303,9 @@ export function App() {
         challenge: challengeModel(state),
         toolHint: toolHintOf(state),
         tutorial: tutBar,
+        // 批次 7：下一步提示。cache 是宿主才知道的"有没有可执行程序"，
+        // runtime 分不清"空画布"与"编译失败保留 lastGood"，所以这里传进去。
+        nextStep: nextStepOf({ state, hasProgram: cache.length > 0 }),
       }));
     });
     loop.start();

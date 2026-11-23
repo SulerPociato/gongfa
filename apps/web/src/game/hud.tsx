@@ -190,6 +190,8 @@ export interface HudModel {
   readonly tutorial: TutorialBarModel | null;
   /** ?demo=1：左上角常驻角标，以及渡劫面板要说「当场按 85% 结算」。整份模型只有这一个演示开关。 */
   readonly demo: boolean;
+  /** 批次 7：下一步提示（一句话，由宿主用 nextStepOf 算好）。空串 = 不显示。 */
+  readonly nextStep: string;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -620,22 +622,24 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
               本 tick {model.steps.used} / {model.steps.pool} 步 · 效率 {model.steps.perQi.toFixed(3)} 灵力/步
             </p>
           )}
+          {/* 下一步提示放在灵力卡里：独立一条会把固定区撑高 46px，曲线就被挤出首屏（实测 737→968）。 */}
+          {model.nextStep !== '' && <p className="next-step" role="status">下一步：{model.nextStep}</p>}
         </div>
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
         <RealmPanel model={model.realm} qi={model.qi} />
         <SprintPanel model={model.sprint} />
-        {/* 曲线也放固定区：它是"改一块值多少"的唯一反馈，藏进滚动区等于没有。
-            1280×720 下靠 CSS 压到 120px 高（见 global.css 的 max-height 媒体查询）。 */}
-        <CurvePanel model={model.curve} />
       </div>
 
       {/* 分隔线 + 渐隐遮罩 */}
       <div className="hud-divider" />
 
-      {/* 滚动区：功法与道具（不用每次盯的东西） */}
+      {/* 滚动区：曲线/功法与道具/红字/存档。
+          曲线必须在这里：它一进固定区，固定区就吃掉整列高度（实测 858px），
+          滚动区 clientHeight 变 0 —— 红字和道具面板一起消失，比"曲线看不见"更糟。 */}
       <div className="hud-scroll">
+        <CurvePanel model={model.curve} />
         <BookArtifactPanel
           bookModel={model.book}
           artifactRows={model.artifacts}

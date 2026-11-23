@@ -27,7 +27,7 @@ export interface ModalProps {
   readonly onClose: () => void;
 }
 
-export function Modal({ request, onClose }: ModalProps): JSX.Element {
+export function Modal({ request, onClose }: ModalProps) {
   const confirmRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {

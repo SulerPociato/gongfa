@@ -1,0 +1,45 @@
+import type { RuntimeState } from './runtime';
+
+/**
+ * 「下一步」提示（批次 7）。
+ *
+ * 存在的理由：实测四个境界下，玩家攒满灵力后第一眼看的是 HUD，而 HUD 里
+ * 没有任何一句话告诉他"现在该点哪里"。渡劫按钮上浮解决了"看得见"，
+ * 这一行解决"知不知道"。
+ *
+ * 文案刻意短（≤ 18 个字）：它坐在灵力卡里，长一行就把固定区撑高，
+ * 曲线会被挤出首屏（实测 130 → 170px，curve top 714）。
+ *
+ * 纯函数：输入 runtime 的只读快照 + 宿主知道的"有没有程序"。
+ * 优先级按"卡住玩家的程度"排，越靠前越紧急。
+ */
+export interface NextStepInput {
+  readonly state: RuntimeState;
+  /** 画布上有没有可执行的程序（编译失败会保留上一份 lastGood，runtime 自己分不清）。 */
+  readonly hasProgram: boolean;
+}
+
+const NOISE_HINT = 0.7;
+
+function mmss(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function nextStepOf({ state, hasProgram }: NextStepInput): string {
+  if (!hasProgram) return '拖「吐纳」进「每 tick」';
+  if (state.pauseRemainingMs > 0) return `走火入魔：等 ${(state.pauseRemainingMs / 1000).toFixed(1)} 秒`;
+  if (state.demon >= NOISE_HINT) return '心魔偏高：拖「调息」压住';
+  if (state.stall !== null) return '预算撞顶：装算盘或减层';
+  if (state.canChallenge) return '点「可渡劫」（不点按 60%）';
+  if (state.canBreakthrough && state.chargeRemainingMs > 0) {
+    return `蓄势 ${mmss(state.chargeRemainingMs)} · 试炼可减半`;
+  }
+  if (state.cooldownRemainingMs > 0) return `冷却 ${mmss(state.cooldownRemainingMs)} · 先改功法`;
+  if (state.nextRealmName === null) return '已至末境 · 收集功法谱';
+  if (state.rate <= 0) return '程序无产出：检查凹槽';
+  const remaining = Math.max(0, state.threshold - state.qi);
+  return `攒 ${mmss((remaining / state.rate) * 1000)} 到阈值`;
+}
