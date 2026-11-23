@@ -217,6 +217,8 @@ export interface HudModel {
   readonly palette: readonly string[];
   /** 批次 20：第一境的三步小目标。玩家说「不知道在玩什么」，这里给一条最短路径。 */
   readonly quest: { readonly label: string; readonly done: boolean }[];
+  /** 批次 22：当前功法里有可折叠的直列 —— 在「更多工具」上点个点，别让炼器炉一直藏着。 */
+  readonly furnaceReady: boolean;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -800,7 +802,10 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {/* 批次 15：进阶工具默认收起。首屏塞满五张卡的结果是"没有探索欲望"，
             所以只留基础三块（曲线 / 功法与道具 / 道途），工具折叠在「更多工具」里。 */}
         <details className="hud-tools">
-          <summary>更多工具（炼器炉 · 观测 · 阵修推演）</summary>
+          <summary>
+            更多工具（炼器炉 · 观测 · 阵修推演）
+            {model.furnaceReady && <span className="furnace-dot" aria-label="有可改写的直列" />}
+          </summary>
           <section className="furnace">
             <p className="label">炼器炉</p>
             <button className="furnace-button" type="button" onClick={onOptimize}>

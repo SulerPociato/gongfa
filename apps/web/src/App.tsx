@@ -154,17 +154,26 @@ const ARTIFACT_UNLOCK: Readonly<Record<string, { readonly realm: number; readonl
   pouch: { realm: 2, label: '金丹' },
 };
 
-function artifactRows(equippedIds: readonly string[], realmIndex: number): readonly ArtifactRow[] {
+// 批次 22：道具改成「掉落获得」。原来按境界自动可装，玩家既没有获得的瞬间，
+// 也就没有「这件东西是打赢来的」这层意义。
+const ARTIFACT_DROPS: Readonly<Record<number, readonly string[]>> = {
+  1: ['abacus'],
+  2: ['pearl', 'pouch'],
+  3: ['vase'],
+};
+
+function artifactRows(equippedIds: readonly string[], realmIndex: number, ownedIds: readonly string[]): readonly ArtifactRow[] {
   return ARTIFACT_CATALOGUE.artifacts.map((artifact) => {
     const unlock = ARTIFACT_UNLOCK[artifact.id];
-    const locked = unlock !== undefined && realmIndex < unlock.realm;
+    const realmLocked = unlock !== undefined && realmIndex < unlock.realm;
+    const owned = ownedIds.includes(artifact.id);
     return {
       id: artifact.id,
       name: artifact.name.zh,
       effect: describeArtifact(artifact),
       equipped: equippedIds.includes(artifact.id),
-      locked,
-      unlockHint: locked ? `${unlock?.label ?? ''}解锁` : '',
+      locked: realmLocked || !owned,
+      unlockHint: realmLocked ? `${unlock?.label ?? ''}解锁` : '未获得 · 渡劫掉落',
       when: ARTIFACT_GUIDE.find((row) => row.id === artifact.id)?.when ?? '',
     };
   });
@@ -313,6 +322,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     dao: extra.dao,
     trace: state.trace,
     quest: [],
+    furnaceReady: false,
     palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
   };
 }
@@ -902,9 +912,29 @@ export function App() {
       const equipment = equipmentFor(ARTIFACT_CATALOGUE, game.equippedArtifacts);
       runtime.attachArtifacts(equipment);
       pushActionErrors(equipment.errors);
-      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts, game.realm) }));
+      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts, game.realm, game.ownedArtifacts) }));
     };
     syncArtifacts();
+
+    // ---- 批次 22：道具获得 ----
+    // 新手赠一件，其余靠渡劫掉落。掉落只改 owned，不自动装备：
+    // 「要不要装」是玩家的决定，而「拿到了」需要一个能被看见的瞬间。
+    let lastRealmSeen = game.realm;
+    const grantArtifacts = (ids: readonly string[], reason: string): void => {
+      const fresh = ids.filter((id) => !game.ownedArtifacts.includes(id));
+      if (fresh.length === 0) return;
+      game = { ...game, ownedArtifacts: [...game.ownedArtifacts, ...fresh] };
+      syncArtifacts();
+      controller.markDirty();
+      const names = fresh
+        .map((id) => ARTIFACT_CATALOGUE.artifacts.find((artifact) => artifact.id === id)?.name.zh ?? id)
+        .join('、');
+      setHud((previous) => ({ ...previous, toast: `${reason}：《${names}》已入储物袋，点「装备」生效` }));
+      for (const id of fresh) {
+        const moment = `art-${id === 'jade' ? 'jade' : id}` as MomentId;
+        if ((MOMENT_TEXTS as Readonly<Record<string, string>>)[moment] !== undefined) pushMoment(moment);
+      }
+    };
 
     let artifactNotice: string | null = null;
     // 换道具的灰字只留最新一条：pushNotice 是去重累加的，来回开关会攒出一串同义的提示。
@@ -1330,6 +1360,20 @@ export function App() {
     };
     window.addEventListener('keydown', onDemoKey);
 
+    // 批次 22：炼器炉提示。只在「程序真的变了」时重算，不逐帧编译。
+    let furnaceFor: unknown = null;
+    let furnaceHinted = false;
+    const refreshFurnace = (workspaceJson: WorkspaceJson | null): void => {
+      if (workspaceJson === null || workspaceJson === furnaceFor) return;
+      furnaceFor = workspaceJson;
+      const ready = suggestRewrite(workspaceJson) !== null;
+      setHud((previous) => ({ ...previous, furnaceReady: ready }));
+      if (ready && !furnaceHinted) {
+        furnaceHinted = true;
+        setHud((previous) => ({ ...previous, toast: '炼器炉：这段直列能折叠成循环（在「更多工具」里）' }));
+      }
+    };
+
     // event 为空 = 挂载时那一次手动编译；组号是我们的程序化换画布 = 不是玩家编辑。
     const compile = (event?: ChangeEvent): void => {
       const blocks = Blockly.serialization.workspaces.save(workspace) as unknown as WorkspaceJson;
@@ -1348,6 +1392,8 @@ export function App() {
       controller.markDirty();
       // 批次 3：画布变了就重新识别算法图案。
       recognizePatterns();
+      // 批次 22：画布变了才重算「有没有可折叠的直列」（炼器炉提示灯）。
+      refreshFurnace(blocks);
     };
 
     workspace.addChangeListener(compile);
@@ -1456,6 +1502,12 @@ export function App() {
           }, 600);
         }
       }
+      // 批次 22：突破即掉落（在线渡劫、离线渡劫、演示跳关都走这一处）。
+      if (state.realmIndex !== lastRealmSeen) {
+        lastRealmSeen = state.realmIndex;
+        const drops = ARTIFACT_DROPS[state.realmIndex];
+        if (drops !== undefined) grantArtifacts(drops, `${state.realmName}的渡劫奖励`);
+      }
       if (state.daoFallback && !daoFallbackSeen) {
         daoFallbackSeen = true;
         showToast('心魔久踞不散 · 已堕入魔道（全产出 +12%，心魔增速翻倍）');
@@ -1538,6 +1590,11 @@ export function App() {
           : [],
       }));
     });
+    // 入门赠礼放在这里：grantArtifacts 里会调 pushMoment，而 pushMoment 在本行之前才初始化。
+    if (game.ownedArtifacts.length === 0) {
+      grantArtifacts(['jade'], '入门赠礼');
+    }
+
     loop.start();
 
     // D5：只读调试句柄。Vite 的类型入口没进本项目的 tsconfig types，所以显式取一次 import.meta.env：

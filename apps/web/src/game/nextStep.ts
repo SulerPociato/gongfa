@@ -34,7 +34,9 @@ function mmss(ms: number): string {
 
 export function nextStepOf({ state, hasProgram, breathBlocks, hasRepeat = false }: NextStepInput): string {
   // 空画布也会编译出 HALT，所以 hasProgram 恒为真；真正该问的是「有没有动作」。
-  if (!hasProgram || breathBlocks === 0) return '拖「吐纳」进「每 tick」';
+  if (!hasProgram) return '拖「吐纳」进「每 tick」';
+  // 空画布也会编译出 HALT（hasProgram 恒真），所以「画布上有几块动作」才是真信号。
+  if (breathBlocks === 0) return '拖「吐纳」进「每 tick」';
   if (state.pauseRemainingMs > 0) return `走火入魔：等 ${(state.pauseRemainingMs / 1000).toFixed(1)} 秒`;
   if (state.demon >= NOISE_HINT) return '心魔偏高：拖「调息」压住';
   if (state.stall !== null) return '预算撞顶：装算盘或减层';
@@ -46,7 +48,7 @@ export function nextStepOf({ state, hasProgram, breathBlocks, hasRepeat = false 
   if (state.nextRealmName === null) return '已至末境 · 收集功法谱';
   if (state.rate <= 0) return '程序无产出：检查凹槽';
   // 批次 15：手搓吐纳是最好抓的教学时机 —— 玩家已经尝到甜头，这时才愿意学循环。
-  if (!hasRepeat && breathBlocks >= 3) return '3 块吐纳可换 1 个循环';
+  if (!hasRepeat && breathBlocks !== undefined && breathBlocks >= 3) return '3 块吐纳可换 1 个循环';
   const remaining = Math.max(0, state.threshold - state.qi);
   return `攒 ${mmss((remaining / state.rate) * 1000)} 到阈值`;
 }

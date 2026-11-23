@@ -1763,7 +1763,7 @@ body::before {
 .algorithm-card {
   position: fixed;
   /* 批次 19：从右上挪到画布左下 —— 原来压在右列上，正好盖住灵力与渡劫。 */
-  bottom: calc(var(--bottom-height) + 20px);
+  bottom: calc(var(--bottom-height) + 132px);
   left: 24px;
   right: auto;
   z-index: 30;
@@ -2115,6 +2115,19 @@ body::before {
   .blocklyFlyout {
     display: none !important;
   }
+}
+
+
+/* 批次 22：炼器炉提示灯 —— 有可改写直列时在「更多工具」上亮一个点。 */
+.furnace-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 6px rgba(232, 201, 120, 0.8);
+  vertical-align: middle;
 }
 
 /* 批次 20：第一境三步目标。玩家原话「不知道在玩什么」，所以把最短路径写死在右列。 */
