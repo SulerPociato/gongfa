@@ -43,6 +43,7 @@ import {
   type CurvePreview,
   type GameState,
   type JadeCacheSpec,
+  type Modifier,
   type OfflineResult,
   type Program,
   type RealmDef,
