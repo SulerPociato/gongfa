@@ -1890,6 +1890,36 @@ body::before {
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* 批次 12：观测 Trace。一行折线 + 两行摘要，不给缩放/导出——它是取证，不是产品仪表盘。 */
+.trace {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(28, 34, 40, 0.5);
+}
+
+.trace-spark {
+  display: block;
+  width: 100%;
+  height: 42px;
+}
+
+.trace-spark polyline {
+  fill: none;
+  stroke: var(--spirit);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.trace-line {
+  margin: 0;
+  font: 11px/1.6 'JetBrains Mono', monospace;
+  color: rgba(255, 255, 255, 0.62);
+}
+
 /* 批次 11：炼器炉（P1 纵切）。放在滚动区，不抢首屏；按钮是唯一入口。 */
 .furnace {
   display: flex;

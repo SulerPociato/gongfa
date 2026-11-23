@@ -153,6 +153,12 @@ export interface RuntimeState {
   /** 窗口内「每步换多少灵力」= sprintProgressQi / sprintSteps；0 步时为 0。 */
   readonly sprintPerQi: number;
   /**
+   * 批次 12：观测 Trace（P1 Advanced Observability）。
+   * 每满 1 秒记一条，最多 60 条 = 最近一分钟。只在内存，不入档：
+   * 它是"刚才发生了什么"的取证，不是进度。
+   */
+  readonly trace: readonly TraceSample[];
+  /**
    * 最近一次「结算」（10 秒到点的托管、挑战中的手动确认、演示模式的当场结算都算，拒绝也算）：
    * 托管那一发是 run() 里结算的，没有按钮可挂回调，所以结果放在状态里由宿主逐帧观察，
    * 否则玩家只看见数字跳了一下，不知道这局是成是败、骰了多少。
@@ -169,7 +175,7 @@ type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
   | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
   | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi'
-  | 'dao' | 'lingGen' | 'pillCooldownMs';
+  | 'dao' | 'lingGen' | 'pillCooldownMs' | 'trace';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -297,6 +303,15 @@ export function urlSeed(): number | null {
   return Number.isInteger(value) && value >= 0 ? value >>> 0 : null;
 }
 
+export interface TraceSample {
+  readonly tick: number;
+  readonly qi: number;
+  readonly rate: number;
+  readonly steps: number;
+  readonly demon: number;
+  readonly realmName: string;
+}
+
 export type DaoPath = 'orthodox' | 'heretic';
 
 export interface RuntimeDeps {
@@ -377,6 +392,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 丹药冷却（批次 8）：墙钟，不按 tick —— 倍速下不该变成 30/3 秒。
   const PILL_COOLDOWN_MS = 30_000;
   let pillReadyAt = 0;
+  // Trace 是内存态：只保留最近一分钟，刷新即清（P1 观测，不是存档）。
+  const traceSamples: TraceSample[] = [];
   const noiseTicks: number[] = [];
   const backlashTicks: number[] = [];
   const noteTick = (list: number[], tick: number): void => {
@@ -480,6 +497,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // steps 为 0 时效率给 0，HUD 那边用「有没有程序在跑」来决定显不显示，不在这里造 NaN。
       sprintSteps: sprintStepSum,
       sprintPerQi: sprintStepSum > 0 ? sprint.total() / sprintStepSum : 0,
+      trace: [...traceSamples],
       noiseTicks,
       backlashTicks,
     };
@@ -675,6 +693,11 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       state.qi += gained;
       state.rate = gained * TICKS_PER_SEC;
       state.ticks += 1;
+      // Trace：每满 1 秒记一条，最多 60 条。放在产出/心魔更新之后，记的是这一秒的终值。
+      if (state.ticks % TICKS_PER_SEC === 0) {
+        traceSamples.push({ tick: state.tick, qi: state.qi, rate: state.rate, steps: state.stepsThisTick, demon: state.demon, realmName: currentRealm().name.zh });
+        if (traceSamples.length > 60) traceSamples.shift();
+      }
       if (gained > 0) state.totalQi += gained;
       // 蓄势起算点（§7.3「存量首次达到阈值的那一刻」）：逐 tick 判，armCharge 自己幂等。
       // 走火那一 tick 也记：arm 之后掉回阈值下不清零，重复挑战不重置蓄势。

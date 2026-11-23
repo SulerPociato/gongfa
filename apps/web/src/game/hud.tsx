@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, NOISE_LINE, type BookPhase, type StallEvent } from '@gongfa/core';
 import { compareParts } from './format';
+import type { TraceSample } from './runtime';
 import type { TutorialBarModel } from './tutorial';
 
 /** 存档损坏：HUD 只显示这一句，逐字段明细收在「详情」里 */
@@ -202,6 +203,8 @@ export interface HudModel {
   readonly nextStep: string;
   /** 批次 7：道途（null = 还没选）。选过之后这张卡消失。 */
   readonly dao: 'orthodox' | 'heretic' | null;
+  /** 批次 12：最近一分钟的观测快照（内存态，随刷新清空）。 */
+  readonly trace: readonly TraceSample[];
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -453,6 +456,31 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
   );
 }
 
+// 批次 12：观测 Trace（P1 Advanced Observability）。
+// 只画最近 60 秒的速率折线 + 三行摘要；不做缩放、不做导出——它是取证，不是仪表盘产品。
+function TracePanel({ samples }: { readonly samples: readonly TraceSample[] }) {
+  if (samples.length < 2) return null;
+  const rates = samples.map((sample) => sample.rate);
+  const maxRate = Math.max(...rates, 1);
+  const maxDemon = Math.max(...samples.map((sample) => sample.demon));
+  const avgSteps = Math.round(samples.reduce((sum, sample) => sum + sample.steps, 0) / samples.length);
+  const last = samples[samples.length - 1];
+  if (last === undefined) return null;
+  const points = rates
+    .map((rate, index) => `${((index / (rates.length - 1)) * 100).toFixed(1)},${(22 - (rate / maxRate) * 20).toFixed(1)}`)
+    .join(' ');
+  return (
+    <section className="trace">
+      <p className="label">观测 · 最近 {samples.length} 秒</p>
+      <svg className="trace-spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-label="最近速率折线">
+        <polyline points={points} />
+      </svg>
+      <p className="trace-line">峰值 {maxRate.toFixed(1)} / 秒 · 平均步数 {avgSteps} · 心魔峰值 {(maxDemon * 100).toFixed(0)}%</p>
+      <p className="trace-line">当前 {last.rate.toFixed(1)} / 秒 · {last.realmName} · 第 {last.tick} tick</p>
+    </section>
+  );
+}
+
 // 按钮文案按相位给，六态互斥：HUD 不做任何比较运算，phase 是宿主从 runtime 字段推出来的。
 // trial 这一态不带倒计时：10 秒那个数字只出现在挑战面板的主按钮上，两处读秒迟早对不上。
 const BUTTON_TEXT: Record<ChallengePhase, string> = {
@@ -667,6 +695,9 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           曲线必须在这里：它一进固定区，固定区就吃掉整列高度（实测 858px），
           滚动区 clientHeight 变 0 —— 红字和道具面板一起消失，比"曲线看不见"更糟。 */}
       <div className="hud-scroll">
+        {/* 批次 12：观测 Trace。每满 1 秒一条，最近 60 秒；只在内存，刷新清空。
+            它不是"历史存档"，是"刚才发生了什么"的取证：峰值、均值、当前值三行。 */}
+        <TracePanel samples={model.trace} />
         {/* P1 纵切：炼器炉（Compiler / Optimizer）。只在"有可改写的直列"时才有动作，
             分析结果与代价一起放进弹窗，不替玩家做决定。 */}
         <section className="furnace">

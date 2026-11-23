@@ -286,6 +286,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     demo: state.demo,
     nextStep: extra.nextStep,
     dao: extra.dao,
+    trace: state.trace,
   };
 }
 
@@ -1413,6 +1414,7 @@ export function App() {
         // runtime 分不清"空画布"与"编译失败保留 lastGood"，所以这里传进去。
         nextStep: nextStepOf({ state, hasProgram: cache.length > 0 }),
         dao: state.dao,
+        trace: state.trace,
       }));
     });
     loop.start();
