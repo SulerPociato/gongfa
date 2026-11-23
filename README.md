@@ -20,6 +20,7 @@
 | [01-design.md](01-design.md) | 玩法 / 策划 | 教育内核、核心循环、功法书、法宝、视觉、演示脚本 |
 | [02-architecture.md](02-architecture.md) | 技术 | 分层、内容驱动、VM 摘要、二阶段后端 |
 | [03-qoder-brief.md](03-qoder-brief.md) | 开发执行者 | 项目总述 + 任务 1–11 + Blockly 参考程序 |
+| [12-teaching.md](12-teaching.md) | 设计 / 评审 | 教育理念、竞品对照、算法↔修仙命名原则 |
 
 **评审顺序**：00 → 01 →（需要时）02
 **开发顺序**：00 → 03 → 02
