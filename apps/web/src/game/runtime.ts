@@ -366,13 +366,13 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 道途（批次 7）：只影响两处 —— 全产出倍率、心魔基础增速。
   // dao 变化必须重建 sink：demonBase 在 makeActionSink 构造时就固定了。
   let dao: DaoPath | null = deps.dao ?? null;
-  const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.2 : 1);
+  const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.12 : 1);
   // 灵根（批次 8）：seed 派生，只影响心魔增速（×0.9/1.0/1.1），不动产出 ——
   // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
   const lingGenIndex = (state.seed >>> 0) % 3;
   const lingGenName = ['上品灵根', '中品灵根', '下品灵根'][lingGenIndex] ?? '中品灵根';
   const lingGenDemon = [0.9, 1, 1.1][lingGenIndex] ?? 1;
-  const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 1.4 : 1) * lingGenDemon;
+  const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 2 : 1) * lingGenDemon;
   // 丹药冷却（批次 8）：墙钟，不按 tick —— 倍速下不该变成 30/3 秒。
   const PILL_COOLDOWN_MS = 30_000;
   let pillReadyAt = 0;

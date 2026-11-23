@@ -207,6 +207,7 @@ function runRealm(
   jadeCache: JadeCacheSpec | null,
   demonBase: number,
   startTotalTicks: number,
+  daoRate = 1,
 ): RealmResult {
   const realm = content.realms[plan.realmIndex]!;
   const sink = makeActionSink({
@@ -227,7 +228,7 @@ function runRealm(
   
   while (qi < realm.threshold) {
     const result = runTick(sink, plan, demon, loopDepth);
-    qi += result.qi + realm.passivePerSec * TICK;
+    qi += (result.qi + realm.passivePerSec * TICK) * daoRate;
     demon = result.demon;
     maxDemon = Math.max(maxDemon, demon);
     if (result.fired) fires++;
@@ -263,6 +264,7 @@ function runRealmVm(
   jadeCache: JadeCacheSpec | null,
   demonBase: number,
   startTotalTicks: number,
+  daoRate = 1,
 ): RealmResult {
   const realm = content.realms[plan.realmIndex]!;
   const sink = makeActionSink({
@@ -308,7 +310,7 @@ function runRealmVm(
     const tickResult = vm.tick();
     
     // 累加 qi 和 demon
-    qi += tickResult.gain + realm.passivePerSec * TICK;
+    qi += (tickResult.gain + realm.passivePerSec * TICK) * daoRate;
     demon += tickResult.demonDelta;
     maxDemon = Math.max(maxDemon, demon);
     
@@ -364,6 +366,13 @@ const CONTRACT_TABLE: ContractRow[] = [
 ];
 
 function main() {
+  // 道途对照（批次 9）：DAO=orthodox → 全产出 ×1.08；DAO=heretic → ×1.20 且心魔基础 ×1.40。
+  // 参考程序本身不含道途，所以默认 none 时输出必须仍是 11:09。
+  const dao = (process.env.DAO ?? 'none') as 'none' | 'orthodox' | 'heretic';
+  const daoRate = dao === 'orthodox' ? 1.08 : dao === 'heretic' ? Number(process.env.DAO_RATE ?? 1.2) : 1;
+  const daoDemon = dao === 'heretic' ? Number(process.env.DAO_DEMON ?? 1.4) : 1;
+  console.log(`DAO = ${dao}（rate ×${daoRate}，demonBase ×${daoDemon}）`);
+
   const demonBases = [0.00004, 0.00005];
   
   for (const demonBase of demonBases) {
@@ -375,7 +384,7 @@ function main() {
     const sinkResults: RealmResult[] = [];
     let sinkTotalTicks = 0;
     for (const plan of PLANS) {
-      const result = runRealm(content, plan, jadeCache, demonBase, sinkTotalTicks);
+      const result = runRealm(content, plan, jadeCache, demonBase * daoDemon, sinkTotalTicks, daoRate);
       sinkResults.push(result);
       sinkTotalTicks = result.totalTicks;
     }
@@ -384,7 +393,7 @@ function main() {
     const vmResults: RealmResult[] = [];
     let vmTotalTicks = 0;
     for (const plan of PLANS) {
-      const result = runRealmVm(content, plan, jadeCache, demonBase, vmTotalTicks);
+      const result = runRealmVm(content, plan, jadeCache, demonBase * daoDemon, vmTotalTicks, daoRate);
       vmResults.push(result);
       vmTotalTicks = result.totalTicks;
     }

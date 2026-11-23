@@ -669,7 +669,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
             </button>
             <button className="dao-option is-heretic" type="button" onClick={() => onChooseDao('heretic')}>
               <span className="dao-name">入魔</span>
-              <span className="dao-effect">全产出 +20%，但心魔基础增速 +40%</span>
+              <span className="dao-effect">全产出 +12%，但心魔增速翻倍、走火更频繁</span>
             </button>
           </section>
         )}
