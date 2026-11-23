@@ -8,7 +8,7 @@
   {
     "id": "calm",
     "baseGain": 0,
-    "demonDelta": -0.0005,
+    "demonDelta": -0.0003,
     "kind": "calm"
   }
 ]

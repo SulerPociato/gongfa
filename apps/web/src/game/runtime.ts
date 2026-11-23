@@ -424,7 +424,9 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   const lingGenDemon = [0.9, 1, 1.1][lingGenIndex] ?? 1;
   const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 2 : 1) * lingGenDemon;
   // 丹药冷却（批次 8）：墙钟，不按 tick —— 倍速下不该变成 30/3 秒。
-  const PILL_COOLDOWN_MS = 30_000;
+  // 批次 27：丹药从「30 秒 / -0.15」收紧到「45 秒 / -0.10」——玩家反馈压心魔太容易。
+const PILL_COOLDOWN_MS = 45_000;
+const PILL_DEMON_RELIEF = 0.1;
   let pillReadyAt = 0;
   // Trace 是内存态：只保留最近一分钟，刷新即清（P1 观测，不是存档）。
   const traceSamples: TraceSample[] = [];
@@ -991,7 +993,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       if (state.demon <= 0.02) return { ok: false, reason: '心魔已经很低了，别浪费' };
       if (state.qi < currentRealm().threshold * 0.02) return { ok: false, reason: '存量太少，服丹会伤根本' };
       state.qi -= state.qi * 0.05;
-      state.demon = Math.max(0, state.demon - 0.15);
+      state.demon = Math.max(0, state.demon - PILL_DEMON_RELIEF);
       pillReadyAt = now + PILL_COOLDOWN_MS;
       markDirty();
       return { ok: true };

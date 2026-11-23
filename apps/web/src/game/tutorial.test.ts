@@ -320,7 +320,7 @@ describe('工具箱放出新块：「新」角标的文案与聚焦', () => {
 
   it('调息那句的 -0.0005 就是 actions.json 里那行：换表就换口', () => {
     const delta = actionsJson.find((action) => action.id === 'calm')?.demonDelta ?? 0;
-    expect(delta).toBe(-0.0005);
+    expect(delta).toBe(-0.0003);
     expect(releasedBadgeText(releasedBlock('calm'))).toBe(`调息：每次 ${delta} 心魔，代价是占一个动作槽`);
     expect(releasedBadgeText({ id: 'calm', label: '调息', kind: 'action', demonDelta: -0.002 })).toContain('-0.002');
   });

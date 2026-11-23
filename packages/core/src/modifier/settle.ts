@@ -1,4 +1,5 @@
 import type { JadeCacheSpec } from '../content/artifacts';
+import { arrayBonus } from './array';
 import type { Modifier, ModifierTarget } from '../content/books';
 import type { Content } from '../content/schema';
 import { DEMON_BASE_PER_ACTION } from '../types';
@@ -152,7 +153,9 @@ export function makeActionSink(deps: SettleDeps): SettleSink {
       observed.executed += 1;
       observed.distinct = seen.size;
       observed.stepCostTotal += hit ? jade.hitStepCost : 1;
-      const qi = def.baseGain * actionMult(request.k) * (hit ? jade.hitGainMultiplier : 1) * realm.actionMult * bookDecay * mods.rateMult;
+      // 批次 26：阵图增益只乘产出，不碰心魔（阵眼是索引，不是心法）。
+      const arrayMult = arrayBonus(request.runes ?? 0);
+      const qi = def.baseGain * actionMult(request.k) * (hit ? jade.hitGainMultiplier : 1) * realm.actionMult * bookDecay * mods.rateMult * arrayMult;
       // 累加后的 demon 由调用方夹到 0..1；契约 §2.4 明确写了缓存命中不减免心魔：§2.2.1 的增长按「执行」计。
       // 架构 §4 的先加后乘（O1）：心魔乘数作用在「表值 + 增长项」整体之上，负 demonDelta（调息）同样被缩放。
       // 批次 5：调息边际递减——同一 tick 内第 k 次调息效果 = def.demonDelta / (1 + 0.6 × (k-1))。

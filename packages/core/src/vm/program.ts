@@ -11,7 +11,7 @@ export type Op =
   | { op: 'MUL' }
   | { op: 'DIV' }
   | { op: 'CMP'; arg: CmpArg }
-  | { op: 'ACTION'; actionId: string }
+  | { op: 'ACTION'; actionId: string; runes?: number }
   | { op: 'JMP_IF_FALSE'; target: number }
   | { op: 'JMP'; target: number }
   | { op: 'LOOP_BEGIN'; end: number; count: number }

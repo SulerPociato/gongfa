@@ -4,7 +4,7 @@ import { ContentValidationError, type Content } from './schema';
 
 const ACTIONS = [
   { id: 'breath', baseGain: 1, demonDelta: 0, kind: 'gain' },
-  { id: 'calm', baseGain: 0, demonDelta: -0.0005, kind: 'calm' },
+  { id: 'calm', baseGain: 0, demonDelta: -0.0003, kind: 'calm' },
 ];
 const REALMS = [{ id: 0, name: { zh: '炼气' }, threshold: '1e3', passivePerSec: 0, actionMult: 1 }];
 
@@ -27,7 +27,7 @@ describe('loadContent 正常路径', () => {
     const content = load(ACTIONS, REALMS);
     expect(content.actions[0]?.id).toBe('breath');
     expect(content.actions[0]?.baseGain).toBe(1);
-    expect(content.actions[1]?.demonDelta).toBe(-0.0005);
+    expect(content.actions[1]?.demonDelta).toBe(-0.0003);
     expect(content.realms[0]?.threshold).toBe(1000);
     expect(content.realms[0]?.name.zh).toBe('炼气');
     expect(content.realms[0]?.actionMult).toBe(1);

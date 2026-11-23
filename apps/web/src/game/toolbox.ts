@@ -11,6 +11,9 @@ export const MIN_REALM: Record<string, number> = {
   gongfa_while: 3,
   // 批次 13（P1 沙漏）：金丹解锁。它要求玩家已经会用循环，否则"分批"没有对象。
   gongfa_batch: 2,
+  // 批次 26：阵图要等玩家已经会看「灵力/步」才给（金丹）。
+  gongfa_array: 2,
+  gongfa_array_rune: 2,
 };
 
 type ToolboxContent = (typeof TOOLBOX_JSON.contents)[number];

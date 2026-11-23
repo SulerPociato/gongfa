@@ -333,3 +333,23 @@ describe('缓存槽位与 LRU 淘汰（储物袋）', () => {
     expect(fourth.stepCost).toBe(0);
   });
 });
+
+// 批次 26（阵图）：阵眼只加产出、不加心魔；步耗由 VM 侧付（sink 只管乘数）。
+describe('阵图：阵眼乘产出', () => {
+  it('2 眼引灵 = 1.2689 倍产出，心魔不变', () => {
+    const plain = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    const runed = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    const a = plain.execute({ actionId: 'breath', k: 1, pc: 0, loopDepth: 0 });
+    const b = runed.execute({ actionId: 'breath', k: 1, pc: 0, loopDepth: 0, runes: 2 });
+    // 1 + 0.15 + 0.15/1.3 = 1.265384…（第二枚阵眼已经开始递减）
+    expect(b.qi / a.qi).toBeCloseTo(1.2653846153846153, 10);
+    expect(b.demonDelta).toBeCloseTo(a.demonDelta, 12);
+  });
+
+  it('没接阵图（runes 缺省）与普通吐纳一模一样', () => {
+    const plain = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    const zero = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    expect(zero.execute({ actionId: 'breath', k: 1, pc: 0, loopDepth: 0, runes: 0 }).qi)
+      .toBe(plain.execute({ actionId: 'breath', k: 1, pc: 0, loopDepth: 0 }).qi);
+  });
+});

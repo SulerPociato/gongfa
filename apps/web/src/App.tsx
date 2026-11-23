@@ -1071,7 +1071,7 @@ export function App() {
         return;
       }
       lastHudKey = '';
-      showToast('服丹：心魔 -15%，存量 -5%');
+      showToast('服丹：心魔 -10%，存量 -5%');
     };
 
     // P1 纵切：炼器炉。只在"真有可改写段落"时给建议，且把代价（步数↑、心魔↑）一并写进弹窗。

@@ -171,6 +171,10 @@ function inspectOp(pc: number, raw: unknown, sink: Sink): void {
     }
     case 'ACTION': {
       const actionId = field(raw, 'actionId');
+      const runes = field(raw, 'runes');
+      if (runes !== undefined && (typeof runes !== 'number' || !Number.isInteger(runes) || runes < 0 || runes > 4)) {
+        sink.add('type', pc, `ACTION 的 runes 需要 0..4 的整数，收到 ${String(runes)}`);
+      }
       if (typeof actionId !== 'string' || actionId.trim() === '') {
         sink.add('type', pc, `ACTION.actionId 需要非空字符串，收到 ${JSON.stringify(actionId)}`);
       }

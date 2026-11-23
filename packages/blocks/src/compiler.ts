@@ -107,7 +107,27 @@ function emitStatement(emitter: Emitter, block: SerializedBlock): void {
   }
   switch (spec.kind) {
     case 'action':
-      if (spec.actionId !== undefined) emitter.code.push({ op: 'ACTION', actionId: spec.actionId });
+      if (spec.actionId !== undefined) {
+        emitter.code.push({ op: 'ACTION', actionId: spec.actionId });
+        return;
+      }
+      if (block.type === 'gongfa_array') {
+        // 引灵：产出块 + 可选的阵图。阵图没接 = 0 眼（等价普通吐纳）。
+        const rune = block.inputs?.RUNE?.block;
+        let runes = 0;
+        if (rune !== undefined) {
+          if (rune.type !== 'gongfa_array_rune') {
+            emitter.errors.push('「引灵」的阵位只能放「阵图」');
+          } else {
+            const raw = rune.fields?.RUNES;
+            const value = typeof raw === 'number' ? raw : Number(raw);
+            if (!Number.isFinite(value)) emitter.errors.push('「阵图」的眼数读不出来');
+            else runes = Math.max(1, Math.min(4, Math.round(value)));
+          }
+        }
+        emitter.code.push({ op: 'ACTION', actionId: 'breath', ...(runes > 0 ? { runes } : {}) });
+        return;
+      }
       return;
     case 'control':
       emitControl(emitter, block);

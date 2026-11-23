@@ -12,6 +12,8 @@ export interface ActionRequest {
   readonly pc: number;
   /** 契约 §2.2.1：运行期循环栈深度，只作为 sink 的入参，不进 IR。 */
   readonly loopDepth: number;
+  /** 批次 26：这次引灵挂了几枚阵眼（0 = 没接阵图）。 */
+  readonly runes?: number | undefined;
 }
 
 export interface ActionOutcome {
@@ -279,7 +281,10 @@ export class Vm {
           }
           case 'ACTION': {
             actionSeq += 1;
-            const outcome = this.sink.execute({ actionId: op.actionId, k: actionSeq, pc, loopDepth: frames.length });
+            const runes = op.runes ?? 0;
+            // 阵眼的步耗先付：每个阵眼多走一步（构建索引的代价）。
+            if (runes > 0) steps += runes;
+            const outcome = this.sink.execute({ actionId: op.actionId, k: actionSeq, pc, loopDepth: frames.length, runes });
             // 缺省 1 步：dispatch 前已收过这一步，这里按 sink 报的实际成本补差（契约 §2.4 的命中免步就是 -1）。
             // 回边指令（LOOP_END / JMP）不在这里改，所以 0 步的 ACTION 再密也逃不出预算检查。
             steps += (outcome.stepCost ?? 1) - 1;

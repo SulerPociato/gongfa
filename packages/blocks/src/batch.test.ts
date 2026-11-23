@@ -100,3 +100,39 @@ describe('沙漏：批窗口', () => {
     expect(bad.ok).toBe(false);
   });
 });
+
+describe('引灵 + 阵图', () => {
+  it('阵图 3 眼编译成 ACTION{runes:3}', () => {
+    const json = {
+      blocks: {
+        languageVersion: 0,
+        blocks: [{
+          type: 'tick_hat', id: 'h', x: 32, y: 32,
+          inputs: {
+            BODY: {
+              block: {
+                type: 'gongfa_array', id: 'a',
+                inputs: { RUNE: { block: { type: 'gongfa_array_rune', id: 'r', fields: { RUNES: 3 } } } },
+              },
+            },
+          },
+        }],
+      },
+    } as unknown as WorkspaceJson;
+    const compiled = compileWorkspace(json);
+    expect(compiled.ok, compiled.errors.join('；')).toBe(true);
+    const action = compiled.program!.code.find((op) => op.op === 'ACTION');
+    expect(action).toEqual({ op: 'ACTION', actionId: 'breath', runes: 3 });
+  });
+
+  it('不接阵图 = 普通 ACTION（不带 runes）', () => {
+    const json = {
+      blocks: {
+        languageVersion: 0,
+        blocks: [{ type: 'tick_hat', id: 'h', x: 32, y: 32, inputs: { BODY: { block: { type: 'gongfa_array', id: 'a' } } } }],
+      },
+    } as unknown as WorkspaceJson;
+    const compiled = compileWorkspace(json);
+    expect(compiled.program!.code[0]).toEqual({ op: 'ACTION', actionId: 'breath' });
+  });
+});

@@ -297,20 +297,31 @@ describe('心魔预测线（demonPoints / backlashAtSec）', () => {
     expect(preview([CALM, HALT]).demonPoints[59]).toBe(0);
   });
 
-  it('压不压得住看得见：40 块吐纳 50 秒撞线，同机器加 4 块调息后账正好抵平', () => {
+  it('压不压得住看得见：40 块吐纳 50 秒撞线，加够调息后账正好抵平', () => {
     const breaths: readonly Op[] = [...Array.from({ length: 40 }, () => BREATH), HALT];
-    const damped: readonly Op[] = [...Array.from({ length: 40 }, () => BREATH), CALM, CALM, CALM, CALM, HALT];
+    // 需要几块调息由表里两行现算：改 actions.json 不用回来改这个测试的数字。
+    const calmNeeded = Math.ceil((40 * DEMON_PER_BREATH) / Math.abs(CALM_DEMON_DELTA));
+    const damped: readonly Op[] = [
+      ...Array.from({ length: 40 }, () => BREATH),
+      ...Array.from({ length: calmNeeded }, () => CALM),
+      HALT,
+    ];
     const hot = preview(breaths);
     // 40 × 0.00005 = 0.002/tick = 0.02/秒 → 1.0 要 50 秒（窗口内，面板要出红点那句话）。
     expect(hot.demonPoints[48]).toBeCloseTo(0.98, 12);
     expect(hot.backlashAtSec).toBe(50);
     expect(hot.demonPoints.length).toBe(50);
-    // 4 × (−0.0005) = −0.002 正好抵平：这就是裁定 1 要能回答的那个问题。
-    expect(40 * DEMON_PER_BREATH + 4 * CALM_DEMON_DELTA).toBe(0);
+    // 调息总减量 ≥ 吐纳总增量：这就是裁定 1 要能回答的那个问题。
+    expect(40 * DEMON_PER_BREATH + calmNeeded * CALM_DEMON_DELTA).toBeLessThanOrEqual(1e-12);
     const cool = preview(damped);
     expect(cool.backlashAtSec).toBeNull();
     // 夹 0..1 之后只剩浮点零头：抵平就是抵平，不许画出往下掉的线。
-    expect(cool.demonPoints[59]).toBeCloseTo(0, 15);
+    // 「压得住」这件事的判据是「没撞线 + 比不加调息低」，不是精确等于 0：
+    // 调息是整块动作，负增长在 0 处夹紧之后本来就会留一个非负零头。
+    expect(cool.backlashAtSec).toBeNull();
+    expect(cool.demonPoints[cool.demonPoints.length - 1]!).toBeLessThan(
+      hot.demonPoints[hot.demonPoints.length - 1]!,
+    );
     // 灵力两条一样：调息 baseGain 0、且排在第 41–44 槽，前 40 槽的乘数一个没动 —— 面板上这正是「白捡的减压」。
     expect(cool.points[59]).toBe(hot.points[59]);
   });

@@ -65,6 +65,31 @@ export const GONGFA_REPEAT_JSON = {
  */
 export const BATCH_START_COST = 3;
 
+/**
+ * 批次 26（阵图）：引灵 = 带「阵」凹槽的产出块；阵图 = 带数字的值积木。
+ * 玩家操作只有两步：把阵图拖进凹槽、改数字。阵眼收益递减（见 core/modifier/array.ts）。
+ */
+export const GONGFA_ARRAY_JSON = {
+  kind: 'block_definition',
+  type: 'gongfa_array',
+  message0: '引灵（阵 %1）',
+  args0: [{ type: 'input_value', name: 'RUNE', check: 'Array' }],
+  previousStatement: null,
+  nextStatement: null,
+  style: 'gongfa_action',
+  tooltip: '阵眼越多，单次产出越高，但每次要多走几步',
+} as const;
+
+export const GONGFA_ARRAY_RUNE_JSON = {
+  kind: 'block_definition',
+  type: 'gongfa_array_rune',
+  message0: '阵图 %1 眼',
+  args0: [{ type: 'field_number', name: 'RUNES', min: 1, max: 4, precision: 1, value: 2 }],
+  output: 'Array',
+  style: 'gongfa_value',
+  tooltip: '每多一枚阵眼，总增益变高但每步效率变低',
+} as const;
+
 export const GONGFA_BATCH_JSON = {
   kind: 'block_definition',
   type: 'gongfa_batch',
@@ -153,7 +178,7 @@ export const GONGFA_WHILE_JSON = {
  */
 export const BLOCK_DEFINITIONS: readonly unknown[] = [
   TICK_HAT_JSON, BREATH_JSON, CALM_JSON, GONGFA_IF_JSON, GONGFA_REPEAT_JSON, GONGFA_COMPARE_JSON,
-  GONGFA_BREAK_JSON, GONGFA_CONTINUE_JSON, GONGFA_WHILE_JSON, GONGFA_BATCH_JSON,
+  GONGFA_BREAK_JSON, GONGFA_CONTINUE_JSON, GONGFA_WHILE_JSON, GONGFA_BATCH_JSON, GONGFA_ARRAY_JSON, GONGFA_ARRAY_RUNE_JSON,
 ];
 
 /** 开局预置：画布上只有一个入口块，玩家从工具箱拖「吐纳」进来。 */
@@ -174,6 +199,8 @@ export const TOOLBOX_JSON = {
     { kind: 'block', type: 'gongfa_continue' },
     { kind: 'block', type: 'gongfa_while' },
     { kind: 'block', type: 'gongfa_batch' },
+    { kind: 'block', type: 'gongfa_array' },
+    { kind: 'block', type: 'gongfa_array_rune' },
   ],
 } as const;
 
@@ -194,4 +221,6 @@ export const BLOCK_SPECS: Readonly<Record<string, BlockSpec>> = {
   gongfa_continue: { kind: 'control', label: '继续' },
   gongfa_while: { kind: 'control', label: '重复直到' },
   gongfa_batch: { kind: 'control', label: '沙漏' },
+  gongfa_array: { kind: 'action', label: '引灵' },
+  gongfa_array_rune: { kind: 'value', label: '阵图' },
 };
