@@ -781,15 +781,22 @@ function RetreatPanel({ report, onClose }: { readonly report: RetreatReport; rea
 // 结束态（step === null）只剩文案：没有下一步可跳，按钮留着就是死键。
 // 需求变更 2026-11-21：气泡能贴到目标上时，这条降级成「迷你进度」，只报 n/6 和跳过；
 // 贴不上（目标没渲染、工具箱收起）才把完整文案放回这里 —— 引导的话永远有一个地方说得出。
-export function TutorialBar({ model, mini, onSkip }: { readonly model: TutorialBarModel; readonly mini: boolean; readonly onSkip: () => void }) {
+export function TutorialBar({ model, mini, onSkip, onAdvance }: { readonly model: TutorialBarModel; readonly mini: boolean; readonly onSkip: () => void; readonly onAdvance: () => void }) {
   return (
     <div className={`tutorial-bar${mini ? ' is-mini' : ''}`} role={mini ? undefined : 'status'}>
       {!mini && <p className="tutorial-text">{model.text}</p>}
       {model.step !== null && <p className="tutorial-count">{`${model.step}/${model.total}`}</p>}
       {model.step !== null && (
-        <button className="tutorial-skip" type="button" onClick={onSkip}>
-          跳过引导
-        </button>
+        <>
+          {/* 批次 32：气泡贴不上目标时会退回这条，但它原来只有「跳过」——
+              玩家卡在第 4 步无路可走。继续按钮必须两条路径都有。 */}
+          <button className="tutorial-next" type="button" onClick={onAdvance}>
+            继续 →
+          </button>
+          <button className="tutorial-skip" type="button" onClick={onSkip}>
+            跳过引导
+          </button>
+        </>
       )}
     </div>
   );

@@ -951,7 +951,11 @@ export function App() {
       const names = fresh
         .map((id) => ARTIFACT_CATALOGUE.artifacts.find((artifact) => artifact.id === id)?.name.zh ?? id)
         .join('、');
-      setHud((previous) => ({ ...previous, toast: `${reason}：《${names}》已入储物袋，点「装备」生效` }));
+      // 引导期间不弹：它会正好压在气泡落点上（第 4 步实测被"入门赠礼"盖住）。
+      // 道具照常入袋，只是晚一点再介绍它。
+      if (!tutActive) {
+        setHud((previous) => ({ ...previous, toast: `${reason}：《${names}》已入储物袋，点「装备」生效` }));
+      }
       for (const id of fresh) {
         const moment = `art-${id === 'jade' ? 'jade' : id}` as MomentId;
         if ((MOMENT_TEXTS as Readonly<Record<string, string>>)[moment] !== undefined) pushMoment(moment);
@@ -1084,6 +1088,9 @@ export function App() {
     // 去重规则：只有 PERSISTED_MOMENTS（目前只有 stall）写 gongfa:seen；其余是事件，可反复发生。
     const seenMoments = new Set<string>(readSeenActive(storage));
     const pushMoment = (id: MomentId): void => {
+      // 批次 32：引导期间不弹「道具说明」这类卡片 —— 它会正好落在气泡的落点上
+      // （第 4 步实测：玉简说明盖住了曲线那句话）。引导结束照常补播。
+      if (tutActive) return;
       if (PERSISTED_MOMENTS.includes(id)) {
         if (seenMoments.has(id)) return;
         seenMoments.add(id);
@@ -1304,6 +1311,8 @@ export function App() {
         goalQi: state.sprintGoalQi,
         windowSec: state.sprintWindowMs / 1000,
         demon: state.demon,
+        breaths: workspace.getBlocksByType('breath', false).length,
+        canChallenge: state.canChallenge,
       };
     };
 
@@ -1355,6 +1364,17 @@ export function App() {
       );
       if (next !== tutStep) {
         tutStep = next;
+        // 批次 32：第 4 步指的是下方横条里的曲线，滚动过去它才看得见（否则气泡没处贴）。
+        if (next === 4) {
+          document.querySelector('.curve')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        }
+        // 批次 32：走到第 5 步要让「调息」真的在工具箱里 —— 否则文案叫玩家拖一个
+        // 被引导自己藏起来的块。所以 ≥3 步就放块，不再等「拖完 5 秒」。
+        if (next !== 'done' && next >= 3 && !tutReleased) {
+          tutReleased = true;
+          applyToolbox(runtime.state().realmIndex);
+          refreshFlyoutClasses();
+        }
         tutClicked = false;
         tutStepAt = wallClock.now();
         refreshFlyoutClasses();
@@ -1908,7 +1928,7 @@ export function App() {
           ))}
         </div>
       )}
-      {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
+      {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} onAdvance={() => { tutAdvanceRef.current?.(); }} />}
       {/* 批次 3：算法发现卡片（右上角，3 秒自动消失）。 */}
       {algoCards.length > 0 && (() => {
         const first = algoCards[0];

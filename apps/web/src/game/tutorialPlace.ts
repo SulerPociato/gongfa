@@ -158,7 +158,13 @@ export function placeBubble(
     return { side, left: clampedLeft, top: clampedTop, arrowCross };
   };
 
-  for (const side of ['right', 'below', 'above', 'left'] as BubbleSide[]) {
+  // 批次 32：横条里的目标（曲线/道具/藏经阁）在屏幕下半部，
+  // 优先贴「上方」——那里是画布空白，不会盖住隔壁卡片；否则气泡会骑在下一张卡上。
+  const lowerHalf = cy > vp.height * 0.62;
+  const order: BubbleSide[] = lowerHalf
+    ? ['above', 'right', 'below', 'left']
+    : ['right', 'below', 'above', 'left'];
+  for (const side of order) {
     const p = trySide(side);
     if (p !== null) return p;
   }

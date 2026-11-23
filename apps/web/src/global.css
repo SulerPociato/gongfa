@@ -2127,6 +2127,25 @@ body::before {
 
 
 
+
+/* 批次 32：底部引导条的「继续」。气泡贴不上目标时它是唯一出路。 */
+.tutorial-next {
+  padding: 2px 10px;
+  margin-left: 8px;
+  font: inherit;
+  font-size: 11px;
+  color: #06231f;
+  background: var(--spirit);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.tutorial-next:hover {
+  filter: brightness(1.1);
+}
+
 /* 批次 29：第一次拿到悟道时藏经阁闪三下，引导视线到横条最右边。 */
 .scriptures.is-highlight {
   animation: scripture-pulse 0.85s ease-in-out 3;

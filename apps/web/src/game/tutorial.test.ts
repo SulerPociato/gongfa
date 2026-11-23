@@ -47,17 +47,14 @@ describe('步骤机：玩家点「继续」才翻页', () => {
     expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 9 }), 60_000)).toBe(5);
   });
 
-  it('点一下就前进：1→2→3→4→6（第 4 步心魔没涨直接去渡劫）', () => {
+  it('点一下按 1→2→3→4→5→6 顺序走，一步不落', () => {
     const click = sig({ clicked: true });
     expect(nextTutorialStep(1, click, MIN_ADVANCE_MS)).toBe(2);
     expect(nextTutorialStep(2, click, MIN_ADVANCE_MS)).toBe(3);
     expect(nextTutorialStep(3, click, MIN_ADVANCE_MS)).toBe(4);
-    expect(nextTutorialStep(4, click, MIN_ADVANCE_MS)).toBe(6);
-  });
-
-  it('第 4 步：心魔已经涨起来才教调息，否则直接去第 6 步', () => {
-    expect(nextTutorialStep(4, sig({ clicked: true, demon: 0.1 }), MIN_ADVANCE_MS)).toBe(6);
-    expect(nextTutorialStep(4, sig({ clicked: true, demon: 0.1001 }), MIN_ADVANCE_MS)).toBe(5);
+    // 批次 32：第 5 步（调息）不再按心魔高低跳过 —— 跳过等于从不教这个机制。
+    expect(nextTutorialStep(4, click, MIN_ADVANCE_MS)).toBe(5);
+    expect(nextTutorialStep(5, click, MIN_ADVANCE_MS)).toBe(6);
   });
 
   it('第 6 步点一下收尾，done 之后不再动', () => {
@@ -89,7 +86,8 @@ describe('文案：数字全部插值，不许写死', () => {
   it('第 2 步用模型速率', () => {
     expect(tutorialText(2, { ...NUM, perSec: 10 })).toBe('每秒 +10 灵力。这个数字就是你的算法效率。');
     expect(tutorialText(2, { ...NUM, perSec: 24.666_666 }).startsWith('每秒 +25 灵力')).toBe(true);
-    expect(tutorialText(2, { ...NUM, perSec: 0 })).toBe('灵力在涨了。这个数字就是你的算法效率。');
+    // 点击可以跳过动作：没产出时必须说「还没开张」，不能硬说「在涨」。
+    expect(tutorialText(2, { ...NUM, perSec: 0 })).toBe('还没产出：把「吐纳」拖进凹槽，上面的数字就会开始动。');
   });
 
   it('第 4 步复述对比行的三个数，不是 10 → 18 / +80% 的常量', () => {
@@ -125,20 +123,24 @@ describe('文案：数字全部插值，不许写死', () => {
   it('第 3 步的 0.8 来自 actionMult(2)，第 6 步的 10 秒 / 60% 来自 realm 常量 —— 都不是抄进句子里的字面量', () => {
     const k2 = String(Number(actionMult(2).toFixed(2)));
     expect(k2).toBe('0.8');
-    expect(tutorialText(3, NUM)).toBe(
+    // 文案按现场状态改口：没拖第二块时说「再拖一块」，拖了才说「看这里」。
+    expect(tutorialText(3, { ...NUM, breaths: 1 })).toContain(`只值 ${k2} 倍`);
+    expect(tutorialText(3, { ...NUM, breaths: 2 })).toBe(
       `再拖一块试试。同样一 tick 里第二块只值 ${k2} 倍 —— 这就是边际递减，但总产出还是涨了。`,
     );
-    expect(tutorialText(6, NUM)).toBe(
+    // 第 6 步：按钮还灰着的时候不能叫玩家「点它」。
+    expect(tutorialText(6, { ...NUM, canChallenge: true })).toBe(
       `存量满了。点「可渡劫」—— 渡劫有 ${CHALLENGE_TRIAL_MS / 1000} 秒，不操作会按 ${Math.round(AUTO_RATE * 100)}% 自动结算。`,
     );
+    expect(tutorialText(6, { ...NUM, canChallenge: false })).toContain('按钮会亮');
   });
 
   it('第 5 步的百分比是现场心魔，不是固定台词', () => {
     // 取整到 1%：小数会让整句每 100ms 被重写一次，玩家看到的是文字在抖。
     expect(tutorialText(5, { ...NUM, demon: 0.1234 })).toBe(
-      '注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 12% 了 —— 拖一个「调息」进来压住它。',
+      '心魔这一条：它按「每个动作」涨，吐纳叠得越多涨得越快。现在 12% —— 拖一个「调息」进来压住它。',
     );
-    expect(tutorialText(5, { ...NUM, demon: 0.2671 })).toContain('已经 27% 了');
+    expect(tutorialText(5, { ...NUM, demon: 0.2671 })).toContain('现在 27%');
     expect(tutorialText(5, { ...NUM, demon: 0.1234 })).not.toBe(tutorialText(5, { ...NUM, demon: 0.2671 }));
     // 心魔本来就低还说「已经 X% 了——拖调息压住它」是自相矛盾的假话
     expect(tutorialText(5, { ...NUM, demon: 0.02 })).toContain('还压得住');
@@ -280,17 +282,17 @@ describe('永久关闭只写一个键', () => {
 });
 
 // 需求变更 2026-11-21：气泡要贴住「这一步该看的那个元素」。这里钉住六步的目标映射，
-// 特别是两个容易写错的：第 4 步是 .curve-compare（仓库里没有 .compare 这个类），'done' 没有目标。
+// 特别是两个容易写错的：第 4 步指整块曲线面板（.curve-compare 只在有两条基线时才渲染），'done' 没有目标。
 describe('tutorialTarget：每一步指哪个元素', () => {
   it('第 1/3 步指工具箱里的吐纳块，第 5 步指调息块', () => {
     expect(tutorialTarget(1)).toEqual({ kind: 'flyout', type: 'breath' });
     expect(tutorialTarget(3)).toEqual({ kind: 'flyout', type: 'breath' });
-    expect(tutorialTarget(5)).toEqual({ kind: 'flyout', type: 'calm' });
+    expect(tutorialTarget(5)).toEqual({ kind: 'dom', selector: '.demon-row' });
   });
 
   it('第 2/4/6 步指 HUD 里那三个真实类名', () => {
     expect(tutorialTarget(2)).toEqual({ kind: 'dom', selector: '.hud .qi' });
-    expect(tutorialTarget(4)).toEqual({ kind: 'dom', selector: '.hud .curve-compare' });
+    expect(tutorialTarget(4)).toEqual({ kind: 'dom', selector: '.curve' });
     expect(tutorialTarget(6)).toEqual({ kind: 'dom', selector: '.hud .challenge-button' });
   });
 
@@ -300,7 +302,7 @@ describe('tutorialTarget：每一步指哪个元素', () => {
 
   it('目标键是稳定字符串：React 依赖数组用它，不用对象身份', () => {
     expect(tutorialTargetKey(1)).toBe('flyout:breath');
-    expect(tutorialTargetKey(4)).toBe('.hud .curve-compare');
+    expect(tutorialTargetKey(4)).toBe('.curve');
     expect(tutorialTargetKey('done')).toBe('none');
   });
 });

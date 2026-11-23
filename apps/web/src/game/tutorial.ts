@@ -90,7 +90,8 @@ export function nextTutorialStep(step: TutorialStep, sig: TutorialSignals, stepA
   if (sig.clicked !== true || stepAgeMs < MIN_ADVANCE_MS) return step;
   if (step === 6) return 'done';
   // 第 4 步按现场事实分叉：心魔没被压下去就不教调息，直接去渡劫（原裁定保留）。
-  if (step === 4) return sig.demon > DEMON_HINT ? 5 : 6;
+  // 批次 32：不再按心魔高低跳过第 5 步。跳过 = 玩家永远不会在引导里见到「调息」，
+  // 等撞上走火才第一次听说它。文案自己会按心魔高低改口（见 tutorialText 的 case 5）。
   return (step + 1) as TutorialStep;
 }
 
@@ -111,6 +112,10 @@ export interface TutorialNumbers {
   readonly windowSec: number;
   /** 实时心魔（0–1）。第 5 步要说「已经 X% 了」，那这个 X 只能是当下这一帧的值。 */
   readonly demon: number;
+  /** 画布上的动作块数：第 3 步要判断「是不是真的拖了第二块」。 */
+  readonly breaths?: number;
+  /** 现在能不能渡劫：第 6 步不能对着一颗灰按钮说「点它」。 */
+  readonly canChallenge?: boolean;
 }
 
 /** 倍率文本：0.80 → 「0.8」。表里的 actionMult 改了，这句话跟着变。 */
@@ -126,14 +131,19 @@ export function tutorialText(step: TutorialStep, n: TutorialNumbers): string {
     // 「+10」是模型速率不是字面量：表改成 baseGain 2 这句话得跟着变，不然引导就在念旧数值。
     // qi 刚过 0 的那一帧曲线还没算出来，宁可不报数字也不报「+0」——那是假话。
     case 2:
-      return n.perSec > 0
-        ? `每秒 +${Math.round(n.perSec)} 灵力。这个数字就是你的算法效率。`
-        : '灵力在涨了。这个数字就是你的算法效率。';
-    case 3:
-      return `再拖一块试试。同样一 tick 里第二块只值 ${multText(actionMult(2))} 倍 —— 这就是边际递减，但总产出还是涨了。`;
+      // 点击可以跳过动作，所以这句话必须按现场状态说：没产出时说"还没开张"，不能硬说"在涨"。
+      if (n.perSec > 0) return `每秒 +${Math.round(n.perSec)} 灵力。这个数字就是你的算法效率。`;
+      return '还没产出：把「吐纳」拖进凹槽，上面的数字就会开始动。';
+    case 3: {
+      // 点击可以跳过动作：没拖第二块时不能说「看，涨了」。
+      const second = `同样一 tick 里第二块只值 ${multText(actionMult(2))} 倍 —— 这就是边际递减，但总产出还是涨了。`;
+      return (n.breaths ?? 0) >= 2
+        ? `再拖一块试试。${second}`
+        : `再拖一块「吐纳」：${second}`;
+    }
     case 4: {
       const c = n.compare;
-      if (c === null) return '看，产出涨了 —— 数字就在曲线面板那一行。';
+      if (c === null) return '下面这条曲线：青线是灵力、红线是心魔，共用一条横轴。';
       const p = compareParts(c.fromPerSec, c.toPerSec, c.percent);
       return `看，${p.from} → ${p.to} 每秒（${p.percent}%）。同样的时间，多算一遍。`;
     }
@@ -144,12 +154,15 @@ export function tutorialText(step: TutorialStep, n: TutorialNumbers): string {
       // 玩家看到的是"文字在抖"，不是"心魔在涨"（评审实测）。
       const pct = Math.round(n.demon * 100);
       return n.demon >= DEMON_HINT
-        ? `注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 ${pct}% 了 —— 拖一个「调息」进来压住它。`
-        : `心魔按「每个动作」涨，吐纳叠得越多涨得越快。现在 ${pct}%，还压得住 —— 拖一个「调息」进来。`;
+        ? `心魔这一条：它按「每个动作」涨，吐纳叠得越多涨得越快。现在 ${pct}% —— 拖一个「调息」进来压住它。`
+        : `心魔这一条：按「每个动作」涨，吐纳叠得越多涨得越快。现在 ${pct}%，还压得住 —— 拖一个「调息」进来。`;
     }
     // 10 秒 / 60% 都从 realm 表常量取：trialMs 或 AUTO_RATE 一改，这句话不能还在报旧数。
     case 6:
-      return `存量满了。点「可渡劫」—— 渡劫有 ${CHALLENGE_TRIAL_MS / 1000} 秒，不操作会按 ${Math.round(AUTO_RATE * 100)}% 自动结算。`;
+      // 存量没满时按钮是灰的，不能叫玩家「点它」。
+      return n.canChallenge === true
+        ? `存量满了。点「可渡劫」—— 渡劫有 ${CHALLENGE_TRIAL_MS / 1000} 秒，不操作会按 ${Math.round(AUTO_RATE * 100)}% 自动结算。`
+        : `攒满存量后这个按钮会亮：点亮它开始渡劫，${CHALLENGE_TRIAL_MS / 1000} 秒内点确认 85%，撒手按 ${Math.round(AUTO_RATE * 100)}% 托管。`;
     case 'done':
       return n.goalQi === null
         ? '从这里开始，自己试。'
@@ -273,9 +286,13 @@ export function tutorialTarget(step: TutorialStep): TutorialTarget | null {
     case 2:
       return { kind: 'dom', selector: '.hud .qi' };
     case 4:
-      return { kind: 'dom', selector: '.hud .curve-compare' };
+      // 整块曲线面板：`.curve-compare` 只在有两条基线时才渲染，拿它当靶子会让这一步
+      // 经常无靶可指（气泡隐藏、只剩底部条）。面板本身永远在。
+      return { kind: 'dom', selector: '.curve' };
     case 5:
-      return { kind: 'flyout', type: 'calm' };
+      // 第 5 步讲的是「心魔怎么涨」，指心魔条本身；「调息」此刻可能还被引导藏着，
+      // 指一个不存在的块会让气泡整段消失（只剩底部条），重点就丢了。
+      return { kind: 'dom', selector: '.demon-row' };
     case 6:
       return { kind: 'dom', selector: '.hud .challenge-button' };
     case 'done':
