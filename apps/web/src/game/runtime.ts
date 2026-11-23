@@ -64,6 +64,27 @@ const content = loadContent({ actions: actionsJson, realms: realmsJson });
  */
 export const CALM_DEMON_DELTA: number | null = content.actions.find((action) => action.id === 'calm')?.demonDelta ?? null;
 
+/** 批次 16：心魔长期 ≥80% 会被强行拖入魔道。连续 30 秒，掉回 60% 以下重新计时。 */
+export const DEMON_FALL_LINE = 0.8;
+export const DEMON_FALL_RELEASE = 0.6;
+export const DEMON_FALL_MS = 30_000;
+
+/** 批次 16 的纯判断：守正者心魔连续高位多久会堕入魔道。抽出来是为了能单测。 */
+export function demonFallStep(
+  dao: DaoPath | null,
+  demon: number,
+  highMs: number,
+  deltaMs: number,
+): { readonly highMs: number; readonly fall: boolean } {
+  if (dao !== 'orthodox') return { highMs: 0, fall: false };
+  if (demon >= DEMON_FALL_LINE) {
+    const next = highMs + deltaMs;
+    return { highMs: next, fall: next >= DEMON_FALL_MS };
+  }
+  if (demon < DEMON_FALL_RELEASE) return { highMs: 0, fall: false };
+  return { highMs, fall: false };
+}
+
 export interface RuntimeState {
   readonly qi: number;
   readonly demon: number;
@@ -144,6 +165,8 @@ export interface RuntimeState {
   readonly sprintReached: boolean;
   /** 批次 7：当前道途（null = 还没选）。元进度，不入档。 */
   readonly dao: DaoPath | null;
+  /** 批次 16：是否因心魔高位被动堕入魔道（区别于自选）。 */
+  readonly daoFallback: boolean;
   /** 批次 8：灵根名（由 seed 派生，只影响心魔增速）。 */
   readonly lingGen: string;
   /** 批次 8：丹药冷却剩余毫秒（>0 时按钮置灰）。 */
@@ -175,7 +198,7 @@ type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
   | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
   | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi'
-  | 'dao' | 'lingGen' | 'pillCooldownMs' | 'trace';
+  | 'dao' | 'lingGen' | 'pillCooldownMs' | 'trace' | 'daoFallback';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -382,6 +405,10 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 道途（批次 7）：只影响两处 —— 全产出倍率、心魔基础增速。
   // dao 变化必须重建 sink：demonBase 在 makeActionSink 构造时就固定了。
   let dao: DaoPath | null = deps.dao ?? null;
+  // 批次 16：守正者若长期放纵心魔，会被拖入魔道（不是自选，是行为后果）。
+  // 连续 DEMON_FALL_MS 处于 DEMON_FALL_LINE 以上才生效；掉回 DEMON_FALL_RELEASE 以下清零。
+  let demonHighMs = 0;
+  let daoFallback = false;
   const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.12 : 1);
   // 灵根（批次 8）：seed 派生，只影响心魔增速（×0.9/1.0/1.1），不动产出 ——
   // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
@@ -493,6 +520,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       sprintWindowMs: SPRINT_WINDOW_MS,
       sprintReached: sprintReachedRealm === realmIndex,
       dao,
+      daoFallback,
       lingGen: lingGenName,
       pillCooldownMs: Math.max(0, pillReadyAt - now),
       // 试炼效率（批次 6）：同窗口内用了多少步、每步换多少灵力。
@@ -738,6 +766,17 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
         break;
       }
       state.demon = Math.min(1, Math.max(0, demonBefore + result.demonDelta));
+      // 批次 16：守正 + 心魔高位 → 累计计时；够 30 秒就堕入魔道（一次，不可逆）。
+      if (!daoFallback) {
+        const step = demonFallStep(dao, state.demon, demonHighMs, TICK_MS);
+        demonHighMs = step.highMs;
+        if (step.fall) {
+          dao = 'heretic';
+          daoFallback = true;
+          resetSink();
+          markDirty();
+        }
+      }
     }
     // playMs 只算在线操作时长（契约 §5.1）：R3 的重放算在线（心魔都在照涨），离线那一段则由 settleOffline 明确不计。
     // 惩罚期内的帧在函数开头就 return 了；触发走火的那一帧最多多算一个 rAF（约 16 ms / 5000 ms）。

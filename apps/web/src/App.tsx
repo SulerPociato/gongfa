@@ -85,6 +85,7 @@ function realmModel(state: RuntimeState, found: readonly PatternId[]): RealmMode
       teach: pattern.teach,
       found: found.includes(pattern.id),
     })),
+    dao: state.dao,
   };
 }
 
@@ -497,6 +498,8 @@ export function App() {
     let tutPressed = false;
   // 批次 15：这一步有没有被玩家点「继续」。翻页由它驱动。
   let tutClicked = false;
+  // 批次 16：被动入魔只播一次。
+  let daoFallbackSeen = false;
     let tutStepAt = 0;
     // 需求 13：已经由「气泡上屏」起过表的那一步。每步只认第一次报告，重复报告会把计时一推再推。
     let tutArmedFor: TutorialPlayStep | null = null;
@@ -1375,6 +1378,11 @@ export function App() {
           }, 600);
         }
       }
+      if (state.daoFallback && !daoFallbackSeen) {
+        daoFallbackSeen = true;
+        showToast('心魔久踞不散 · 已堕入魔道（全产出 +12%，心魔增速翻倍）');
+        lastHudKey = '';
+      }
       if (state.sprintReached && !prevSprintReached) {
         // 试炼评分（批次 6）：把"达成"变成可比较的数字——产出、用了多少步、每步换多少灵力。
         // 没有这三个数，「多算一遍」和「省步」就没有共同的度量。
@@ -1586,7 +1594,7 @@ export function App() {
           </button>
         </div>
       </div>
-      <div style={{ position: 'relative', height: '100%' }}>
+      <div className="canvas-wrap" style={{ position: 'relative', height: '100%' }}>
         <div className="canvas" ref={containerRef} />
         <QiParticles rate={hud.rate} />
         {/* 走火入魔的整屏红闪：只闪 0.6 秒，pointer-events:none 不挡操作。 */}

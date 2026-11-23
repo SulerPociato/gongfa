@@ -50,6 +50,8 @@ export interface RealmModel {
   readonly calmText: string | null;
   /** 批次 8：灵根（seed 派生，只影响心魔增速），显示成一行，不参与任何计算。 */
   readonly lingGen: string;
+  /** 批次 16：当前道途（null = 还没选）。 */
+  readonly dao: 'orthodox' | 'heretic' | null;
   /** 批次 8：丹药冷却剩余毫秒；>0 时按钮显示倒计时。 */
   readonly pillCooldownMs: number;
   /** 批次 3：功法谱（算法识别）。 */
@@ -420,7 +422,7 @@ function RealmPanel({ model, qi, onTakePill, onOpenCodex }: { readonly model: Re
       </div>
       {/* 批次 3：功法谱。 */}
       <div className="realm-patterns">
-        <p className="patterns-label">灵根 · {model.lingGen}</p>
+        <p className="patterns-label">灵根 · {model.lingGen}{model.dao === null ? '' : ` · 道途 ${model.dao === 'orthodox' ? '守正' : '入魔'}`}</p>
         {/* 批次 10：功法谱那行就是图鉴入口。评审说得对——藏进设置抽屉没人会点，
             而"N/12"本身就是进度，看到差几个才会想点。 */}
         <button className="patterns-label is-link" type="button" onClick={onOpenCodex}>

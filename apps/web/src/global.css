@@ -2325,19 +2325,52 @@ body::before {
    390px 手机屏上 HUD 会吃掉 77% 宽度、画布只剩一条缝——与其让评审看到一坨挤坏的界面，
    不如明确告知"用电脑打开"。900px 是 HUD 300 + 工具箱 200 + 画布 400 的下限。 */
 @media (max-width: 899px) {
+  /* 批次 17：手机不再是一堵墙 —— 画布在上（46vh），面板在下可滚动。
+     原先那句「请用电脑打开」把移动端直接挡死，真机测试时无法自查。 */
   .layout::before {
-    content: '请用电脑打开（浏览器窗口宽度至少 900px）';
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: #070b10;
-    color: #35e0c8;
-    font: 16px/1.7 system-ui, 'Noto Serif SC', serif;
-    letter-spacing: 0.08em;
-    text-align: center;
+    content: none;
+    display: none;
+  }
+
+  .layout,
+  /* 加宽档在窄屏必须让位：否则 is-wide-hud 的两列规则会压过这里，画布被挤成 20px。 */
+  .layout.is-wide-hud {
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--topbar-height) 46vh 1fr;
+  }
+
+  .canvas-wrap {
+    grid-row: 2;
+    min-height: 0;
+  }
+
+  .hud {
+    grid-row: 3;
+    height: auto;
+    min-height: 0;
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 10px 10px 16px;
+    overflow-y: auto;
+  }
+
+  /* 窄屏下固定区不再钉住：整列都可滚，玩家按顺序读 */
+  .hud-fixed {
+    flex: 0 0 auto;
+  }
+
+  .hud-scroll {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .hud-divider {
+    display: none;
+  }
+
+  .topbar-mode {
+    display: none;
   }
 }
 
