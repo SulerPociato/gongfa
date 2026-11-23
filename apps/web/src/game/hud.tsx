@@ -717,6 +717,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
   }, [model.qi]);
 
   return (
+    <>
     <aside className="hud">
       {/* 固定区：灵力 / 渡劫 / 境界 / 试炼。
           渡劫必须在这里：它是玩家攒满之后唯一要做的事，实测放到滚动区时
@@ -741,14 +742,12 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {/* 批次 15：试炼只在筑基后出现。炼气阶段连循环都没有，60 秒目标只会莫名其妙地弹。 */}
         {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}
       </div>
+    </aside>
 
-      {/* 分隔线 + 渐隐遮罩 */}
-      <div className="hud-divider" />
-
-      {/* 滚动区：曲线/功法与道具/红字/存档。
-          曲线必须在这里：它一进固定区，固定区就吃掉整列高度（实测 858px），
-          滚动区 clientHeight 变 0 —— 红字和道具面板一起消失，比"曲线看不见"更糟。 */}
-      <div className="hud-scroll">
+    {/* 批次 18：右侧只留「此刻要看」的四张卡；其余信息全部挪到画布下方的横条。
+        玩家原话：「右侧有一个能滚动的区域，我想把它拆到屏幕下方」。
+        横条是横向滚动的多列卡片，画布因此拿回整列高度。 */}
+    <section className="hud-bottom" aria-label="更多信息">
         {/* 批次 15：进阶工具默认收起。首屏塞满五张卡的结果是"没有探索欲望"，
             所以只留基础三块（曲线 / 功法与道具 / 道途），工具折叠在「更多工具」里。 */}
         <details className="hud-tools">
@@ -814,7 +813,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         )}
         <p className="hint">把工具箱里的积木拖进「每 tick」下面的凹槽：「如果 / 循环」控制产出节奏，「比较」读心魔、存量或预算。</p>
         <p className="tool-hint">{model.toolHint}</p>
-      </div>
-    </aside>
+      </section>
+    </>
   );
 }

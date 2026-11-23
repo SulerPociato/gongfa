@@ -389,8 +389,6 @@ export function App() {
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // 批次 15：面板加宽（画布让位）。手机/窄窗口下默认加宽，桌面默认 300。
-  const [wideHud, setWideHud] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1280);
   // 试炼最佳效率（元进度 gongfa:best:<slot>）。读档在 effect 里做（storage 那时才建），
   // 这里只存一份内存镜像给 HUD 用；境界切换时按 realmIndex 取。
   const [bestMap, setBestMap] = useState<BestMap>({});
@@ -507,6 +505,8 @@ export function App() {
     let tutBarSig = '';
     let tutReleaseTimer: ReturnType<typeof setTimeout> | null = null;
     let tutEndTimer: ReturnType<typeof setTimeout> | null = null;
+  // 批次 18：Blockly 尺寸观察器的清理句柄（窄屏重排后必须重新量一次 SVG）。
+  let cleanupResizeObserver: (() => void) | null = null;
     // 需求 15：释放窗口（2 秒）里刚放出来的块 id。空 = 不在窗口内。
     let tutNewIds: readonly string[] = [];
     let tutBadgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -519,6 +519,27 @@ export function App() {
       theme: Blockly.Theme.defineTheme(GONGFA_THEME.name, GONGFA_THEME as unknown as ThemeConfig),
       toolbox: toolboxForRealm(booted.realmIndex, booted.demo) as unknown as NonNullable<InjectOptions['toolbox']>,
     });
+
+    // 批次 18：手机/窄屏下 Blockly 的 SVG 尺寸是在 inject 时定的，布局换成堆叠后
+    // 只要不 resize，工具箱里的积木就会画在可视区之外（真机实测左侧一整片空白灰）。
+    // 三种时机都要补：立刻、字体加载后、窗口尺寸/方向变化。
+    const resizeCanvas = (): void => {
+      try {
+        Blockly.svgResize(workspace);
+      } catch {
+        // Blockly 在卸载过程中会抛「workspace disposed」，忽略即可
+      }
+    };
+    resizeCanvas();
+    const resizeLater = window.setTimeout(resizeCanvas, 260);
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', resizeCanvas);
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(resizeCanvas);
+      observer.observe(container);
+      cleanupResizeObserver = () => observer.disconnect();
+    }
+
     // flyout 的块是渲染过的积木，getSvgRoot 在 BlockSvg 上；类型入口没导出 BlockSvg，这里按形状取。
     type RenderedBlock = { readonly getSvgRoot: () => SVGGElement };
     const TUT_TYPES = ['breath', 'calm', 'gongfa_compare'] as const;
@@ -1157,6 +1178,10 @@ export function App() {
           // 走完六步和点「跳过引导」是同一个结局：这条引导一辈子只来一遍，下次清档也不再重播。
           writeTutorialDone(storage);
           if (tutEndTimer !== null) clearTimeout(tutEndTimer);
+      window.clearTimeout(resizeLater);
+      window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('orientationchange', resizeCanvas);
+      cleanupResizeObserver?.();
           tutEndTimer = setTimeout(() => {
             tutEndTimer = null;
             tutActive = false;
@@ -1576,16 +1601,13 @@ export function App() {
   const tutClass = hud.tutorial === null || hud.tutorial.step === null ? '' : ` tut tut-${hud.tutorial.step}`;
 
   return (
-    <div className={`layout${tutClass}${wideHud ? ' is-wide-hud' : ''}`}>
+    <div className={`layout${tutClass}`}>
       <div className="topbar">
         <span className="topbar-logo">代码修仙</span>
         <div className="topbar-right">
           {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
           {!hud.demo && <span className="topbar-badge">在线</span>}
           <span className="topbar-mode">在线 ×1.0 ｜ 闭关 ×0.6</span>
-          <button className="topbar-wide" type="button" onClick={() => setWideHud((value) => !value)} title="加宽右侧面板 / 收回">
-            {wideHud ? '收起面板' : '加宽面板'}
-          </button>
           <button className="topbar-settings" type="button" aria-label="设置" onClick={() => setDrawerOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />
