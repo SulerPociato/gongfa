@@ -13,7 +13,7 @@ import {
   TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, NOISE_LINE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
 import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -28,6 +28,7 @@ import { lockedCount, MIN_REALM, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialPlayStep, type TutorialStep } from './game/tutorial';
 import { readFound, writeFound } from './game/found';
 import { readUnlocked, writeUnlocked } from './game/unlocked';
+import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -202,6 +203,13 @@ function getUnlockToastText(blockId: string): string {
   return UNLOCK_TOAST_TEXTS[blockId] ?? `解锁：${BLOCK_SPECS[blockId]?.label ?? blockId}`;
 }
 
+// moment 的 id 与"解锁块 id"共用一条队列（unlockToasts），这里按 id 分派文案：
+// 先查 moment 表，再查解锁表——两边的 id 空间不重叠（moment 是英文事件名，块 id 是 gongfa_ 前缀）。
+function momentToastText(id: string): string {
+  const moment = (MOMENT_TEXTS as Readonly<Record<string, string>>)[id];
+  return moment ?? getUnlockToastText(id);
+}
+
 function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial'>): HudModel {
   return {
     qi: Math.floor(state.qi),
@@ -323,6 +331,9 @@ export function App() {
   // 境界解锁的「新」角标：和 tutRelease 分开，避免挂 .tut class 导致界面变暗。
   const [unlockNewIds, setUnlockNewIds] = useState<readonly string[]>([]);
   const unlockNewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 走火入魔的整屏红闪：0.6 秒一次，不遮操作（pointer-events:none）。
+  const [backlashFlash, setBacklashFlash] = useState(false);
+  const backlashFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
   // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
   // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
@@ -334,6 +345,8 @@ export function App() {
   const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 面板里两个按钮的实现在 useEffect 里才拿得到 runtime，这里同样只留转发口。
   const trialPressRef = useRef<((mode: 'manual' | 'auto') => void) | null>(null);
+  // 调试跳关（F 键）后立刻清 HUD 闸门，不等下一帧自然刷新。
+  const clearHudKeyRef = useRef<(() => void) | null>(null);
 
   const handleDismissAlgoCard = (): void => {
     setAlgoCards((previous) => previous.slice(1));
@@ -360,7 +373,7 @@ export function App() {
       const first = unlockToasts[0];
       if (first === undefined) return;
       // 内联 toast 逻辑：showToast 在另一个 useEffect 里，这里直接 setHud。
-      setHud((previous) => ({ ...previous, toast: getUnlockToastText(first) }));
+      setHud((previous) => ({ ...previous, toast: momentToastText(first) }));
       if (unlockToastTimerRef.current !== null) clearTimeout(unlockToastTimerRef.current);
       unlockToastTimerRef.current = setTimeout(() => {
         setHud((previous) => ({ ...previous, toast: null }));
@@ -748,10 +761,33 @@ export function App() {
     // 声明在这里是因为渡劫回调点完要把它清空 —— 结算改了 chargeReadyAt / attempt / insight，
     // 那三个字段不在 key 里，不清就会等下一次数字变化才刷新按钮。
     let lastHudKey = '';
+    // 暴露清除函数给调试快捷键（F 键跳关后立刻清闸门，不等下一帧）。
+    clearHudKeyRef.current = () => {
+      lastHudKey = '';
+    };
     // 上一次播报过的结算（同一份引用 = 同一发），用来把托管结算也只说一次。
     let seenChallenge: ChallengeResult | null = null;
     // 批次 5：渡劫前的境界下标，用来计算新解锁的块。
     let realmIndexBeforeChallenge = runtime.state().realmIndex;
+
+    // 批次 5：moment 队列的生产端。四个"状态变了但玩家看不见"的时刻都在这里入队，
+    // 播放端是上面的 unlockToasts effect（等结果层消失后再播，3 秒一条）。
+    // 去重规则：只有 PERSISTED_MOMENTS（目前只有 stall）写 gongfa:seen；其余是事件，可反复发生。
+    const seenMoments = new Set<string>(readSeenActive(storage));
+    const pushMoment = (id: MomentId): void => {
+      if (PERSISTED_MOMENTS.includes(id)) {
+        if (seenMoments.has(id)) return;
+        seenMoments.add(id);
+        writeSeen(storage, activeSlot(storage), [...seenMoments]);
+      }
+      setUnlockToasts((previous) => (previous.includes(id) ? previous : [...previous, id]));
+    };
+    let prevDemon = runtime.state().demon;
+    let prevSprintReached = runtime.state().sprintReached;
+    let prevBacklashCount = runtime.state().backlashTicks.length;
+    // 冷却：杂念 30 秒、走火 10 秒（走火本身有 5 秒罚站，这条只是兜底）。
+    const MOMENT_COOLDOWN_MS: Readonly<Record<'noise' | 'backlash', number>> = { noise: 30_000, backlash: 10_000 };
+    let lastMomentAt: Record<'noise' | 'backlash', number> = { noise: -Infinity, backlash: -Infinity };
 
     // 结算的播报不挂在点击上：托管那一发是 run() 里结算的，没有回调可挂，所以逐帧观察 state.lastChallenge。
     // 境界一变要重推书的衰减（新境按新 realmIndex 算），所以成功路径走一次 refreshBook（同任务 6）。
@@ -1018,6 +1054,8 @@ export function App() {
       if (target instanceof HTMLElement && (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       if (event.key === 'f' || event.key === 'F') {
         const jumped = runtime.jumpToDemoTarget();
+        // 跳关后立刻清 HUD 闸门，强制下一帧重渲染（不等到灵力/速率自然变化）。
+        clearHudKeyRef.current?.();
         showToast(jumped === null
           ? '跳关没生效：realms 表里找不到目标境界'
           : `演示跳关 · ${jumped.realmName} · 存量 ${Qi.format(jumped.qi)} / 阈值 ${Qi.format(jumped.threshold)}`);
@@ -1142,6 +1180,31 @@ export function App() {
         readyToastShown = true;
         showToast('存量已满，可以渡劫了');
       }
+
+      // 批次 5：四个"状态变了但玩家看不见"的时刻。都在渲染闸门之前判定，
+      // 否则 HUD 不重渲染的帧里这些事件会被一起跳过。
+      const nowMs = wallClock.now();
+      if (state.demon >= NOISE_LINE && prevDemon < NOISE_LINE && nowMs - lastMomentAt.noise >= MOMENT_COOLDOWN_MS.noise) {
+        lastMomentAt = { ...lastMomentAt, noise: nowMs };
+        pushMoment('noise');
+      }
+      prevDemon = state.demon;
+      if (state.backlashTicks.length > prevBacklashCount) {
+        prevBacklashCount = state.backlashTicks.length;
+        if (nowMs - lastMomentAt.backlash >= MOMENT_COOLDOWN_MS.backlash) {
+          lastMomentAt = { ...lastMomentAt, backlash: nowMs };
+          pushMoment('backlash');
+          setBacklashFlash(true);
+          if (backlashFlashTimerRef.current !== null) clearTimeout(backlashFlashTimerRef.current);
+          backlashFlashTimerRef.current = setTimeout(() => {
+            backlashFlashTimerRef.current = null;
+            setBacklashFlash(false);
+          }, 600);
+        }
+      }
+      if (state.sprintReached && !prevSprintReached) pushMoment('sprint');
+      prevSprintReached = state.sprintReached;
+      if (state.stall !== null) pushMoment('stall');
       const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}|${tutBarSig}`;
       if (key === lastHudKey) return;
       lastHudKey = key;
@@ -1286,6 +1349,8 @@ export function App() {
       <div style={{ position: 'relative', height: '100%' }}>
         <div className="canvas" ref={containerRef} />
         <QiParticles rate={hud.rate} />
+        {/* 走火入魔的整屏红闪：只闪 0.6 秒，pointer-events:none 不挡操作。 */}
+        {backlashFlash && <div className="backlash-flash" aria-hidden="true" />}
       </div>
       <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。

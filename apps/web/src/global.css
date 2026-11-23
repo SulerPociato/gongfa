@@ -1831,3 +1831,45 @@ body::before {
 .patterns-drawer-item.is-found .patterns-drawer-requires {
   color: rgba(255, 255, 255, 0.6);
 }
+
+/* 批次 5：杂念风险线。心魔 ≥ NOISE_LINE(0.7) 时条变红并轻微呼吸，
+   对应那一刻会开始「产出减半」，光靠百分比数字看不出来。 */
+.bar.demon.is-danger {
+  box-shadow: 0 0 0 1px rgba(224, 75, 58, 0.45), 0 0 12px rgba(224, 75, 58, 0.25);
+}
+
+.bar.demon.is-danger .bar-fill {
+  background: linear-gradient(90deg, #e04b3a, #ff7a63);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .bar.demon.is-danger {
+    animation: demon-danger 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes demon-danger {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(224, 75, 58, 0.45), 0 0 8px rgba(224, 75, 58, 0.2); }
+  50% { box-shadow: 0 0 0 1px rgba(224, 75, 58, 0.7), 0 0 18px rgba(224, 75, 58, 0.45); }
+}
+
+/* 走火入魔的整屏红闪：只在 0.6 秒内出现一次，pointer-events:none 不挡操作。 */
+.backlash-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(224, 75, 58, 0.28), rgba(224, 75, 58, 0) 70%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .backlash-flash {
+    animation: backlash-flash 600ms ease-out;
+  }
+}
+
+@keyframes backlash-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+

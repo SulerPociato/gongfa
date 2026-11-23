@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, type BookPhase, type StallEvent } from '@gongfa/core';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, NOISE_LINE, type BookPhase, type StallEvent } from '@gongfa/core';
 import { compareParts } from './format';
 import type { TutorialBarModel } from './tutorial';
 
@@ -256,10 +256,10 @@ function BookArtifactPanel({ bookModel, artifactRows, onBookAction, onArtifactTo
 }
 
 // 进度条只画比例，数字照样写在文案里：放大镜、纯文本截图、读屏都能拿到同一份数据。
-function Bar({ value, of, label, kind }: { readonly value: number; readonly of: number; readonly label: string; readonly kind: 'qi' | 'demon' | 'sprint' }) {
+function Bar({ value, of, label, kind, danger = false }: { readonly value: number; readonly of: number; readonly label: string; readonly kind: 'qi' | 'demon' | 'sprint'; readonly danger?: boolean }) {
   const percent = Math.min(100, Math.max(0, (value / of) * 100));
   return (
-    <div className={`bar ${kind}`} role="progressbar" aria-label={label} aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
+    <div className={`bar ${kind}${danger ? ' is-danger' : ''}`} role="progressbar" aria-label={label} aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
       <div className="bar-fill" style={{ width: `${percent}%` }} />
     </div>
   );
@@ -373,7 +373,7 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
       <div className="realm-demon tut-target">
         <div className="demon-row">
           <p className="demon-label">心魔</p>
-          <Bar value={model.demon} of={1} label="心魔" kind="demon" />
+          <Bar value={model.demon} of={1} label="心魔" kind="demon" danger={model.demon >= NOISE_LINE} />
           <p className="demon-text">
             {(model.demon * 100).toFixed(1)}%
             {model.calmText !== null && <span className="demon-calm"> {model.calmText}</span>}
