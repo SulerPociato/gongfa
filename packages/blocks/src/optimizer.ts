@@ -5,13 +5,16 @@ import { compileWorkspace, type WorkspaceJson } from './compiler';
  *
  * 它只做一件事：**找出「同一动作连续重复 N 次」的直列写法，建议改成「循环 N 次」**。
  *
- * 为什么这个改写是等价的：VM 在同一 tick 内按顺序执行动作，k 从 1 数到 N；
+ * 为什么这个改写对**产出**是等价的：VM 在同一 tick 内按顺序执行动作，k 从 1 数到 N；
  * 直列 N 块与「循环 N 次包一块」产生的是同一串 actionId 序列，
- * 所以边际递减、玉简命中、心魔增长全都逐位相同（tests 里用线性化后的序列断言）。
+ * 所以边际递减、玉简命中都逐位相同。
  *
- * 代价必须一起报：IR 变短，但**每 tick 步数变多**——循环每次迭代都要执行
- * LOOP_BEGIN/LOOP_END。这正是编译器优化的经典取舍（代码体积 ↔ 运行开销），
- * 面板上两个数都写出来，不替玩家做决定。
+ * **但心魔不等价**：循环把动作深度从 0 提到 1，而契约 §2.2.1 的
+ * `demonGrowth = base × (1 + 0.5 × loopDepth)`，吐纳的心魔增速会 ×1.5
+ * （调息不涨心魔，所以调息改写才是真等价）。这个代价必须显示给玩家。
+ *
+ * 扫描范围：整棵积木树的所有语句链（`每 tick` 本体、`如果` 的则/否则、`循环` 的体），
+ * 取全局最长的一段连续同类型动作来建议 —— 嵌套里的重复同样浪费可读性。
  */
 export interface RewriteSuggestion {
   /** 连续重复的动作块数（≥3 才会建议）。 */
@@ -21,11 +24,11 @@ export interface RewriteSuggestion {
   readonly irBefore: number;
   readonly irAfter: number;
   /**
-   * 心魔增速的倍数：循环把动作深度从 0 提到 1，吐纳的心魔增长按 (1+0.5×depth) 算 → ×1.5。
-   * 调息不涨心魔（kind !== 'gain'），所以是 1。
-   * 这条必须显示给玩家：**产出等价，但吐纳改写会让心魔涨得更快**。
+   * 心魔增速的倍数：循环把动作深度 +1，吐纳按 (1+0.5×depth) 计 → ×1.5；调息是 1。
    */
   readonly demonFactor: number;
+  /** 这一段所在的语句链（用于面板说明，例如「循环体里」）。 */
+  readonly where: string;
   /** 应用后的画布 JSON（与 before 同构，只替换那一段）。 */
   readonly after: WorkspaceJson;
 }
@@ -40,14 +43,68 @@ type BlockJson = {
 };
 
 const ACTION_TYPES = new Set(['breath', 'calm']);
+const STATEMENT_INPUTS = ['BODY', 'IF', 'ELSE', 'DO'] as const;
+const MAX_NODES = 400;
 
-function hatBody(json: WorkspaceJson): { hat: BlockJson; body: BlockJson } | null {
-  const blocks = (json.blocks?.blocks ?? []) as BlockJson[];
-  const hat = blocks.find((block) => block.type === 'tick_hat');
-  if (hat === undefined) return null;
-  const body = (hat.inputs as Record<string, { block?: BlockJson }> | undefined)?.BODY?.block;
-  if (body === undefined) return null;
-  return { hat, body };
+interface Chain {
+  readonly blocks: BlockJson[];
+  /** 这一段链挂在哪：语句凹槽，或前一块的 next。 */
+  readonly setFirst: (block: BlockJson) => void;
+  readonly label: string;
+}
+
+function blockInput(block: BlockJson, key: string): BlockJson | undefined {
+  return (block.inputs as Record<string, { block?: BlockJson }> | undefined)?.[key]?.block;
+}
+
+/** 深度优先收集所有语句链，顺序固定（决定「取哪一段」的可复现性）。 */
+function collectChains(json: WorkspaceJson): Chain[] {
+  const chains: Chain[] = [];
+  const roots = (json.blocks?.blocks ?? []) as BlockJson[];
+  const hat = roots.find((block) => block.type === 'tick_hat');
+  if (hat === undefined) return chains;
+
+  const visitBlock = (block: BlockJson, label: string): void => {
+    for (const key of STATEMENT_INPUTS) {
+      const first = blockInput(block, key);
+      if (first === undefined) continue;
+      const childLabel = key === 'BODY' ? '每 tick' : key === 'DO' ? '循环体' : key === 'IF' ? '则' : '否则';
+      pushChain(block, key, first, `${label}${childLabel}`);
+    }
+    // 同一层的后续积木也要递归（它们各自可能带语句凹槽）
+    let cursor = block.next?.block;
+    while (cursor !== undefined) {
+      visitBlock(cursor, label);
+      cursor = cursor.next?.block;
+    }
+  };
+
+  const pushChain = (holder: BlockJson, key: string, first: BlockJson, label: string): void => {
+    const blocks: BlockJson[] = [];
+    let cursor: BlockJson | undefined = first;
+    let nodes = 0;
+    while (cursor !== undefined && nodes < MAX_NODES) {
+      blocks.push(cursor);
+      visitBlock(cursor, `${label} › `);
+      cursor = cursor.next?.block;
+      nodes += 1;
+    }
+    chains.push({
+      blocks,
+      label,
+      setFirst: (block) => {
+        const inputs = (holder.inputs ??= {}) as Record<string, unknown>;
+        inputs[key] = { block };
+      },
+    });
+  };
+
+  const hatBody = blockInput(hat, 'BODY');
+  if (hatBody !== undefined) {
+    pushChain(hat, 'BODY', hatBody, '');
+    visitBlock(hat, '');
+  }
+  return chains;
 }
 
 function chainLength(json: WorkspaceJson): number {
@@ -55,85 +112,63 @@ function chainLength(json: WorkspaceJson): number {
   return compiled.ok && compiled.program !== null ? compiled.program.code.length : 0;
 }
 
-/**
- * 扫描顶层直列链，找第一段 ≥3 个同类型动作。
- * 只处理顶层：嵌套里的改写涉及父子指针，收益一样但出错代价更高，P1 不做。
- */
 export function suggestRewrite(json: WorkspaceJson): RewriteSuggestion | null {
-  const body = hatBody(json);
-  if (body === null) return null;
+  const chains = collectChains(json);
+  if (chains.length === 0) return null;
 
-  const nodes: BlockJson[] = [];
-  let cursor: BlockJson | undefined = body.body;
-  while (cursor !== undefined && nodes.length < 64) {
-    nodes.push(cursor);
-    cursor = cursor.next?.block;
-  }
-
-  let start = -1;
-  let length = 0;
-  for (let i = 0; i < nodes.length; i += 1) {
-    const type = nodes[i]?.type;
-    if (type === undefined || !ACTION_TYPES.has(type)) continue;
-    let end = i;
-    while (end + 1 < nodes.length && nodes[end + 1]?.type === type) end += 1;
-    if (end - i + 1 > length) {
-      start = i;
-      length = end - i + 1;
+  let best: { chainIndex: number; start: number; length: number; actionType: string; label: string } | null = null;
+  chains.forEach((chain, chainIndex) => {
+    const blocks = chain.blocks;
+    for (let i = 0; i < blocks.length; i += 1) {
+      const type = blocks[i]?.type;
+      if (type === undefined || !ACTION_TYPES.has(type)) continue;
+      let end = i;
+      while (end + 1 < blocks.length && blocks[end + 1]?.type === type) end += 1;
+      const length = end - i + 1;
+      if (length >= 3 && (best === null || length > best.length)) {
+        best = { chainIndex, start: i, length, actionType: type, label: chain.label };
+      }
+      i = end;
     }
-    i = end;
-  }
-  if (length < 3 || start < 0) return null;
+  });
+  if (best === null) return null;
 
-  const first = nodes[start];
-  if (first?.type === undefined) return null;
-  const actionType = first.type;
+  const target = best as { chainIndex: number; start: number; length: number; actionType: string; label: string };
 
-  // 深拷贝一份，只改这一段：其余积木（含嵌套）原样保留。
+  // 深拷贝后按同样的遍历顺序取同一条链，只替换那一段；其余积木（含外层循环）原样保留。
   const cloned = JSON.parse(JSON.stringify(json)) as WorkspaceJson;
-  const clonedBody = hatBody(cloned);
-  if (clonedBody === null) return null;
+  const clonedChains = collectChains(cloned);
+  const chain = clonedChains[target.chainIndex];
+  if (chain === undefined) return null;
 
-  let prev: BlockJson | null = null;
-  let node: BlockJson | undefined = clonedBody.body;
-  for (let i = 0; i < start && node !== undefined; i += 1) {
-    prev = node;
-    node = node.next?.block;
-  }
-  if (node === undefined) return null;
-
-  // 在克隆链上找「这一段之后的第一个节点」，直接复用它的引用 —— 不重建对象，
-  // 否则 exactOptionalPropertyTypes 会因 type/id 可能是 undefined 而报错，也容易丢字段。
-  let tail: BlockJson | undefined = node;
-  for (let i = 0; i < length && tail !== undefined; i += 1) tail = tail.next?.block;
+  const firstInRun = chain.blocks[target.start];
+  if (firstInRun === undefined) return null;
+  const prev = target.start === 0 ? null : chain.blocks[target.start - 1];
+  const tail = chain.blocks[target.start + target.length];
 
   const repeat: BlockJson = {
     type: 'gongfa_repeat',
     id: `opt-repeat-${Date.now().toString(36)}`,
-    fields: { NUM: length },
-    inputs: { DO: { block: { type: actionType, id: `opt-act-${Date.now().toString(36)}` } } },
+    fields: { NUM: target.length },
+    inputs: { DO: { block: { type: target.actionType, id: `opt-act-${Date.now().toString(36)}` } } },
   };
   if (tail !== undefined) repeat.next = { block: tail };
 
-  if (prev === null) {
-    (clonedBody.hat.inputs as Record<string, unknown>).BODY = { block: repeat };
-  } else {
-    prev.next = { block: repeat };
-  }
+  if (prev === null || prev === undefined) chain.setFirst(repeat);
+  else prev.next = { block: repeat };
 
   const irBefore = chainLength(json);
   const irAfter = chainLength(cloned);
   if (irBefore === 0 || irAfter === 0) return null;
-  // 没有真的变短就不建议：改写要是不能减少指令，就没有存在的理由。
   if (irAfter >= irBefore) return null;
 
   return {
-    runLength: length,
-    actionType,
+    runLength: target.length,
+    actionType: target.actionType,
     irBefore,
     irAfter,
-    // 契约 §2.2.1：demonGrowth = base × (1 + 0.5 × loopDepth)；改写把深度 0 → 1。
-    demonFactor: actionType === 'breath' ? 1.5 : 1,
+    demonFactor: target.actionType === 'breath' ? 1.5 : 1,
+    where: target.label,
     after: cloned,
   };
 }

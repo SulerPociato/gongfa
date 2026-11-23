@@ -65,4 +65,74 @@ describe('炼器炉：直列 N 块 → 循环 N 次', () => {
     } as unknown as WorkspaceJson;
     expect(suggestRewrite(empty)).toBeNull();
   });
+
+  // 嵌套里的直列同样浪费可读性：外层循环不变，只折叠它体内那一段。
+  it('循环体里的直列也会被建议，且外层循环保留', () => {
+    let inner: Record<string, unknown> | undefined;
+    for (let i = 4; i >= 1; i -= 1) {
+      inner = { type: 'breath', id: `in${i}`, ...(inner ? { next: { block: inner } } : {}) };
+    }
+    const nested = {
+      blocks: {
+        languageVersion: 0,
+        blocks: [{
+          type: 'tick_hat', id: 'h', x: 32, y: 32,
+          inputs: {
+            BODY: {
+              block: {
+                type: 'gongfa_repeat', id: 'outer', fields: { NUM: 3 },
+                inputs: { DO: { block: inner } },
+              },
+            },
+          },
+        }],
+      },
+    } as unknown as WorkspaceJson;
+
+    const suggestion = suggestRewrite(nested);
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.runLength).toBe(4);
+    expect(suggestion!.where).toContain('循环体');
+    expect(suggestion!.irAfter).toBeLessThan(suggestion!.irBefore);
+
+    // 外层循环还在，产出序列不变
+    const before = programOf(nested);
+    const after = programOf(suggestion!.after);
+    expect(linearizeProgram(after.code, 400).kinds).toEqual(linearizeProgram(before.code, 400).kinds);
+  });
+
+  it('顶层 2 块 + 嵌套 4 块时，选更长的嵌套那段', () => {
+    let inner: Record<string, unknown> | undefined;
+    for (let i = 4; i >= 1; i -= 1) {
+      inner = { type: 'breath', id: `n${i}`, ...(inner ? { next: { block: inner } } : {}) };
+    }
+    const mixed = {
+      blocks: {
+        languageVersion: 0,
+        blocks: [{
+          type: 'tick_hat', id: 'h', x: 32, y: 32,
+          inputs: {
+            BODY: {
+              block: {
+                type: 'breath', id: 't1',
+                next: {
+                  block: {
+                    type: 'breath', id: 't2',
+                    next: {
+                      block: {
+                        type: 'gongfa_repeat', id: 'outer', fields: { NUM: 3 },
+                        inputs: { DO: { block: inner } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }],
+      },
+    } as unknown as WorkspaceJson;
+    const suggestion = suggestRewrite(mixed);
+    expect(suggestion!.runLength).toBe(4);
+  });
 });

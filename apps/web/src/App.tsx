@@ -968,7 +968,7 @@ export function App() {
       setModal({
         title: '炼器炉：发现一处可改写',
         body: [
-          `把连续 ${suggestion.runLength} 块「${actionName}」改成「循环 ${suggestion.runLength} 次」。`,
+          `${suggestion.where === '' ? '' : `在「${suggestion.where}」里：`}把连续 ${suggestion.runLength} 块「${actionName}」改成「循环 ${suggestion.runLength} 次」。`,
           `IR 指令：${suggestion.irBefore} → ${suggestion.irAfter}（少 ${suggestion.irBefore - suggestion.irAfter} 条）`,
           `每 tick 步数：${stepsBefore} → ${stepsAfter}（多 ${stepsAfter - stepsBefore} 步）`,
           `产出完全等价；${demonLine}。`,
