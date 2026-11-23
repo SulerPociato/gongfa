@@ -340,7 +340,9 @@ export function App() {
   };
 
   // 批次 5：境界解锁 toast 自动消失（3 秒一条，不叠加）。
+  // 时序：等结果层（outcome）消失后 300ms 再开始播放，避免被结果层盖住。
   const UNLOCK_TOAST_DURATION = 3_000;
+  const UNLOCK_DELAY_AFTER_OUTCOME = 300;
   useEffect(() => {
     if (unlockToasts.length === 0) {
       if (unlockToastTimerRef.current !== null) {
@@ -349,19 +351,27 @@ export function App() {
       }
       return;
     }
-    const first = unlockToasts[0];
-    if (first === undefined) return;
-    // 内联 toast 逻辑：showToast 在另一个 useEffect 里，这里直接 setHud。
-    setHud((previous) => ({ ...previous, toast: getUnlockToastText(first) }));
-    if (unlockToastTimerRef.current !== null) clearTimeout(unlockToastTimerRef.current);
-    unlockToastTimerRef.current = setTimeout(() => {
-      setHud((previous) => ({ ...previous, toast: null }));
-      setUnlockToasts((previous) => previous.slice(1));
-    }, UNLOCK_TOAST_DURATION);
+    // 结果层在场时只排队，不播放
+    if (outcome !== null) {
+      return;
+    }
+    // 结果层消失后等 300ms 再开始播放
+    const delayTimer = setTimeout(() => {
+      const first = unlockToasts[0];
+      if (first === undefined) return;
+      // 内联 toast 逻辑：showToast 在另一个 useEffect 里，这里直接 setHud。
+      setHud((previous) => ({ ...previous, toast: getUnlockToastText(first) }));
+      if (unlockToastTimerRef.current !== null) clearTimeout(unlockToastTimerRef.current);
+      unlockToastTimerRef.current = setTimeout(() => {
+        setHud((previous) => ({ ...previous, toast: null }));
+        setUnlockToasts((previous) => previous.slice(1));
+      }, UNLOCK_TOAST_DURATION);
+    }, UNLOCK_DELAY_AFTER_OUTCOME);
     return () => {
+      clearTimeout(delayTimer);
       if (unlockToastTimerRef.current !== null) clearTimeout(unlockToastTimerRef.current);
     };
-  }, [unlockToasts]);
+  }, [unlockToasts, outcome]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -425,13 +435,15 @@ export function App() {
       }
     };
     let toolboxSig = `${booted.realmIndex}|`;
-    // 引导期间钉住工具箱（批准）：Blockly 的 flyout 默认 autoClose=true，玩家随手点一下画布它就整棵
-    // display:none，第 1/3/5 步的气泡天天「目标消失」—— 那是常态不是边角情况。引导一停就还原。
+    // 批次 5 补完：工具箱全局常驻（不只是引导期）。
+    // 理由：这游戏没有「收起工具箱」的需求；误点画布丢工具箱是纯损失。
     // setAutoClose 不在 IFlyout 接口上（在 Flyout 实现里），按形状取，和上面 RenderedBlock 同一手法。
     type FlyoutAutoClose = { readonly setAutoClose: (value: boolean) => void };
     const pinFlyout = (): void => {
-      (workspace.getFlyout() as unknown as FlyoutAutoClose | null)?.setAutoClose(!tutActive);
+      (workspace.getFlyout() as unknown as FlyoutAutoClose | null)?.setAutoClose(false);
     };
+    // 批次 5 补完：注入后立即钉住工具箱。
+    pinFlyout();
     const applyToolbox = (index: number): void => {
       const hidden = hiddenToolboxTypes(tutActive, tutReleased);
       const sig = `${index}|${hidden.join(',')}`;
@@ -954,7 +966,7 @@ export function App() {
             tutActive = false;
             tutBar = null;
             tutBarSig = '';
-            // 引导没了，工具箱该还给玩家自己开关。
+            // 批次 5 补完：引导结束但工具箱继续常驻（全局钉住，不再还给玩家开关）。
             pinFlyout();
             setHud((previous) => ({ ...previous, tutorial: null }));
             // 批次 3：引导结束的当下立刻识别一次（裁定 5）。
