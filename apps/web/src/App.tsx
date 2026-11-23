@@ -206,6 +206,25 @@ function getUnlockToastText(blockId: string): string {
   return UNLOCK_TOAST_TEXTS[blockId] ?? `解锁：${BLOCK_SPECS[blockId]?.label ?? blockId}`;
 }
 
+// 批次 6：道具指南（设置抽屉里）。effect 与 content/artifacts.json 的措辞对齐，
+// "什么时候用" 是玩家真正会问的那句 —— 没有它，两件道具就是两个不知道何时开的关键字。
+const ARTIFACT_GUIDE: readonly { readonly id: string; readonly glyph: string; readonly name: string; readonly effect: string; readonly when: string }[] = [
+  {
+    id: 'jade',
+    glyph: '玉',
+    name: '玉简',
+    effect: '同一 tick 内重复执行的相同动作产出 ×0.7，但那一步不占预算',
+    when: '筑基后开始用「循环」重复同一动作时。动作重复得越多，省下的步数越明显；只跑一遍的程序它没有作用',
+  },
+  {
+    id: 'abacus',
+    glyph: '算',
+    name: '算盘',
+    effect: '每 tick 指令预算 +50 步（200 → 250）',
+    when: '程序撞上预算、HUD 出现「第 N 步没跑完」时。它不提高效率，只让你能多算几步',
+  },
+];
+
 // moment 的 id 与"解锁块 id"共用一条队列（unlockToasts），这里按 id 分派文案：
 // 先查 moment 表，再查解锁表——两边的 id 空间不重叠（moment 是英文事件名，块 id 是 gongfa_ 前缀）。
 // 需要带实时数字的 moment（试炼评分）在入队前把整句写进 overrides，表里只留固定句式。
@@ -1478,6 +1497,22 @@ export function App() {
                       <p className="patterns-drawer-name">{pattern.name}</p>
                       <p className="patterns-drawer-algorithm">{pattern.algorithm}</p>
                       {!pattern.found && <p className="patterns-drawer-requires">需要：{pattern.requires}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* 批次 6：道具指南（玩家问"这是干什么的、哪个时期用"）。 */}
+            <div className="patterns-drawer">
+              <p className="patterns-drawer-title">道具指南</p>
+              <ul className="patterns-drawer-list">
+                {ARTIFACT_GUIDE.map((row) => (
+                  <li key={row.id} className="patterns-drawer-item is-found">
+                    <span className="patterns-drawer-check">{row.glyph}</span>
+                    <div className="patterns-drawer-content">
+                      <p className="patterns-drawer-name">{row.name}</p>
+                      <p className="patterns-drawer-algorithm">{row.effect}</p>
+                      <p className="patterns-drawer-requires">什么时候用：{row.when}</p>
                     </div>
                   </li>
                 ))}

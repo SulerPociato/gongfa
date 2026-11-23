@@ -6,7 +6,7 @@ import type { CmpArg, LoadKey, Op } from '../vm/program';
 // 展开后的 kinds 会把「则分支里的动作」丢掉（profile.ts 的 jmp 一律走 false 路径），
 // 用它判反馈控制等于把整条 then-branch 抹掉，判据就错了。
 
-export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while';
+export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive';
 
 /**
  * 谱的分母从这张表来，不写死 4：表里加一行新图案，HUD 的「功法谱 N/4」自动变 N/5，
@@ -29,6 +29,7 @@ export const PATTERNS: readonly PatternDef[] = [
   { id: 'cache', name: '玉简缓存', algorithm: '缓存命中', requires: '循环跑两遍以上 + 装备玉简' },
   { id: 'break', name: '见好就收', algorithm: '提前退出（early exit / 剪枝）', requires: '循环里放「中断」' },
   { id: 'while', name: '不定周天', algorithm: '条件循环（while）', requires: '「重复直到」里放动作' },
+  { id: 'adaptive', name: '自适应周天', algorithm: '分支预测 / 自适应迭代', requires: '「循环」里放一个「如果」' },
 ];
 
 export const PATTERN_TOTAL = PATTERNS.length;
@@ -189,6 +190,10 @@ export function shapeOf(code: readonly Op[], equipped: readonly string[]): Progr
         branches.push({ at: index, ...condition, thenIds, elseIds });
         for (const entry of loopStack) {
           const loopEnd = entry.endPc;
+          // while 自己的条件跳转（目标正好是本层 WHILE_EXIT）不算"循环体里有分支"：
+          // 编译器的重复直到永远发这一条，算进去的话每个 while 都会被判成 adaptive（评审指出的误判）。
+          const isOwnWhileCondition = entry.isWhile && op.target === loopEnd;
+          if (isOwnWhileCondition) continue;
           if (index > entry.begin && index < loopEnd) {
             loopBranches.set(entry.begin, true);
           }
@@ -245,6 +250,7 @@ export function patternsOf(shape: ProgramShape): readonly PatternId[] {
   if (matchesCache(shape)) hits.push('cache');
   if (matchesBreak(shape)) hits.push('break');
   if (matchesWhile(shape)) hits.push('while');
+  if (matchesAdaptive(shape)) hits.push('adaptive');
   return hits;
 }
 
@@ -305,4 +311,15 @@ function matchesBreak(shape: ProgramShape): boolean {
  */
 function matchesWhile(shape: ProgramShape): boolean {
   return shape.loops.some((loop) => loop.isWhile);
+}
+
+/**
+ * adaptive：固定次数的循环里还有分支 —— 每一圈是否走「则」由条件决定，不是死板地跑 N 遍。
+ *
+ * 判据刻意排除 while：编译器的「重复直到」永远自带一条条件跳转，
+ * 不排除的话每个 while 都会被顺带判成 adaptive（评审实测过的误判）。
+ * hasBranch 在 shapeOf 里已经剔掉了 while 自己的条件跳，这里再要求 !isWhile 是双保险。
+ */
+function matchesAdaptive(shape: ProgramShape): boolean {
+  return shape.loops.some((loop) => !loop.isWhile && loop.hasBranch);
 }

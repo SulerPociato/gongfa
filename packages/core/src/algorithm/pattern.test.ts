@@ -289,4 +289,41 @@ describe('patternsOf — 组合', () => {
     expect(patterns).toContain('while');
     expect(patterns).toContain('break');
   });
+
+  // adaptive：循环体里带条件分支（每一圈看条件决定走不走），而 while 自己的条件跳不算。
+  it('循环里放「如果」→ 自适应周天', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 10, count: 3 },
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.5 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 8 },
+      { op: 'ACTION', actionId: 'calm' },
+      { op: 'JMP', target: 9 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('adaptive');
+  });
+
+  // 反例：重复直到自带一条条件跳转，不能被算成「循环里有分支」。
+  it('单独的重复直到 → 不是自适应周天', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' },
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.7 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 7 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'WHILE_END', begin: 1 },
+      { op: 'WHILE_EXIT' },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('while');
+    expect(patterns).not.toContain('adaptive');
+  });
 });
