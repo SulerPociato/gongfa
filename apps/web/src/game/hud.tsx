@@ -113,6 +113,10 @@ export interface SprintModel {
   readonly windowMs: number;
   /** 本境界是否已拿到减半：只生效一次、不可叠加，所以达成后要换成完成态文案。 */
   readonly reached: boolean;
+  /** 同一窗口内累计执行的指令数（批次 6：试炼评分）。 */
+  readonly steps: number;
+  /** 每步换多少灵力 = progressQi / steps；steps 为 0 时为 0。 */
+  readonly perQi: number;
 }
 
 /**
@@ -407,7 +411,14 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
         <Bar value={model.progressQi} of={model.goalQi} label="试炼进度" kind="sprint" />
         <p className="sprint-progress">{Math.floor(model.progressQi)} / {model.goalQi}</p>
       </div>
-      <p className="sprint-text">{seconds} 秒内达成可减半蓄势</p>
+      <p className="sprint-text">
+        {model.reached
+          ? `已达成 · 用了 ${model.steps} 步 · 效率 ${model.perQi.toFixed(3)} 灵力/步`
+          : `${seconds} 秒内达成可减半蓄势`}
+      </p>
+      {!model.reached && model.steps > 0 && (
+        <p className="sprint-text sprint-eff">当前效率 {model.perQi.toFixed(3)} 灵力/步（{model.steps} 步）</p>
+      )}
     </div>
   );
 }

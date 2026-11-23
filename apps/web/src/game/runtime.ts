@@ -140,6 +140,10 @@ export interface RuntimeState {
   readonly sprintWindowMs: number;
   /** 本境界是否已拿到「蓄势减半」：换境界后回到 false（§7.1.1 只生效一次、不可叠加）。 */
   readonly sprintReached: boolean;
+  /** 同一 60 秒窗口内累计执行的指令数（批次 6：试炼评分）。0 = 没有程序在跑。 */
+  readonly sprintSteps: number;
+  /** 窗口内「每步换多少灵力」= sprintProgressQi / sprintSteps；0 步时为 0。 */
+  readonly sprintPerQi: number;
   /**
    * 最近一次「结算」（10 秒到点的托管、挑战中的手动确认、演示模式的当场结算都算，拒绝也算）：
    * 托管那一发是 run() 里结算的，没有按钮可挂回调，所以结果放在状态里由宿主逐帧观察，
@@ -156,7 +160,7 @@ export interface RuntimeState {
 type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
   | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
-  | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached';
+  | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -370,6 +374,22 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // sprintReachedRealm 记的是「哪一境拿到过减半」，所以下标相等才算已达成：换境后自然失效，
   // 一条比较同时管住「只生效一次」与「不可叠加」。与 attempt / insight 同族：只在内存、刷新重置、不入档。
   const sprint = new SprintWindow();
+  // 试炼效率（批次 6）：和产出窗口同长度的一条步数环，用来算「每步换多少灵力」。
+  // 单独记的原因：SprintWindow 存的是 Qi，步数是普通计数，混在一起会把 BigInt 语义带进 UI。
+  const sprintStepCells: number[] = new Array<number>(sprint.capacityTicks).fill(0);
+  let sprintStepCursor = 0;
+  let sprintStepSum = 0;
+  const pushSprintSteps = (steps: number): void => {
+    const evicted = sprintStepCells[sprintStepCursor] ?? 0;
+    sprintStepCells[sprintStepCursor] = steps;
+    sprintStepSum = sprintStepSum - evicted + steps;
+    sprintStepCursor = (sprintStepCursor + 1) % sprint.capacityTicks;
+  };
+  const resetSprintSteps = (): void => {
+    sprintStepCells.fill(0);
+    sprintStepCursor = 0;
+    sprintStepSum = 0;
+  };
   let sprintReachedRealm: number | null = null;
 
   // 宿主策略决定窗口：演示模式与 ?charge=0 把窗口设成 0，核心只做「首次达标 + 窗口」这一条加法。
@@ -409,6 +429,10 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       sprintProgressQi: sprint.total(),
       sprintWindowMs: SPRINT_WINDOW_MS,
       sprintReached: sprintReachedRealm === realmIndex,
+      // 试炼效率（批次 6）：同窗口内用了多少步、每步换多少灵力。
+      // steps 为 0 时效率给 0，HUD 那边用「有没有程序在跑」来决定显不显示，不在这里造 NaN。
+      sprintSteps: sprintStepSum,
+      sprintPerQi: sprintStepSum > 0 ? sprint.total() / sprintStepSum : 0,
       noiseTicks,
       backlashTicks,
     };
@@ -491,6 +515,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 试炼窗口跟着境界走：上一境那 60 秒的产出与新境的目标毫无关系，
       // 不清空会让刚破境的玩家立刻「达成」下一境的试炼（契约 §7.1.1 是每境界各自一条）。
       sprint.reset();
+  resetSprintSteps();
       state.breakthroughs += 1;
       resetSink();
     }
@@ -529,6 +554,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
           realmIndex = newRealmIndex;
           // 离线渡劫也换境界：窗口属于「刚才那一境」，不留给下一境白拿减半（离线产出本就不计窗口）。
           sprint.reset();
+  resetSprintSteps();
           resetSink();
         },
       });
@@ -603,6 +629,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 顺序要紧 —— 先 armCharge 再判试炼：这一 tick 若同时是「首次达标」，用的是上一 tick 为止的窗口，
       // 下一 tick 才享受减半；反过来会让同一 tick 既 arm 出整窗、又立刻挪半窗，两个口径叠一处说不清。
       sprint.push(gained);
+      pushSprintSteps(result.steps);
       const goal = sprintGoalQi(realmIndex);
       if (goal !== undefined && sprintReachedRealm !== realmIndex && sprint.isAtOrAbove(goal)) {
         sprintReachedRealm = realmIndex;
@@ -710,6 +737,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 试炼与 attempt / insight 同族：只在内存，换档 / 重载一律重新攒 60 秒。
       // 不清 sprintReachedRealm 的话，「上一档在筑基拿到的减半」会跟着新档的筑基境界生效。
       sprint.reset();
+  resetSprintSteps();
       sprintReachedRealm = null;
       // 上一份会话的结算结果不带进这一局：否则刚刷新就看见一句陈年的「渡劫失败」。
       state.lastChallenge = null;
@@ -794,6 +822,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       state.chargeReadyAt = 0;
       state.attempt = 1;
       sprint.reset();
+  resetSprintSteps();
       trialUntil = 0;
       cooldownUntil = 0;
       resetSink();

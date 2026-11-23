@@ -101,6 +101,8 @@ function sprintModel(state: RuntimeState): SprintModel {
     progressQi: state.sprintProgressQi,
     windowMs: state.sprintWindowMs,
     reached: state.sprintReached,
+    steps: state.sprintSteps,
+    perQi: state.sprintPerQi,
   };
 }
 
@@ -206,7 +208,11 @@ function getUnlockToastText(blockId: string): string {
 
 // moment 的 id 与"解锁块 id"共用一条队列（unlockToasts），这里按 id 分派文案：
 // 先查 moment 表，再查解锁表——两边的 id 空间不重叠（moment 是英文事件名，块 id 是 gongfa_ 前缀）。
+// 需要带实时数字的 moment（试炼评分）在入队前把整句写进 overrides，表里只留固定句式。
+const momentTextOverrides = new Map<string, string>();
 function momentToastText(id: string): string {
+  const override = momentTextOverrides.get(id);
+  if (override !== undefined) return override;
   const moment = (MOMENT_TEXTS as Readonly<Record<string, string>>)[id];
   return moment ?? getUnlockToastText(id);
 }
@@ -1232,7 +1238,16 @@ export function App() {
           }, 600);
         }
       }
-      if (state.sprintReached && !prevSprintReached) pushMoment('sprint');
+      if (state.sprintReached && !prevSprintReached) {
+        // 试炼评分（批次 6）：把"达成"变成可比较的数字——产出、用了多少步、每步换多少灵力。
+        // 没有这三个数，「多算一遍」和「省步」就没有共同的度量。
+        const goal = state.sprintGoalQi ?? 0;
+        momentTextOverrides.set(
+          'sprint',
+          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步。本境界蓄势减半。`,
+        );
+        pushMoment('sprint');
+      }
       prevSprintReached = state.sprintReached;
       if (state.stall !== null) pushMoment('stall');
       // 道具说明卡：拥有即提示一次（"什么时候能用"由玩家自己的进度决定，
