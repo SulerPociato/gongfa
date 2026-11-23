@@ -12,7 +12,7 @@
 
 演示版按键：`F` 跳到下一境界达标前 5%（金丹），`X` 打开渡劫面板，`R` 清档重开。
 
-## 当前文档（4 份）
+## 当前文档（6 份）
 
 | 文件 | 给谁看 | 内容 |
 |---|---|---|
@@ -20,6 +20,7 @@
 | [01-design.md](01-design.md) | 玩法 / 策划 | 教育内核、核心循环、功法书、法宝、视觉、演示脚本 |
 | [02-architecture.md](02-architecture.md) | 技术 | 分层、内容驱动、VM 摘要、二阶段后端 |
 | [03-qoder-brief.md](03-qoder-brief.md) | 开发执行者 | 项目总述 + 任务 1–11 + Blockly 参考程序 |
+| [04-mapping-roadmap.md](04-mapping-roadmap.md) | 设计 / 开发 | P0 教育映射边界、P1 候选闸门、P2 研究池 |
 | [12-teaching.md](12-teaching.md) | 设计 / 评审 | 教育理念、竞品对照、算法↔修仙命名原则 |
 
 **评审顺序**：00 → 01 →（需要时）02
@@ -34,6 +35,7 @@
 | [reviews/06-freeze-request.md](reviews/06-freeze-request.md) | 第三轮回应：两个真 bug 修复、冻结申请 |
 | [reviews/07-freeze-fixes.md](reviews/07-freeze-fixes.md) | 8 条冻结阻塞项的修复记录 |
 | [reviews/08-final-sync.md](reviews/08-final-sync.md) | 10 项文档同步修复 + 自动化自查 |
+| [reviews/09-mapping-adversarial-review.md](reviews/09-mapping-adversarial-review.md) | 映射路线图三轮对抗审查与优化记录 |
 
 ## 工具
 
