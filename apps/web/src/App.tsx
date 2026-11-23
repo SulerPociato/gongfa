@@ -228,6 +228,20 @@ const ARTIFACT_GUIDE: readonly { readonly id: string; readonly glyph: string; re
     effect: '每 tick 指令预算 +50 步（200 → 250）',
     when: '程序撞上预算、HUD 出现「第 N 步没跑完」时。它不提高效率，只让你能多算几步',
   },
+  {
+    id: 'pearl',
+    glyph: '珠',
+    name: '灵珠',
+    effect: '全产出 ×1.10（动作产出与境界被动都算）',
+    when: '任何时候都有效，但它是乘数不是加法：基础速率越高，收益越大',
+  },
+  {
+    id: 'vase',
+    glyph: '瓶',
+    name: '玉净瓶',
+    effect: '心魔增速 ×0.90',
+    when: '心魔经常越过 70%、杂念频繁时。它不改你的产出，只让心魔涨得慢一点',
+  },
 ];
 
 // moment 的 id 与"解锁块 id"共用一条队列（unlockToasts），这里按 id 分派文案：
@@ -1304,6 +1318,8 @@ export function App() {
       // 不按境界或时间硬塞）。玉简提醒"配循环"，算盘提醒"撞上限时再用"。
       if (game.equippedArtifacts.includes('jade') || game.ownedArtifacts.includes('jade')) pushMoment('art-jade');
       if (game.equippedArtifacts.includes('abacus') || game.ownedArtifacts.includes('abacus')) pushMoment('art-abacus');
+      if (game.equippedArtifacts.includes('pearl') || game.ownedArtifacts.includes('pearl')) pushMoment('art-pearl');
+      if (game.equippedArtifacts.includes('vase') || game.ownedArtifacts.includes('vase')) pushMoment('art-vase');
       const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}|${tutBarSig}`;
       if (key === lastHudKey) return;
       lastHudKey = key;
@@ -1486,7 +1502,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onTakePill={handleTakePill} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onOpenCodex={() => setDrawerOpen(true)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
@@ -1571,6 +1587,21 @@ export function App() {
                 ))}
               </ul>
             </div>
+            {/* 批次 10：修仙体系与世界观（评审：缺的设定用说明承接，但必须让玩家点得到）。
+                折叠默认收起：抽屉只有 300px，全展开会把「重置存档」顶出首屏。 */}
+            <details className="codex-section">
+              <summary>道途与流派</summary>
+              <p>四境界：炼气 → 筑基 → 金丹 → 元婴。化神之后的劫，本门尚未开启。</p>
+              <p>流派：守正 / 入魔已开放，一次定终身；剑修、丹修、阵修、符修、体修在后续版本。</p>
+              <p>灵根：开局由命格（种子）决定，上品心魔涨得慢、下品更快，不影响产出。</p>
+              <p>丹药：存量换心魔，心魔条旁「服丹」；丹炉温养需要 30 秒。</p>
+            </details>
+            <details className="codex-section">
+              <summary>世界观</summary>
+              <p>洞府：你的画布。宗门与师尊：尚未出现。</p>
+              <p>符箓＝条件，阵法＝循环，玉简＝缓存：这三句是这个世界的底层规则。</p>
+              <p>转世与飞升：元婴之后的路，留给下一次更新。</p>
+            </details>
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
                 重置存档

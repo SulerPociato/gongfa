@@ -1898,6 +1898,46 @@ body::before {
   color: rgba(232, 201, 120, 0.75);
 }
 
+/* 批次 10：功法谱那行做成入口（评审：藏在设置里没人点）。 */
+.patterns-label.is-link {
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--spirit);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.patterns-label.is-link:hover {
+  color: var(--gold);
+}
+
+/* 批次 10：道途/世界观折叠段。默认收起，保证「重置存档」仍在首屏。 */
+.codex-section {
+  margin: 8px 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.codex-section summary {
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: rgba(53, 224, 200, 0.8);
+}
+
+.codex-section p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.66);
+}
+
 /* 批次 6：应用内确认弹窗（替代 window.confirm）。原生弹窗会阻塞 JS、
    样式不可控，而且在录屏里一眼是半成品。 */
 .modal-overlay {

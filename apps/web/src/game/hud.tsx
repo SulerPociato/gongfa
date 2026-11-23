@@ -375,7 +375,7 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
   );
 }
 
-function RealmPanel({ model, qi, onTakePill }: { readonly model: RealmModel; readonly qi: number; readonly onTakePill: () => void }) {
+function RealmPanel({ model, qi, onTakePill, onOpenCodex }: { readonly model: RealmModel; readonly qi: number; readonly onTakePill: () => void; readonly onOpenCodex: () => void }) {
   const paused = model.pauseRemainingMs > 0;
   return (
     <div className="realm">
@@ -412,7 +412,11 @@ function RealmPanel({ model, qi, onTakePill }: { readonly model: RealmModel; rea
       {/* 批次 3：功法谱。 */}
       <div className="realm-patterns">
         <p className="patterns-label">灵根 · {model.lingGen}</p>
-        <p className="patterns-label">功法谱 {model.patterns.filter((p) => p.found).length} / {model.patterns.length}</p>
+        {/* 批次 10：功法谱那行就是图鉴入口。评审说得对——藏进设置抽屉没人会点，
+            而"N/12"本身就是进度，看到差几个才会想点。 */}
+        <button className="patterns-label is-link" type="button" onClick={onOpenCodex}>
+          功法谱 {model.patterns.filter((p) => p.found).length} / {model.patterns.length} →
+        </button>
       </div>
     </div>
   );
@@ -613,7 +617,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -647,7 +651,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
-        <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} />
+        <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} onOpenCodex={onOpenCodex} />
         <SprintPanel model={model.sprint} />
       </div>
 

@@ -31,5 +31,39 @@
         }
       }
     ]
+  },
+  {
+    "id": "pearl",
+    "name": {
+      "zh": "灵珠"
+    },
+    "effects": [
+      {
+        "type": "modifier",
+        "modifier": {
+          "id": "pearl_rate",
+          "target": "rate",
+          "kind": "mul",
+          "value": 1.1
+        }
+      }
+    ]
+  },
+  {
+    "id": "vase",
+    "name": {
+      "zh": "玉净瓶"
+    },
+    "effects": [
+      {
+        "type": "modifier",
+        "modifier": {
+          "id": "vase_demon",
+          "target": "demonRate",
+          "kind": "mul",
+          "value": 0.9
+        }
+      }
+    ]
   }
 ]

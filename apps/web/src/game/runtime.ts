@@ -211,7 +211,7 @@ export interface Runtime {
    * 玉简换 sink（命中折扣与免步都取自规格本身），算盘换 VM 的预算池。
    * 传全中性（jadeCache: null、budgetBonus: 0）就是两件都卸下。
    */
-  attachArtifacts(equipment: Pick<ArtifactEquipment, 'jadeCache' | 'budgetBonus'>): void;
+  attachArtifacts(equipment: Pick<ArtifactEquipment, 'jadeCache' | 'budgetBonus' | 'modifiers'>): void;
   /**
    * 「可渡劫」按钮的唯一入口（契约 §7.1）：蓄势就绪时开启 10 秒挑战，挑战中再点一次按 mode 当场结算，
    * 放手到点则由 run() 按托管 60% 自动结算。mode 默认 'manual'（85%），「交给天意」传 'auto'。
@@ -392,6 +392,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let currentBook: BookDef | null = null;
   // 玉简的规格和书一样是「装上去就固定进 sink」的事实，卸下即 null；预算池另存在 VM 里，见 attachArtifacts。
   let currentJadeCache: JadeCacheSpec | null = null;
+  // 道具提供的通用修正（rate / demonRate）：每次 attachArtifacts 整体替换，卸下即空数组。
+  let artifactModifiers: readonly Modifier[] = [];
   let sink: SettleSink;
   // 离线快进期间要静音事件（36 000 条 stall 会刷爆控制台），用这个标志位控制 onEvent
   let offlineQuiet = false;
@@ -486,6 +488,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 卸下或固化时传 null 就得到完全中性的 1 / []，不可能只剩一半。
   // 玉简（§2.4）挤在同一个 sink 里：命中折扣与命中步数都来自 currentJadeCache，null = 两样都不生效。
   const resetSink = (): void => {
+    const bookDeps = bookSettleDeps(currentBook, state.realm);
     sink = makeActionSink({
       content,
       realmIndex,
@@ -493,7 +496,10 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 道途（批次 7）：邪修的代价只加在「心魔基础增速」上，所以走 demonBase，
       // 不走 demonMult —— demonMult 会把调息的减量一起放大，等于惩罚变奖励。
       demonBase: demonBaseOf(dao),
-      ...bookSettleDeps(currentBook, state.realm),
+      ...bookDeps,
+      // 道具的通用修正（批次 10：灵珠 +10% 产出、玉净瓶 -10% 心魔增速）与书自带的修正合并。
+      // 书与道具是两套内容表，谁也不能覆盖谁。
+      modifiers: [...(bookDeps.modifiers ?? []), ...artifactModifiers],
     });
     state.bookId = currentBook?.id ?? null;
     state.bookDecay = sink.mults.bookDecay;
@@ -826,6 +832,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     },
     attachArtifacts: (equipment) => {
       currentJadeCache = equipment.jadeCache;
+      artifactModifiers = equipment.modifiers;
       resetSink();
       // 池 = BASE_BUDGET + 道具加成（契约 §2.4「预算 = BASE_BUDGET(200) + 算盘加成」）。
       // 只换池不重建 VM：重建会把 ticksRun 归零，同种子回放就此散架。

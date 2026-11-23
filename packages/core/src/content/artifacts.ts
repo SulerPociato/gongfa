@@ -30,7 +30,9 @@ export interface ArtifactEquipment {
   readonly jadeCache: JadeCacheSpec | null;
   /** 装备位里 budget 类 add modifier 的合计（同 id 只算最后一个），宿主加到 BASE_BUDGET 上。 */
   readonly budgetBonus: number;
-  /** 表里没有的 id、以及 7A 还不消费的 modifier，逐条写明原因，不静默吞掉。 */
+  /** 道具提供的通用修正（rate / demonRate）：由宿主合并进 sink 的 modifiers，与功法书的修改一起结算。 */
+  readonly modifiers: readonly Modifier[];
+  /** 表里没有的 id、以及当前还不消费的 modifier，逐条写明原因，不静默吞掉。 */
   readonly errors: readonly string[];
 }
 
@@ -180,6 +182,7 @@ export function equipArtifacts(artifacts: readonly ArtifactDef[], equippedIds: r
   const errors: string[] = [];
   const budgetById = new Map<string, number>();
   let jadeCache: JadeCacheSpec | null = null;
+  const modifiers: Modifier[] = [];
 
   for (const id of equippedIds) {
     const artifact = byId.get(id);
@@ -195,6 +198,10 @@ export function equipArtifacts(artifacts: readonly ArtifactDef[], equippedIds: r
       }
       const modifier = effect.modifier;
       if (modifier.target !== 'budget') {
+        if (modifier.target === 'rate' || modifier.target === 'demonRate') {
+          modifiers.push(modifier);
+          continue;
+        }
         errors.push(`道具 ${artifact.id} 的 modifier ${modifier.id} 目标 ${modifier.target} 在 7A 还不消费，先报出来不算生效`);
         continue;
       }
@@ -204,5 +211,5 @@ export function equipArtifacts(artifacts: readonly ArtifactDef[], equippedIds: r
 
   let budgetBonus = 0;
   for (const value of budgetById.values()) budgetBonus += value;
-  return { jadeCache, budgetBonus, errors };
+  return { jadeCache, budgetBonus, modifiers, errors };
 }
