@@ -542,6 +542,56 @@ body::before {
   background: rgba(28, 34, 40, 0.35);
 }
 
+/* 矮视口（1280×720 之类）：曲线让位给 CTA 与试炼，压到 88px 并收紧内边距。
+   实测 720 高时固定区原本要 691px，滚动区只剩 33px —— 曲线等于不可见。 */
+@media (max-height: 820px) {
+  /* 矮视口：整列 HUD 允许滚动（滚动条隐藏），而不是把内容裁掉。
+     渡劫按钮排在最前面，所以它在任何滚动位置都不受影响；曲线/功法靠滚动看。 */
+  .hud {
+    padding: 10px;
+    gap: 6px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .hud::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hud-fixed,
+  .hud-scroll {
+    gap: 6px;
+  }
+
+  /* 矮视口优先保住：灵力、渡劫按钮、境界、试炼。
+     功法谱那行与曲线图例在这个高度下不是决策信息，直接收起。 */
+  .realm-patterns,
+  .sprint-eff {
+    display: none;
+  }
+
+  .qi-card {
+    padding: 8px 10px;
+  }
+
+  .qi {
+    font-size: 30px;
+  }
+
+  .steps {
+    font-size: 10px;
+  }
+
+  .hud .curve-svg {
+    height: 88px;
+  }
+
+  .hud .curve-legend,
+  .hud .curve-danger {
+    display: none;
+  }
+}
+
 .hud .curve-line {
   fill: none;
   stroke: var(--spirit);

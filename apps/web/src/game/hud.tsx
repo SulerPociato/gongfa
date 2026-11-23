@@ -607,7 +607,9 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
 
   return (
     <aside className="hud">
-      {/* 固定区：灵力/境界/试炼 */}
+      {/* 固定区：灵力 / 渡劫 / 境界 / 试炼。
+          渡劫必须在这里：它是玩家攒满之后唯一要做的事，实测放到滚动区时
+          在 1440×900 下被裁掉 3~20px（top 806/823，bottom 903/920），等于主 CTA 看不见。 */}
       <div className="hud-fixed">
         <div className="qi-card">
           <p className="label">灵力</p>
@@ -621,17 +623,19 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         </div>
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
+        <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
         <RealmPanel model={model.realm} qi={model.qi} />
         <SprintPanel model={model.sprint} />
+        {/* 曲线也放固定区：它是"改一块值多少"的唯一反馈，藏进滚动区等于没有。
+            1280×720 下靠 CSS 压到 120px 高（见 global.css 的 max-height 媒体查询）。 */}
+        <CurvePanel model={model.curve} />
       </div>
 
       {/* 分隔线 + 渐隐遮罩 */}
       <div className="hud-divider" />
 
-      {/* 滚动区：曲线/渡劫/功法与道具 */}
+      {/* 滚动区：功法与道具（不用每次盯的东西） */}
       <div className="hud-scroll">
-        <CurvePanel model={model.curve} />
-        <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
         <BookArtifactPanel
           bookModel={model.book}
           artifactRows={model.artifacts}
