@@ -1197,8 +1197,12 @@ body::before {
   /* 需求 14：换目标时气泡是「移过去」，不是换个位置重画。过渡常驻在基类上（.tut-ring 同一份），
      组件写「反向位移」那一步临时把 style.transition 压成 none，写完立刻交还给这里 ——
      用 class 开关会被 React 重渲染重写的 className 抹掉，中途掐断过渡就等于瞬移。
-     prefers-reduced-motion 下全局规则把 transition-duration 压到 0.01ms，于是自动瞬移（裁定 5）。 */
-  transition: transform 200ms ease;
+     prefers-reduced-motion 下全局规则把 transition-duration 压到 0.01ms，于是自动瞬移（裁定 5）。
+
+     批次 7：200ms ease → 260ms cubic-bezier(.4,0,.2,1)。
+     原先是「先快后猛停」，跨度 100–900px 时前 3 帧就走完大半，观感是瞬移+拖尾；
+     这条曲线两端都慢，中段快，长距离才跟得上。改时长必须同步 tutorialBubble 的 FLIP_GUARD_MS。 */
+  transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
   visibility: hidden;
   z-index: 12;
 }
@@ -1972,6 +1976,30 @@ body::before {
 .modal-cancel:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+
+/* 批次 8：丹药按钮。小、贴着心魔条 —— 它是"看到心魔高才想起来"的东西，
+   不该和渡劫按钮抢位置。 */
+.pill-button {
+  margin-left: auto;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--gold);
+  background: rgba(232, 201, 120, 0.08);
+  border: 1px solid rgba(232, 201, 120, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pill-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pill-button:hover:not(:disabled) {
+  filter: brightness(1.2);
 }
 
 /* 批次 7：道途选择卡。两条路必须并排、代价写在同一行，玩家才会真比较。 */

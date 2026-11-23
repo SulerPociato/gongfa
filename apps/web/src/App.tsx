@@ -72,6 +72,8 @@ function realmModel(state: RuntimeState, found: readonly PatternId[]): RealmMode
     canBreakthrough: state.canBreakthrough,
     pauseRemainingMs: state.pauseRemainingMs,
     demon: state.demon,
+    lingGen: state.lingGen,
+    pillCooldownMs: state.pillCooldownMs,
     calmText: CALM_DEMON_DELTA === null ? null : `调息 ${CALM_DEMON_DELTA}/次`,
     patterns: PATTERNS.map((pattern) => ({
       id: pattern.id,
@@ -322,6 +324,7 @@ export function App() {
   const challengeActionRef = useRef<(() => void) | null>(null);
   // 道具开关同理：装备要当场重算 sink 与预算池，只有 useEffect 里才摸得到 runtime 与控制器。
   const artifactActionRef = useRef<((id: string) => void) | null>(null);
+  const pillActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
   const tutorialSkipRef = useRef<(() => void) | null>(null);
   // 需求 13 的起表报告：实现挂在 useEffect 作用域里，这里只留一条身份稳定的转发函数当 prop ——
@@ -899,6 +902,17 @@ export function App() {
     // 任务 6.5：「可渡劫」的唯一入口。点击本身只可能带来两种新信息：
     // ① 蓄势就绪 → 开启 10 秒挑战；② 前置条件没满足（惩罚 / 阈值 / 末境 / 冷却 / 蓄势）→ 红字。
     // 当场结算（手动确认、演示模式）与到点结算（托管）都由 reportChallenge 说。
+    // 批次 8：服丹。失败原因逐条说清楚（冷却 / 心魔太低 / 存量不足），成功也给一句确认。
+    pillActionRef.current = (): void => {
+      const result = runtime.takePill();
+      if (!result.ok) {
+        showToast(result.reason ?? '服丹失败');
+        return;
+      }
+      lastHudKey = '';
+      showToast('服丹：心魔 -15%，存量 -5%');
+    };
+
     challengeActionRef.current = (): void => {
       // 引导把它当「这一套他会了」：点过就一直算点过（第 5 步不设单独跳过，裁定 3）。
       tutPressed = true;
@@ -1365,6 +1379,7 @@ export function App() {
       detachBook();
       detachArtifacts();
       challengeActionRef.current = null;
+      pillActionRef.current = null;
       trialPressRef.current = null;
       // 浮层是本地 state：StrictMode 的第二次挂载没有 demoPanelOpen，留着会挂着一块关不掉的面板。
       setDemoTrial(false);
@@ -1413,6 +1428,11 @@ export function App() {
     writeDao(storage, path);
   };
 
+  // 服丹（批次 8）：结果用 toast 说清楚——失败原因（冷却/心魔太低/存量不够）比成功更需要解释。
+  const handleTakePill = (): void => {
+    pillActionRef.current?.();
+  };
+
   const handleResetSave = (): void => {    setModal({
       title: '重置存档',
       body: RESET_CONFIRM_TEXT,
@@ -1456,7 +1476,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (

@@ -6,7 +6,7 @@ import type { CmpArg, LoadKey, Op } from '../vm/program';
 // 展开后的 kinds 会把「则分支里的动作」丢掉（profile.ts 的 jmp 一律走 false 路径），
 // 用它判反馈控制等于把整条 then-branch 抹掉，判据就错了。
 
-export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive';
+export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive' | 'nested' | 'switch' | 'guard';
 
 /**
  * 谱的分母从这张表来，不写死 4：表里加一行新图案，HUD 的「功法谱 N/4」自动变 N/5，
@@ -29,7 +29,10 @@ export const PATTERNS: readonly PatternDef[] = [
   { id: 'cache', name: '玉简缓存', algorithm: '缓存命中', requires: '循环跑两遍以上 + 装备玉简' },
   { id: 'break', name: '见好就收', algorithm: '提前退出（early exit / 剪枝）', requires: '循环里放「中断」' },
   { id: 'while', name: '不定周天', algorithm: '条件循环（while）', requires: '「重复直到」里放动作' },
-  { id: 'adaptive', name: '自适应周天', algorithm: '分支预测 / 自适应迭代', requires: '「循环」里放一个「如果」' },
+  { id: 'adaptive', name: '自适应周天', algorithm: '条件迭代（每圈看条件）', requires: '「循环」里放一个「如果」' },
+  { id: 'nested', name: '大小周天', algorithm: '嵌套迭代', requires: '「循环」里再放一个「循环」' },
+  { id: 'switch', name: '换气', algorithm: '状态机（双分支）', requires: '「如果」的两个分支都放了动作' },
+  { id: 'guard', name: '护体真气', algorithm: '预算守卫 / 剪枝', requires: '循环里用「预算」条件 + 「中断」' },
 ];
 
 export const PATTERN_TOTAL = PATTERNS.length;
@@ -251,6 +254,9 @@ export function patternsOf(shape: ProgramShape): readonly PatternId[] {
   if (matchesBreak(shape)) hits.push('break');
   if (matchesWhile(shape)) hits.push('while');
   if (matchesAdaptive(shape)) hits.push('adaptive');
+  if (matchesNested(shape)) hits.push('nested');
+  if (matchesSwitch(shape)) hits.push('switch');
+  if (matchesGuard(shape)) hits.push('guard');
   return hits;
 }
 
@@ -322,4 +328,26 @@ function matchesWhile(shape: ProgramShape): boolean {
  */
 function matchesAdaptive(shape: ProgramShape): boolean {
   return shape.loops.some((loop) => !loop.isWhile && loop.hasBranch);
+}
+
+/** nested：至少两层循环，且内层里有动作（大小周天 = 嵌套迭代）。 */
+function matchesNested(shape: ProgramShape): boolean {
+  return shape.loops.some((loop) => loop.depth >= 1 && loop.actionIds.length > 0);
+}
+
+/**
+ * switch：条件分支的两边都放了动作 —— 这才叫"看情况走哪条路"。
+ * 只有 then 是"提前退出"或"守卫"，不是状态机；只有 else 等于写反了。
+ */
+function matchesSwitch(shape: ProgramShape): boolean {
+  return shape.branches.some((branch) => branch.thenIds.length > 0 && branch.elseIds.length > 0);
+}
+
+/**
+ * guard：循环里出现「预算」条件 + 中断 —— 用预算当资源上界主动收手（剪枝）。
+ * 单有预算条件不够（那是读数），单有中断也不够（那是提前退出）；两者同现才算守卫。
+ */
+function matchesGuard(shape: ProgramShape): boolean {
+  const hasBudgetBranch = shape.branches.some((branch) => branch.key === 'budget');
+  return hasBudgetBranch && shape.loops.some((loop) => loop.hasBreak);
 }

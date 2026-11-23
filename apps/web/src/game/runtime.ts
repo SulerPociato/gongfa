@@ -143,6 +143,10 @@ export interface RuntimeState {
   readonly sprintReached: boolean;
   /** 批次 7：当前道途（null = 还没选）。元进度，不入档。 */
   readonly dao: DaoPath | null;
+  /** 批次 8：灵根名（由 seed 派生，只影响心魔增速）。 */
+  readonly lingGen: string;
+  /** 批次 8：丹药冷却剩余毫秒（>0 时按钮置灰）。 */
+  readonly pillCooldownMs: number;
   /** 同一 60 秒窗口内累计执行的指令数（批次 6：试炼评分）。0 = 没有程序在跑。 */
   readonly sprintSteps: number;
   /** 窗口内「每步换多少灵力」= sprintProgressQi / sprintSteps；0 步时为 0。 */
@@ -164,7 +168,7 @@ type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
   | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
   | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi'
-  | 'dao';
+  | 'dao' | 'lingGen' | 'pillCooldownMs';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -225,6 +229,12 @@ export interface Runtime {
    * 会重建 sink —— 邪修的代价是 demonBase，而 sink 在构造时就把 demonBase 固定了。
    */
   setDao(path: DaoPath): void;
+  /**
+   * 服丹（批次 8）：存量 ×5% 换心魔 -0.15，30 秒冷却。
+   * 存在的理由：心魔是唯一风险系统，而"调息"只压不换；丹药让存量从"只用来突破"
+   * 变成一种可花的资源，也给入魔的高增速一个可对冲的手段。
+   */
+  takePill(): { readonly ok: boolean; readonly reason?: string };
   /**
    * 离线结算入口（任务 7B，契约 §7.2）：快进指定时长的 tick，按 0.6 折算入账，
    * 期间心魔不涨、杂念不砍、走火不罚。返回结算结果（null = 没跑，例如 0 tick）。
@@ -357,7 +367,15 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // dao 变化必须重建 sink：demonBase 在 makeActionSink 构造时就固定了。
   let dao: DaoPath | null = deps.dao ?? null;
   const daoRate = (path: DaoPath | null): number => (path === 'orthodox' ? 1.08 : path === 'heretic' ? 1.2 : 1);
-  const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 1.4 : 1);
+  // 灵根（批次 8）：seed 派生，只影响心魔增速（×0.9/1.0/1.1），不动产出 ——
+  // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
+  const lingGenIndex = (state.seed >>> 0) % 3;
+  const lingGenName = ['上品灵根', '中品灵根', '下品灵根'][lingGenIndex] ?? '中品灵根';
+  const lingGenDemon = [0.9, 1, 1.1][lingGenIndex] ?? 1;
+  const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 1.4 : 1) * lingGenDemon;
+  // 丹药冷却（批次 8）：墙钟，不按 tick —— 倍速下不该变成 30/3 秒。
+  const PILL_COOLDOWN_MS = 30_000;
+  let pillReadyAt = 0;
   const noiseTicks: number[] = [];
   const backlashTicks: number[] = [];
   const noteTick = (list: number[], tick: number): void => {
@@ -453,6 +471,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       sprintWindowMs: SPRINT_WINDOW_MS,
       sprintReached: sprintReachedRealm === realmIndex,
       dao,
+      lingGen: lingGenName,
+      pillCooldownMs: Math.max(0, pillReadyAt - now),
       // 试炼效率（批次 6）：同窗口内用了多少步、每步换多少灵力。
       // steps 为 0 时效率给 0，HUD 那边用「有没有程序在跑」来决定显不显示，不在这里造 NaN。
       sprintSteps: sprintStepSum,
@@ -869,6 +889,18 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       // 产出倍率在 run() 里现读，心魔基数在 sink 里固定：两者都要立刻生效，所以重建 sink。
       resetSink();
       markDirty();
+    },
+    takePill: () => {
+      const now = wallClock.now();
+      if (state.pauseRemainingMs > 0) return { ok: false, reason: '走火入魔期间无法服丹' };
+      if (now < pillReadyAt) return { ok: false, reason: `丹炉还在温养（${((pillReadyAt - now) / 1000).toFixed(1)} 秒）` };
+      if (state.demon <= 0.02) return { ok: false, reason: '心魔已经很低了，别浪费' };
+      if (state.qi < currentRealm().threshold * 0.02) return { ok: false, reason: '存量太少，服丹会伤根本' };
+      state.qi -= state.qi * 0.05;
+      state.demon = Math.max(0, state.demon - 0.15);
+      pillReadyAt = now + PILL_COOLDOWN_MS;
+      markDirty();
+      return { ok: true };
     },
     preview: (program) => program === null
       ? null

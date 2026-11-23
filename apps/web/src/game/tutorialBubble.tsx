@@ -36,7 +36,7 @@ import {
 const POLL_MS = 400;
 
 /** CSS 里那段过渡是 200ms（.is-flip），这里给一点余量当作「还在飞」的判定窗口。 */
-const FLIP_GUARD_MS = 240;
+const FLIP_GUARD_MS = 320;
 
 /**
  * 「这一句已经上屏」的回调兜底。双 rAF 是最接近绘制完成的信号，但 headless 与后台标签会把
@@ -195,6 +195,9 @@ export function TutorialBubble({ step, text, total, rev, release, onPlaced, onSt
 
     const measure = (): void => {
       placeBadges();
+      // 拖拽期间不重排：玩家正在拖积木，气泡跟着 400ms 轮询一格一格跳，比"换步时移过去"更像卡顿。
+      // 松手后由 Blockly 的 change 事件触发一次重新测量（App 侧 bump rev），位置自然补上。
+      if (document.querySelector('.blocklyDragging') !== null) return;
       const el = findTarget(target);
       if (el === null) {
         setSpot(null);

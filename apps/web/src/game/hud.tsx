@@ -46,6 +46,10 @@ export interface RealmModel {
    * 数值由宿主从 actions.json 拼好交进来，HUD 不查表也不格式化；null = 表里没有调息，整句不显示。
    */
   readonly calmText: string | null;
+  /** 批次 8：灵根（seed 派生，只影响心魔增速），显示成一行，不参与任何计算。 */
+  readonly lingGen: string;
+  /** 批次 8：丹药冷却剩余毫秒；>0 时按钮显示倒计时。 */
+  readonly pillCooldownMs: number;
   /** 批次 3：功法谱（算法识别）。 */
   readonly patterns: readonly PatternRow[];
 }
@@ -369,7 +373,7 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
   );
 }
 
-function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: number }) {
+function RealmPanel({ model, qi, onTakePill }: { readonly model: RealmModel; readonly qi: number; readonly onTakePill: () => void }) {
   const paused = model.pauseRemainingMs > 0;
   return (
     <div className="realm">
@@ -391,10 +395,21 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
             {(model.demon * 100).toFixed(1)}%
             {model.calmText !== null && <span className="demon-calm"> {model.calmText}</span>}
           </p>
+          {/* 批次 8：丹药。存量换心魔，冷却期显示倒计时 —— 它是给"入魔"用的对冲手段。 */}
+          <button
+            className="pill-button"
+            type="button"
+            onClick={onTakePill}
+            disabled={model.pillCooldownMs > 0}
+            title="消耗 5% 存量，心魔 -15%"
+          >
+            {model.pillCooldownMs > 0 ? `${Math.ceil(model.pillCooldownMs / 1000)}s` : '服丹'}
+          </button>
         </div>
       </div>
       {/* 批次 3：功法谱。 */}
       <div className="realm-patterns">
+        <p className="patterns-label">灵根 · {model.lingGen}</p>
         <p className="patterns-label">功法谱 {model.patterns.filter((p) => p.found).length} / {model.patterns.length}</p>
       </div>
     </div>
@@ -596,7 +611,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -630,7 +645,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
-        <RealmPanel model={model.realm} qi={model.qi} />
+        <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} />
         <SprintPanel model={model.sprint} />
       </div>
 

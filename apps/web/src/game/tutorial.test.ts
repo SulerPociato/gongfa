@@ -40,37 +40,35 @@ const sig = (over: Partial<TutorialSignals>): TutorialSignals => ({ ...NO, ...ov
 const NUM = { perSec: 10, compare: null, goalQi: 480, windowSec: 60, demon: 0 };
 
 describe('步骤机：只往前走，条件不满足就停在原地', () => {
-  // 停留到期后的年龄：条件满足 + 待够 = 才翻页，所以每条都用它当「条件已满足」的代表值。
-  const OK = MIN_STEP_DWELL_MS;
 
   it('第 1 步等第一块吐纳落地', () => {
-    expect(nextTutorialStep(1, sig({ qi: 5 }), 9_999)).toBe(1);
-    expect(nextTutorialStep(1, sig({ breath: 1 }), OK)).toBe(2);
+    expect(nextTutorialStep(1, sig({ qi: 5 }), stepDwellMs(1) - 1)).toBe(1);
+    expect(nextTutorialStep(1, sig({ breath: 1 }), stepDwellMs(1))).toBe(2);
   });
 
   it('第 2 步等存量真涨起来（拖完积木到第一个 tick 之间不该就跳过去）', () => {
-    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0 }), 9_999)).toBe(2);
-    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0.1 }), OK)).toBe(3);
+    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0 }), stepDwellMs(2) - 1)).toBe(2);
+    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0.1 }), stepDwellMs(2))).toBe(3);
   });
 
   it('第 3 步等第二块吐纳', () => {
-    expect(nextTutorialStep(3, sig({ breath: 1, qi: 50 }), 9_999)).toBe(3);
-    expect(nextTutorialStep(3, sig({ breath: 2 }), OK)).toBe(4);
+    expect(nextTutorialStep(3, sig({ breath: 1, qi: 50 }), stepDwellMs(3) - 1)).toBe(3);
+    expect(nextTutorialStep(3, sig({ breath: 2 }), stepDwellMs(3))).toBe(4);
   });
 
   it('第 4 步要对比行出现且真停留够：同一次拖拽同时满足 3 和 4，不留停留时间这句话会一闪而过', () => {
-    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: false }), STEP4_DWELL_MS)).toBe(4);
-    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: true }), STEP4_DWELL_MS)).toBe(6);
+    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: false }), stepDwellMs(4))).toBe(4);
+    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: true }), stepDwellMs(4))).toBe(6);
   });
 
   it('第 4 步之后：心魔真在涨才提「调息」，否则直接进第 6 步', () => {
-    expect(nextTutorialStep(4, sig({ hasCompare: true, demon: 0.1 }), STEP4_DWELL_MS)).toBe(6);
-    expect(nextTutorialStep(4, sig({ hasCompare: true, demon: 0.1001 }), STEP4_DWELL_MS)).toBe(5);
+    expect(nextTutorialStep(4, sig({ hasCompare: true, demon: 0.1 }), stepDwellMs(4))).toBe(6);
+    expect(nextTutorialStep(4, sig({ hasCompare: true, demon: 0.1001 }), stepDwellMs(4))).toBe(5);
   });
 
   it('第 5 步等调息落地', () => {
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 0 }), 9_999)).toBe(5);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), OK)).toBe(6);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 0 }), stepDwellMs(5) - 1)).toBe(5);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), stepDwellMs(5))).toBe(6);
   });
 
   it('第 6 步等那一下点击，done 之后不再动', () => {
@@ -86,23 +84,23 @@ describe('步骤机：只往前走，条件不满足就停在原地', () => {
 });
 
 describe('每步最短停留 3 秒（需求 13，第 4 步保留 5 秒）', () => {
-  it('条件在第一步就满足，只待 2999ms 也不许翻页', () => {
-    expect(nextTutorialStep(1, sig({ breath: 1 }), MIN_STEP_DWELL_MS - 1)).toBe(1);
-    expect(nextTutorialStep(2, sig({ qi: 0.1 }), MIN_STEP_DWELL_MS - 1)).toBe(2);
-    expect(nextTutorialStep(3, sig({ breath: 2 }), MIN_STEP_DWELL_MS - 1)).toBe(3);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), MIN_STEP_DWELL_MS - 1)).toBe(5);
+  it('条件在第一步就满足，不到该步停留也不许翻页', () => {
+    expect(nextTutorialStep(1, sig({ breath: 1 }), stepDwellMs(1) - 1)).toBe(1);
+    expect(nextTutorialStep(2, sig({ qi: 0.1 }), stepDwellMs(2) - 1)).toBe(2);
+    expect(nextTutorialStep(3, sig({ breath: 2 }), stepDwellMs(3) - 1)).toBe(3);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), stepDwellMs(5) - 1)).toBe(5);
     // qi 过 0 只要一个 tick、第二块落地即满足 —— 这两处没有停留时间就会把话撤在玩家读到一半时
-    expect(nextTutorialStep(2, sig({ qi: 0.1 }), MIN_STEP_DWELL_MS)).toBe(3);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), MIN_STEP_DWELL_MS)).toBe(6);
+    expect(nextTutorialStep(2, sig({ qi: 0.1 }), stepDwellMs(2))).toBe(3);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), stepDwellMs(5))).toBe(6);
   });
 
-  it('第 4 步的门槛是 5 秒不是 3 秒；其余步都是 3 秒', () => {
-    expect(stepDwellMs(1)).toBe(MIN_STEP_DWELL_MS);
-    expect(stepDwellMs(3)).toBe(MIN_STEP_DWELL_MS);
-    expect(stepDwellMs(4)).toBe(STEP4_DWELL_MS);
-    expect(STEP4_DWELL_MS).toBe(5_000);
-    expect(nextTutorialStep(4, sig({ hasCompare: true }), 3_000)).toBe(4);
-    expect(nextTutorialStep(4, sig({ hasCompare: true }), STEP4_DWELL_MS)).toBe(6);
+  it('停留按字数排：第 3/5 步最长，第 2 步最短', () => {
+    expect(stepDwellMs(2)).toBe(MIN_STEP_DWELL_MS);
+    expect(stepDwellMs(3)).toBeGreaterThanOrEqual(8_000);
+    expect(stepDwellMs(5)).toBeGreaterThanOrEqual(10_000);
+    expect(stepDwellMs(1)).toBeGreaterThan(stepDwellMs(2));
+    expect(nextTutorialStep(4, sig({ hasCompare: true }), 5_000)).toBe(4);
+    expect(nextTutorialStep(4, sig({ hasCompare: true }), stepDwellMs(4))).toBe(6);
   });
 
   it('主动点「可渡劫」不排队：停留是给自动翻页设的，不是给玩家的点击设的', () => {
@@ -160,10 +158,11 @@ describe('文案：数字全部插值，不许写死', () => {
   });
 
   it('第 5 步的百分比是现场心魔，不是固定台词', () => {
+    // 取整到 1%：小数会让整句每 100ms 被重写一次，玩家看到的是文字在抖。
     expect(tutorialText(5, { ...NUM, demon: 0.1234 })).toBe(
-      '注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 12.3% 了 —— 拖一个「调息」进来压住它。',
+      '注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 12% 了 —— 拖一个「调息」进来压住它。',
     );
-    expect(tutorialText(5, { ...NUM, demon: 0.2671 })).toContain('已经 26.7% 了');
+    expect(tutorialText(5, { ...NUM, demon: 0.2671 })).toContain('已经 27% 了');
     expect(tutorialText(5, { ...NUM, demon: 0.1234 })).not.toBe(tutorialText(5, { ...NUM, demon: 0.2671 }));
     // 心魔本来就低还说「已经 X% 了——拖调息压住它」是自相矛盾的假话
     expect(tutorialText(5, { ...NUM, demon: 0.02 })).toContain('还压得住');
@@ -208,8 +207,11 @@ describe('引导启动判据（刷新后还要接着走）', () => {
   });
 
   it('放出与停留的时长是本轮定的那几个数', () => {
-    expect(RELEASE_AFTER_DRAG_MS).toBe(3_000);
-    expect(STEP4_DWELL_MS).toBe(5_000);
+    // 放出延后到 5 秒：第 1 步停留 6.5 秒，若 3 秒就放出，气泡会在玩家读第 1 句时被抢去指「调息」。
+    expect(RELEASE_AFTER_DRAG_MS).toBe(5_000);
+    expect(stepDwellMs(1)).toBe(6_500);
+    expect(stepDwellMs(4)).toBe(6_500);
+    expect(stepDwellMs(5)).toBe(10_000);
     expect(END_DWELL_MS).toBe(8_000);
   });
 });

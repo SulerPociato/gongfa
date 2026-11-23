@@ -20,7 +20,7 @@ export const TUTORIAL_DONE = 'done';
  */
 export const TUTORIAL_PLAY_MS_MAX = 15 * 60_000;
 /** 裁定 1/2 之间的间隔：吐纳落地后 3 秒放出「调息」「比较」。 */
-export const RELEASE_AFTER_DRAG_MS = 3_000;
+export const RELEASE_AFTER_DRAG_MS = 5_000;
 /**
  * 第 4 步的停留时长。第 3 步（breath ≥ 2）和第 4 步（对比行出现）由同一次拖拽同时满足，
  * 不加停留第 4 步会在下一帧就被跨过 —— 那句「看，10.0 → 18.0」玩家一个字都来不及看完。
@@ -50,14 +50,25 @@ export interface TutorialSignals {
 }
 
 /**
- * 需求 13：每步最短停留 3 秒。条件一满足就跳，等于把刚出现的那句话在玩家读到一半时撤走 ——
- * 尤其第 2→3 步（qi 过 0 只需要一个 tick）和第 3→4 步（第二块落地即满足）。
+ * 各步最短停留：按**字数**查表，不按"带不带数字"。
+ * 中文阅读 5–6 字/秒，加上气泡入场，每步至少留「读完 + 1.5 秒余量」：
+ *   步 1（33 字）6.5s｜步 2（21 字）4.5s｜步 3（43 字）8s
+ *   步 4（30 字）6.5s｜步 5（53 字）10s｜步 6（33 字）6.5s
+ * 原来的统一 3 秒会让第 3/5 步在读到一半时被撤走（实测差 4–6 秒）。
  */
-export const MIN_STEP_DWELL_MS = 3_000;
+export const MIN_STEP_DWELL_MS = 4_500;
 
-/** 各步最短停留：第 4 步是「读三个数」的那句，保留 5 秒；其余统一 3 秒。 */
+const STEP_DWELL_MS: Readonly<Record<number, number>> = {
+  1: 6_500,
+  2: 4_500,
+  3: 8_000,
+  4: 6_500,
+  5: 10_000,
+  6: 6_500,
+};
+
 export function stepDwellMs(step: TutorialPlayStep): number {
-  return step === 4 ? STEP4_DWELL_MS : MIN_STEP_DWELL_MS;
+  return STEP_DWELL_MS[step] ?? MIN_STEP_DWELL_MS;
 }
 
 export function nextTutorialStep(step: TutorialStep, sig: TutorialSignals, stepAgeMs: number): TutorialStep {
@@ -128,7 +139,9 @@ export function tutorialText(step: TutorialStep, n: TutorialNumbers): string {
     // 第 5 步的百分比每帧重算：这句是「心魔现在多少」的读数，不是一个固定台词。
     // 低到不足 DEMON_HINT 时说「已经 X% 了——拖调息压住它」自相矛盾（它本来就压着），改口讲涨法。
     case 5: {
-      const pct = (n.demon * 100).toFixed(1);
+      // 百分比取整到 1%：每 100ms 重算一次小数会让整句每秒被重写 10 次，
+      // 玩家看到的是"文字在抖"，不是"心魔在涨"（评审实测）。
+      const pct = Math.round(n.demon * 100);
       return n.demon >= DEMON_HINT
         ? `注意心魔：它按「每个动作」涨，你吐纳叠得越多涨得越快。现在它已经 ${pct}% 了 —— 拖一个「调息」进来压住它。`
         : `心魔按「每个动作」涨，吐纳叠得越多涨得越快。现在 ${pct}%，还压得住 —— 拖一个「调息」进来。`;

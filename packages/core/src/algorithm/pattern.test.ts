@@ -326,4 +326,85 @@ describe('patternsOf — 组合', () => {
     expect(patterns).toContain('while');
     expect(patterns).not.toContain('adaptive');
   });
+
+  it('循环套循环 → 大小周天（嵌套迭代）', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 6, count: 3 },
+      { op: 'LOOP_BEGIN', end: 4, count: 2 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'LOOP_END', begin: 1 },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('nested');
+  });
+
+  it('单层循环不算大小周天', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 3, count: 3 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    expect(patternsOf(shapeOf(code, []))).not.toContain('nested');
+  });
+
+  it('如果的两个分支都有动作 → 换气（状态机）', () => {
+    const code: Op[] = [
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.5 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 6 },
+      { op: 'ACTION', actionId: 'calm' },
+      { op: 'JMP', target: 7 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'HALT' },
+    ];
+    expect(patternsOf(shapeOf(code, []))).toContain('switch');
+  });
+
+  it('只有 if 没有 else 的时候不算状态机', () => {
+    const code: Op[] = [
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.5 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 5 },
+      { op: 'ACTION', actionId: 'calm' },
+      { op: 'HALT' },
+    ];
+    expect(patternsOf(shapeOf(code, []))).not.toContain('switch');
+  });
+
+  it('预算条件 + 中断 → 护体真气（预算守卫）', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 10, count: 5 },
+      { op: 'LOAD', key: 'budget' },
+      { op: 'PUSH', value: 20 },
+      { op: 'CMP', arg: '<' },
+      { op: 'JMP_IF_FALSE', target: 7 },
+      { op: 'BREAK' },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('guard');
+  });
+
+  it('只有预算读数、没有中断，不算护体真气', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 9, count: 5 },
+      { op: 'LOAD', key: 'budget' },
+      { op: 'PUSH', value: 20 },
+      { op: 'CMP', arg: '<' },
+      { op: 'JMP_IF_FALSE', target: 7 },
+      { op: 'ACTION', actionId: 'calm' },
+      { op: 'JMP', target: 8 },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    expect(patternsOf(shapeOf(code, []))).not.toContain('guard');
+  });
 });
