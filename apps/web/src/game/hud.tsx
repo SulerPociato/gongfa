@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, NOISE_LINE, type BookPhase, type StallEvent } from '@gongfa/core';
 import { compareParts } from './format';
+import { CLUSTER_LIMITS, REPLICA_LIMITS, quorumOf, simulateCluster } from './distributed';
 import type { TraceSample } from './runtime';
 import type { TutorialBarModel } from './tutorial';
 
@@ -456,6 +457,52 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
   );
 }
 
+// P2：阵修推演。它是**成本模型**，不是真的多节点执行——所以面板上必须自带那句声明，
+// 否则玩家会以为自己在配置真集群。
+function ClusterPanel() {
+  const [nodes, setNodes] = useState(4);
+  const [workSteps, setWorkSteps] = useState(8);
+  const [syncSteps, setSyncSteps] = useState(2);
+  const [failRate, setFailRate] = useState(0.02);
+  const [replicas, setReplicas] = useState(3);
+  const result = simulateCluster({ nodes, workSteps, syncSteps, failRate });
+  const quorum = quorumOf(replicas, failRate);
+  return (
+    <section className="cluster">
+      <p className="label">阵修推演 · 多节点与护山大阵</p>
+      <label className="cluster-row">
+        <span>节点数</span>
+        <input type="range" min={CLUSTER_LIMITS.nodes.min} max={CLUSTER_LIMITS.nodes.max} value={nodes} onChange={(event) => setNodes(Number(event.target.value))} />
+        <b>{nodes}</b>
+      </label>
+      <label className="cluster-row">
+        <span>每节点工作步</span>
+        <input type="range" min={CLUSTER_LIMITS.workSteps.min} max={CLUSTER_LIMITS.workSteps.max} value={workSteps} onChange={(event) => setWorkSteps(Number(event.target.value))} />
+        <b>{workSteps}</b>
+      </label>
+      <label className="cluster-row">
+        <span>每次同步成本</span>
+        <input type="range" min={CLUSTER_LIMITS.syncSteps.min} max={CLUSTER_LIMITS.syncSteps.max} value={syncSteps} onChange={(event) => setSyncSteps(Number(event.target.value))} />
+        <b>{syncSteps} 步</b>
+      </label>
+      <label className="cluster-row">
+        <span>单节点故障率</span>
+        <input type="range" min={0} max={50} step={1} value={Math.round(failRate * 100)} onChange={(event) => setFailRate(Number(event.target.value) / 100)} />
+        <b>{(failRate * 100).toFixed(0)}%</b>
+      </label>
+      <label className="cluster-row">
+        <span>副本数</span>
+        <input type="range" min={REPLICA_LIMITS.min} max={REPLICA_LIMITS.max} value={replicas} onChange={(event) => setReplicas(Number(event.target.value))} />
+        <b>{replicas} 份</b>
+      </label>
+      <p className="trace-line">有效加速 {result.speedup.toFixed(2)}× · {result.stepsPerTick} 步 / tick</p>
+      <p className="trace-line">全节点成功概率 {(result.successRate * 100).toFixed(1)}% · 最优节点数 {result.bestNodes}</p>
+      <p className="trace-line">法定人数 {quorum.quorum} · 容忍 {quorum.tolerated} 份掉线 · 全阵可用 {(quorum.availability * 100).toFixed(1)}%</p>
+      <p className="trace-line trace-note">成本模型，不是真实多节点执行</p>
+    </section>
+  );
+}
+
 // 批次 12：观测 Trace（P1 Advanced Observability）。
 // 只画最近 60 秒的速率折线 + 三行摘要；不做缩放、不做导出——它是取证，不是仪表盘产品。
 function TracePanel({ samples }: { readonly samples: readonly TraceSample[] }) {
@@ -698,6 +745,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
       <div className="hud-scroll">
         {/* 批次 12：观测 Trace。每满 1 秒一条，最近 60 秒；只在内存，刷新清空。
             它不是"历史存档"，是"刚才发生了什么"的取证：峰值、均值、当前值三行。 */}
+        <ClusterPanel />
         <TracePanel samples={model.trace} />
         {/* P1 纵切：炼器炉（Compiler / Optimizer）。只在"有可改写的直列"时才有动作，
             分析结果与代价一起放进弹窗，不替玩家做决定。 */}

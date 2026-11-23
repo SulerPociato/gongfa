@@ -1694,6 +1694,13 @@ export function App() {
               <p>「沙漏」把一段动作攒成新的一批：批内重新从第 1 次算，边际递减清零；代价是每批固定 4 步（3 步配置 + 它自己一条指令）。</p>
               <p>所以批不是越大越好，也不是越小越好：<b>批越大，摊得越薄；批越多，启动费越贵</b>。</p>
             </details>
+            <details className="codex-section">
+              <summary>阵修推演在算什么</summary>
+              <p>它算的是**成本**，不是真的多节点执行：加速 ≈ 节点数 × 全节点成功率 ÷（1 + 同步成本 × (节点数-1) ÷ 工作步数）。</p>
+              <p>所以加节点有上限：同步成本越高、工作步数越少，越早遇到最优点（面板会直接告诉你最优节点数）。</p>
+              <p>故障率按 (1-p)^N 叠乘——节点越多，全节点都不出错的概率越低。这就是「护山大阵」要投票的原因。</p>
+              <p><b>副本不是越多越好</b>：法定人数 = ⌊副本/2⌋+1。2 副本要求两票都在，比单副本更脆；3 副本才真正容忍 1 份掉线。奇数副本更划算。</p>
+            </details>
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
                 重置存档
