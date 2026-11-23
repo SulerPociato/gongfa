@@ -81,6 +81,15 @@ function activeIndex(storage: SaveStorage): number | null {
   return index < 0 ? null : index;
 }
 
+/**
+ * 当前活动槽名（'A' | 'B'）。指针缺失或非法时默认 'A'（与 writeSave 的首次写入目标一致）。
+ * 宿主用这个键名派生其他按槽隔离的状态（例如 gongfa:found:A）。
+ */
+export function activeSlot(storage: SaveStorage): 'A' | 'B' {
+  const index = activeIndex(storage);
+  return slotName(index === null ? 0 : index);
+}
+
 export interface WriteResult {
   ok: boolean;
   /** 文本长度（UTF-16 code unit），用于体积告警与测试断言 */

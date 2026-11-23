@@ -11,7 +11,7 @@ import {
   STARTER_WORKSPACE_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, bookEvent, derivePhase, loadGame, newGameState, readSettings, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
 import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -24,8 +24,10 @@ import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './g
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
 import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialPlayStep, type TutorialStep } from './game/tutorial';
+import { readFound, writeFound } from './game/found';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
+import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
 
 type InjectOptions = NonNullable<Parameters<typeof Blockly.inject>[1]>;
@@ -55,7 +57,7 @@ declare global {
 // 进度条和文案共用的境界视图：字段全部来自 runtime.state()，HUD 侧不做任何算术。
 // 调息那句（P0-C 第 6 项）走 CALM_DEMON_DELTA —— actions.json 里 calm 那行的原值，
 // 表改成 -0.001 这行就跟着变；表里没有调息就整句不出现，不印一个「-0/次」冒充。
-function realmModel(state: RuntimeState): RealmModel {
+function realmModel(state: RuntimeState, found: readonly PatternId[]): RealmModel {
   return {
     name: state.realmName,
     threshold: state.threshold,
@@ -64,6 +66,13 @@ function realmModel(state: RuntimeState): RealmModel {
     pauseRemainingMs: state.pauseRemainingMs,
     demon: state.demon,
     calmText: CALM_DEMON_DELTA === null ? null : `调息 ${CALM_DEMON_DELTA}/次`,
+    patterns: PATTERNS.map((pattern) => ({
+      id: pattern.id,
+      name: pattern.name,
+      algorithm: pattern.algorithm,
+      requires: pattern.requires,
+      found: found.includes(pattern.id),
+    })),
   };
 }
 
@@ -180,12 +189,12 @@ function curveModel(preview: CurvePreview, compare: CurveCompare | null): CurveM
   };
 }
 
-function hudModel(state: RuntimeState, book: BookModel, extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial'>): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial'>): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
     stall: state.stall,
-    realm: realmModel(state),
+    realm: realmModel(state, found),
     curve: extra.curve,
     sprint: sprintModel(state),
     challenge: challengeModel(state),
@@ -283,7 +292,7 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 引导气泡（需求变更 2026-11-21）：贴得上目标 → 底部条降级成「n/6 · 跳过引导」；贴不上 → 底部条说完整文案。
@@ -292,6 +301,10 @@ export function App() {
   const [tutRev, setTutRev] = useState(0);
   // 需求 15：工具箱刚放出来的那几块，2 秒内挂「新」角标并把气泡借过去。
   const [tutRelease, setTutRelease] = useState<readonly ReleasedBlock[]>(NO_RELEASE);
+  // 批次 3：功法谱发现记录。algoFound 从 localStorage 初始化，algoCards 是待展示的卡片队列。
+  const [algoFound, setAlgoFound] = useState<readonly PatternId[]>([]);
+  const [algoCards, setAlgoCards] = useState<readonly PatternId[]>([]);
+  const algoCardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 渡劫浮层（批次 1）。两块都不属于 HudModel：面板要盖住 HUD 与画布，结果层要盖住整屏。
   // demoTrial = 「演示模式下按 X 打开的面板」：演示里点 HUD「可冲关」仍当场结算（任务 9 的裁定没动），
   // runtime 在 demoMode 下压根不落 trialUntil，所以这块面板只能由 UI 自己举着。
@@ -303,6 +316,24 @@ export function App() {
   const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 面板里两个按钮的实现在 useEffect 里才拿得到 runtime，这里同样只留转发口。
   const trialPressRef = useRef<((mode: 'manual' | 'auto') => void) | null>(null);
+
+  // 批次 3：功法谱卡片队列。每张卡 3 秒，自动消失后弹出下一张。
+  useEffect(() => {
+    if (algoCards.length === 0) return;
+    // 如果已经有定时器在跑，不重复起（卡片会按顺序自动轮转）。
+    if (algoCardTimerRef.current !== null) return;
+    algoCardTimerRef.current = setTimeout(() => {
+      algoCardTimerRef.current = null;
+    }, 3_000);
+  }, [algoCards]);
+
+  const handleDismissAlgoCard = (): void => {
+    setAlgoCards((previous) => previous.slice(1));
+    if (algoCardTimerRef.current !== null) {
+      clearTimeout(algoCardTimerRef.current);
+      algoCardTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -499,6 +530,10 @@ export function App() {
     let game: GameState = loaded.state ?? newGameState({ seed: runtime.state().seed, workspace: saved ?? STARTER_WORKSPACE_JSON, now: wallClock.now(), ownedBooks: [STARTER_BOOK_ID] });
     const grant = grantStarterBook(game, BOOK_CATALOGUE);
     game = grant.state;
+    // 批次 3：功法谱发现记录从 localStorage 初始化（按槽隔离）。
+    const slot = activeSlot(storage);
+    let algoFoundState: readonly PatternId[] = readFound(storage, slot);
+    setAlgoFound(algoFoundState);
     let noticeList: readonly string[] = [...loaded.notices, ...(grant.notice === null ? [] : [grant.notice])];
     // 按钮点出来的错误（非法相位、目录查不到书、积木装不上）单独一路：compile() 每次都重算 playErrors，
     // 不并进来就会被下一次改动抹掉。
@@ -662,6 +697,8 @@ export function App() {
       // 同 §4.4「限时改功法」那条口径：装备改的是接下来每个 tick 的步数与产出，已经攒下的数字不动。
       setArtifactNotice(`《${name}》${wearing ? '已装备' : '已卸下'}：只改接下来的产出与预算，不改已攒下的数字`);
       controller.markDirty();
+      // 批次 3：装备变了就重新识别（cache 图案依赖玉简装备）。
+      recognizePatterns();
     };
     const detachArtifacts = (): void => {
       artifactActionRef.current = null;
@@ -860,6 +897,8 @@ export function App() {
             // 引导没了，工具箱该还给玩家自己开关。
             pinFlyout();
             setHud((previous) => ({ ...previous, tutorial: null }));
+            // 批次 3：引导结束的当下立刻识别一次（裁定 5）。
+            recognizePatterns();
           }, END_DWELL_MS);
         }
       }
@@ -894,6 +933,8 @@ export function App() {
       refreshFlyoutClasses();
       applyToolbox(runtime.state().realmIndex);
       setHud((previous) => ({ ...previous, tutorial: null }));
+      // 批次 3：跳过引导的当下也立刻识别一次（裁定 5 补充：不能出现「跳过 → 谱永远是 0」的死角）。
+      recognizePatterns();
     };
 
     // 演示快捷键（任务 9）：整段只在 ?demo=1 时挂监听。正式玩家不该有「按键刚好落到 F / R
@@ -950,10 +991,39 @@ export function App() {
       setHud((previous) => ({ ...previous, errors: [...playErrors, ...saveErrors] }));
       syncCurve(result.program);
       controller.markDirty();
+      // 批次 3：画布变了就重新识别算法图案。
+      recognizePatterns();
     };
 
     workspace.addChangeListener(compile);
     compile();
+
+    // 批次 3：算法识别。引导期间不识别（裁定 5），引导结束或跳过的当下立刻识别一次。
+    // 识别结果写入 localStorage（按槽隔离），并触发卡片队列与 HUD 更新。
+    const recognizePatterns = (): void => {
+      if (tutActive) return;
+      const program = cache[0];
+      if (program === undefined) return;
+      const shape = shapeOf(program.code, game.equippedArtifacts);
+      const hits = patternsOf(shape);
+      const fresh = hits.filter((id) => !algoFoundState.includes(id));
+      if (fresh.length === 0) return;
+      const next = [...algoFoundState, ...fresh];
+      algoFoundState = next;
+      setAlgoFound(next);
+      writeFound(storage, slot, next);
+      // 卡片排队：一次弹一张，每张 3 秒（ALGO_CARD_MS）。
+      setAlgoCards((previous) => [...previous, ...fresh]);
+      // 集齐 4 个 → 一次性 toast。
+      if (next.length === PATTERN_TOTAL && next.length - fresh.length < PATTERN_TOTAL) {
+        showToast('已通晓基础算法 · 道统 +1');
+      }
+      // HUD 的功法谱行要刷新：把 found 计数塞进 lastHudKey 的派生源。
+      lastHudKey = '';
+    };
+
+    // 首次挂载后立刻识别一次（存档里可能已经有符合条件的结构）。
+    recognizePatterns();
 
     // 任务 7B：离线结算触发。条件：有存档 && 有程序 && 本会话首次。
     // StrictMode 双挂载时，第一次挂载的结算结果暂存在 pendingOfflineReport，第二次挂载读取后清空。
@@ -1009,7 +1079,7 @@ export function App() {
         qi,
         rate: state.rate,
         stall: state.stall,
-        realm: realmModel(state),
+        realm: realmModel(state, algoFoundState),
         sprint: sprintModel(state),
         challenge: challengeModel(state),
         toolHint: toolHintOf(state),
@@ -1149,6 +1219,11 @@ export function App() {
         <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} onStepPainted={onTutPainted} />
       )}
       {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
+      {/* 批次 3：算法发现卡片（右上角，3 秒自动消失）。 */}
+      {algoCards.length > 0 && (() => {
+        const first = algoCards[0];
+        return first === undefined ? null : <AlgorithmCard patternId={first} onDismiss={handleDismissAlgoCard} />;
+      })()}
       {drawerOpen && (
         <div className="settings-drawer-overlay" onClick={() => setDrawerOpen(false)}>
           <div className="settings-drawer" onClick={(e) => e.stopPropagation()}>
@@ -1173,6 +1248,22 @@ export function App() {
                 </p>
               </div>
             )}
+            {/* 批次 3：功法谱列表（设置抽屉里）。 */}
+            <div className="patterns-drawer">
+              <p className="patterns-drawer-title">功法谱 {algoFound.length} / {hud.realm.patterns.length}</p>
+              <ul className="patterns-drawer-list">
+                {hud.realm.patterns.map((pattern) => (
+                  <li key={pattern.id} className={`patterns-drawer-item${pattern.found ? ' is-found' : ''}`}>
+                    <span className="patterns-drawer-check">{pattern.found ? '✓' : '○'}</span>
+                    <div className="patterns-drawer-content">
+                      <p className="patterns-drawer-name">{pattern.name}</p>
+                      <p className="patterns-drawer-algorithm">{pattern.algorithm}</p>
+                      {!pattern.found && <p className="patterns-drawer-requires">需要：{pattern.requires}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
                 重置存档

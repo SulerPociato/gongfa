@@ -18,3 +18,4 @@ export * from './save/schema';
 export * from './save/migrate';
 export * from './save/storage';
 export * from './save/load';
+export * from './algorithm/pattern';

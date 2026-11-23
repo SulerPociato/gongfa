@@ -46,6 +46,17 @@ export interface RealmModel {
    * 数值由宿主从 actions.json 拼好交进来，HUD 不查表也不格式化；null = 表里没有调息，整句不显示。
    */
   readonly calmText: string | null;
+  /** 批次 3：功法谱（算法识别）。 */
+  readonly patterns: readonly PatternRow[];
+}
+
+/** 功法谱里的一行：一个算法图案的发现状态。 */
+export interface PatternRow {
+  readonly id: string;
+  readonly name: string;
+  readonly algorithm: string;
+  readonly requires: string;
+  readonly found: boolean;
 }
 
 /**
@@ -368,6 +379,10 @@ function RealmPanel({ model, qi }: { readonly model: RealmModel; readonly qi: nu
             {model.calmText !== null && <span className="demon-calm"> {model.calmText}</span>}
           </p>
         </div>
+      </div>
+      {/* 批次 3：功法谱。 */}
+      <div className="realm-patterns">
+        <p className="patterns-label">功法谱 {model.patterns.filter((p) => p.found).length} / {model.patterns.length}</p>
       </div>
     </div>
   );
