@@ -118,6 +118,9 @@ function sprintModel(state: RuntimeState, bestPerQi: number | null = null): Spri
     steps: state.sprintSteps,
     perQi: state.sprintPerQi,
     bestPerQi,
+    perQiGoal: errandOf(state.realmIndex, 0).goal ?? 0,
+    excellent: state.sprintReached
+      && state.sprintPerQi >= (errandOf(state.realmIndex, 0).goal ?? Number.POSITIVE_INFINITY),
   };
 }
 
@@ -535,6 +538,8 @@ export function App() {
   let tutClicked = false;
   // 批次 16：被动入魔只播一次。
   let daoFallbackSeen = false;
+  // 批次 25：试炼「优秀」给本境免罚，换境界就失效。
+  let trialMercyRealm = -1;
     let tutStepAt = 0;
     // 需求 13：已经由「气泡上屏」起过表的那一步。每步只认第一次报告，重复报告会把计时一推再推。
     let tutArmedFor: TutorialPlayStep | null = null;
@@ -1524,6 +1529,11 @@ export function App() {
           writeBest(storage, nextMap);
         }
         const bestLine = previousBest === null ? '这是第一次达成' : `上次最好 ${previousBest.toFixed(3)}`;
+        const errandGoal = errandOf(state.realmIndex, 0).goal;
+        if (errandGoal !== null && state.sprintPerQi >= errandGoal && trialMercyRealm !== state.realmIndex) {
+          trialMercyRealm = state.realmIndex;
+          showToast(`试炼优秀：效率 ${state.sprintPerQi.toFixed(2)} ≥ ${errandGoal.toFixed(1)} · 本境渡劫失败免罚`);
+        }
         momentTextOverrides.set(
           'sprint',
           `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步 · ${bestLine}。本境界蓄势减半。`,
@@ -1551,10 +1561,11 @@ export function App() {
         syncCurve(cache[0] ?? null);
       }
         // 批次 24：考校达标 → 宽恕。逐帧同步（很便宜），达标立刻生效。
-        runtime.setFailureMercy(errandOf(
+        const errand = errandOf(
           state.realmIndex,
           state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
-        ).mercy);
+        );
+        runtime.setFailureMercy(errand.mercy || trialMercyRealm === state.realmIndex);
       setHud((previous) => ({
         ...previous,
         qi,

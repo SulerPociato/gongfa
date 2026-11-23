@@ -2119,6 +2119,12 @@ body::before {
 
 
 
+
+/* 批次 25：试炼效率口径。优秀时整行变金，和普通灰字区分开。 */
+.sprint-eff.is-excellent {
+  color: var(--gold);
+}
+
 /* 批次 24：本境考校（存量 + 效率）。达标变青，未达标保持灰。 */
 .errand {
   margin: 4px 0 0;

@@ -141,6 +141,10 @@ export interface SprintModel {
   readonly perQi: number;
   /** 本境界历史最好效率（元进度 gongfa:best:<slot>）；null = 还没达成过。 */
   readonly bestPerQi: number | null;
+  /** 批次 25：试炼的效率门槛（灵力/步），与考校同一张表。 */
+  readonly perQiGoal: number;
+  /** 产出与效率都达标 = 优秀：本境渡劫失败免罚。 */
+  readonly excellent: boolean;
 }
 
 /**
@@ -491,6 +495,11 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
         {model.reached
           ? `已达成 · 用了 ${model.steps} 步 · 效率 ${model.perQi.toFixed(3)} 灵力/步`
           : `${seconds} 秒内达成可减半蓄势`}
+      </p>
+      {/* 批次 25：试炼也考效率 —— 只堆动作能过「达成」，但拿不到「优秀」。 */}
+      <p className={`sprint-text sprint-eff${model.excellent ? ' is-excellent' : ''}`}>
+        效率 {model.perQi.toFixed(2)} / 门槛 {model.perQiGoal.toFixed(1)} 灵力/步
+        {model.excellent ? ' · 优秀：本境渡劫失败免罚' : ''}
       </p>
       {!model.reached && model.steps > 0 && (
         <p className="sprint-text sprint-eff">
