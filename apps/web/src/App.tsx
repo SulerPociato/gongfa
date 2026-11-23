@@ -991,16 +991,23 @@ export function App() {
       if (program === undefined) return;
       const shape = shapeOf(program.code, game.equippedArtifacts);
       const hits = patternsOf(shape);
-      const fresh = hits.filter((id) => !algoFoundState.includes(id));
+      // 去重源每次从存储读：闭包变量 algoFoundState 会在 effect 重建时变回旧值，
+      // 导致同一图案被反复 enqueue。存储是唯一真相（与 writeFound 同源）。
+      const known = readFound(storage, slot);
+      const fresh = hits.filter((id) => !known.includes(id));
       if (fresh.length === 0) return;
-      const next = [...algoFoundState, ...fresh];
+      const next = [...known, ...fresh];
+      // 同步闭包变量：主循环 effect 用它渲染 HUD 的功法谱行，不更新的话 HUD 永远显示旧值。
       algoFoundState = next;
       setAlgoFound(next);
       writeFound(storage, slot, next);
-      // 卡片排队：一次弹一张，每张 3 秒（ALGO_CARD_MS）。
-      setAlgoCards((previous) => [...previous, ...fresh]);
+      // 卡片排队：入队时再兜一层去重（prev 里可能已有同图案，例如连续两次 compile）。
+      setAlgoCards((previous) => {
+        const merged = [...previous, ...fresh.filter((id) => !previous.includes(id))];
+        return merged;
+      });
       // 集齐 4 个 → 一次性 toast。
-      if (next.length === PATTERN_TOTAL && next.length - fresh.length < PATTERN_TOTAL) {
+      if (next.length === PATTERN_TOTAL && known.length < PATTERN_TOTAL) {
         showToast('已通晓基础算法 · 道统 +1');
       }
       // HUD 的功法谱行要刷新：把 found 计数塞进 lastHudKey 的派生源。
