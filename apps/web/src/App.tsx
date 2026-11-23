@@ -934,7 +934,7 @@ export function App() {
       const equipment = equipmentFor(ARTIFACT_CATALOGUE, game.equippedArtifacts);
       runtime.attachArtifacts(equipment);
       pushActionErrors(equipment.errors);
-      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts, game.realm, game.ownedArtifacts) }));
+      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts, artifactRealm, game.ownedArtifacts) }));
     };
     syncArtifacts();
 
@@ -957,6 +957,11 @@ export function App() {
         if ((MOMENT_TEXTS as Readonly<Record<string, string>>)[moment] !== undefined) pushMoment(moment);
       }
     };
+
+    // 批次 31：境界以 runtime 为准。
+    // 原来用 game.realm（只在落盘时更新），演示跳关/离线突破后会显示旧境界，
+    // 于是「灵珠 · 筑基解锁」这种文案在金丹还挂着 —— 验收时抓到的真 bug。
+    let artifactRealm = game.realm;
 
     let artifactNotice: string | null = null;
     // 换道具的灰字只留最新一条：pushNotice 是去重累加的，来回开关会攒出一串同义的提示。
@@ -1592,6 +1597,11 @@ export function App() {
         }
       }
       // 批次 22：突破即掉落（在线渡劫、离线渡劫、演示跳关都走这一处）。
+      if (artifactRealm !== state.realmIndex) {
+        artifactRealm = state.realmIndex;
+        // 境界变了：解锁文案与持有状态都要重算（不重算就会留着旧境界的标签）。
+        setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts, artifactRealm, game.ownedArtifacts) }));
+      }
       if (state.realmIndex !== lastRealmSeen) {
         lastRealmSeen = state.realmIndex;
         const drops = ARTIFACT_DROPS[state.realmIndex];

@@ -95,7 +95,7 @@ npx tsx tools/balance-sim.ts
 **目标**：拖一块积木，能跑起来。
 
 **产出**
-- `packages/blocks/src/definitions.ts`：8 个自定义块（每 tick / 吐纳 / 调息 / 如果 / 循环 / 比较 / 中断 / 继续 / 重复直到）
+- `packages/blocks/src/definitions.ts`：**12 个**自定义块（每 tick / 吐纳 / 调息 / 如果 / 循环 / 比较 / 中断 / 继续 / 重复直到 / 沙漏 / 引灵 / 阵图）
   —— 原计划的「冲关」积木**未实现**：渡劫改为 HUD 按钮（见任务 6.5 的修订说明），不要再按积木实现。
 - `packages/blocks/src/compiler.ts`：Blockly JSON → IR
 - `packages/blocks/src/theme.ts`：墨黑底 + 灵气青连线
