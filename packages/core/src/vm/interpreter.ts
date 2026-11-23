@@ -109,6 +109,9 @@ export class Vm {
   private readonly vars: () => VmSnapshot;
   private readonly onEvent: ((event: VmEvent) => void) | undefined;
   private installed: readonly Program[] = [];
+  // BREAK 的目标地址：loopBeginPc → LOOP_END/WHILE_EXIT 的 pc。装载时预计算，
+  // BREAK 执行时查表弹帧并跳到 exit+1，不用运行时遍历找配对。
+  private exitMap: Map<number, number> = new Map();
   private ticksRun = 0;
 
   constructor(deps: VmDeps) {
@@ -155,12 +158,14 @@ export class Vm {
     }
 
     this.installed = errors.length === 0 ? [...programs] : [];
+    if (errors.length === 0) this.exitMap = buildExitMap(this.installed);
     return { ok: errors.length === 0, errors, warnings };
   }
 
   /** @internal 跳过 verifier 直接装载：只给测试和未来的存档快进用，玩家编译产物必须走 loadPrograms。 */
   installUnchecked(programs: readonly Program[]): void {
     this.installed = [...programs];
+    this.exitMap = buildExitMap(this.installed);
   }
 
   tick(): TickResult {
@@ -318,10 +323,50 @@ export class Vm {
             }
             break;
           }
+          // 批次 5：WHILE 控制流。三 op 结构：WHILE_BEGIN / WHILE_END{begin} / WHILE_EXIT。
+          // WHILE_BEGIN 入栈一帧，WHILE_END 跳回 begin+1（重判条件），WHILE_EXIT 弹帧。
+          // 条件由循环顶部的 CMP + JMP_IF_FALSE 产生，WHILE_BEGIN 不弹栈顶。
+          case 'WHILE_BEGIN': {
+            if (frames.length >= MAX_LOOP_DEPTH) {
+              abort(program.id, pc, 'loopLimit');
+              break run;
+            }
+            frames.push({ begin: pc, remaining: -1 }); // -1 表示 while 循环（无固定次数）
+            pc += 1;
+            break;
+          }
+          case 'WHILE_END': {
+            const frame = frames[frames.length - 1];
+            if (frame === undefined) throw new VmError(`WHILE_END 处没有循环帧（pc ${pc}）`);
+            // 跳回 begin+1（重判条件），不弹帧
+            pc = op.begin + 1;
+            break;
+          }
+          case 'WHILE_EXIT': {
+            const frame = frames.pop();
+            if (frame === undefined) throw new VmError(`WHILE_EXIT 处没有循环帧可弹（pc ${pc}）`);
+            pc += 1;
+            break;
+          }
+          // BREAK：弹最内层帧，跳到该循环的出口之后。exitMap 在装载时预计算，
+          // frame.begin 是 LOOP_BEGIN/WHILE_BEGIN 的 pc，查表拿到 LOOP_END/WHILE_EXIT 的 pc。
+          case 'BREAK': {
+            const frame = frames.pop();
+            if (frame === undefined) throw new VmError(`BREAK 处没有循环帧可弹（pc ${pc}）`);
+            const exitPc = this.exitMap.get(frame.begin);
+            if (exitPc === undefined) throw new VmError(`BREAK：找不到帧 begin=${frame.begin} 的出口地址`);
+            pc = exitPc + 1;
+            break;
+          }
           case 'HALT':
             pc = program.code.length;
             break;
         }
+      }
+      // 批次 5 运行时防御：tick 结束时如果循环栈非空，dev 下 console.error 一次。
+      // 不抛错、不影响正式包，用来抓"将来谁改了发射顺序"的回归。
+      if (frames.length > 0 && (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV === true) {
+        console.error(`[VM] tick ${tick} program ${program.id} 结束时循环栈非空（${frames.length} 帧），可能是 WHILE 发射顺序有 bug`);
       }
     }
 
@@ -347,4 +392,24 @@ export class Vm {
     }
     return ran;
   }
+}
+
+// 装载时扫一遍所有程序的 code，建 LOOP_BEGIN/WHILE_BEGIN → LOOP_END/WHILE_EXIT 的映射。
+// BREAK 执行时查这张表弹帧后跳到 exit+1，不用运行时遍历找配对。
+function buildExitMap(programs: readonly Program[]): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const program of programs) {
+    const code = program.code;
+    for (let pc = 0; pc < code.length; pc++) {
+      const op = code[pc];
+      if (op === undefined) continue;
+      if (op.op === 'LOOP_END') {
+        map.set(op.begin, pc);
+      } else if (op.op === 'WHILE_END') {
+        // WHILE_EXIT 紧跟 WHILE_END（verifier 保证），exit = pc + 1
+        map.set(op.begin, pc + 1);
+      }
+    }
+  }
+  return map;
 }

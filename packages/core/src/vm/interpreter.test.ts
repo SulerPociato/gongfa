@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { loadContent } from '../content/loader';
 import type { Content } from '../content/schema';
 import { BASE_BUDGET, type Clock } from '../types';
@@ -616,5 +616,206 @@ describe('fastForward（任务 7B 离线快进）', () => {
       expect(() => vm.fastForward(bad)).toThrow(RangeError);
       expect(vm.currentTick).toBe(0);
     }
+  });
+});
+
+// 批次 5：WHILE 控制流测试。
+describe('WHILE 控制流（批次 5）', () => {
+  function whileIr(opts: {
+    key: 'qi' | 'rate' | 'demon' | 'realm' | 'budget';
+    value: number;
+    cmp: '<' | '>' | '==';
+    body: readonly Op[];
+  }): Op[] {
+    const exitPc = 5 + opts.body.length + 1;
+    return [
+      { op: 'WHILE_BEGIN' }, // 0
+      { op: 'LOAD', key: opts.key }, // 1
+      { op: 'PUSH', value: opts.value }, // 2
+      { op: 'CMP', arg: opts.cmp }, // 3
+      { op: 'JMP_IF_FALSE', target: exitPc }, // 4
+      ...opts.body, // 5..
+      { op: 'WHILE_END', begin: 0 }, // n: 跳回 WHILE_BEGIN+1=1
+      { op: 'WHILE_EXIT' }, // n+1
+      HALT, // n+2
+    ];
+  }
+
+  function makeVm(code: readonly Op[]): Vm {
+    const vm = new Vm({
+      content: CONTENT,
+      sink: { execute: () => ({ qi: 1, demonDelta: 0 }) },
+    });
+    vm.installUnchecked([program(code)]);
+    return vm;
+  }
+
+  it('基础 while：条件为假一次都不进', () => {
+    const code = whileIr({ key: 'qi', value: 0, cmp: '<', body: [BREATH] });
+    const vm = makeVm(code);
+    const result = vm.tick();
+    expect(result.steps).toBe(7);
+    expect(result.gain).toBe(0);
+    expect(result.stall).toBeNull();
+  });
+
+  it('帧泄漏防御：JMP 跳过 WHILE_EXIT → dev 下 console.error', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' },
+      { op: 'PUSH', value: 0 },
+      { op: 'JMP_IF_FALSE', target: 4 },
+      { op: 'WHILE_END', begin: 0 },
+      HALT,
+    ];
+    const vm = makeVm(code);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vm.tick();
+    if ((import.meta as any).env?.DEV === true) {
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('循环栈非空'));
+    }
+    spy.mockRestore();
+  });
+
+  it('break in while：JMP{WHILE_EXIT} 跳出循环', () => {
+    const exitPc = 6;
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' }, // 0
+      { op: 'PUSH', value: 1 }, // 1
+      { op: 'JMP_IF_FALSE', target: exitPc }, // 2
+      BREATH, // 3
+      { op: 'JMP', target: exitPc }, // 4: break
+      { op: 'WHILE_END', begin: 0 }, // 5
+      { op: 'WHILE_EXIT' }, // 6
+      HALT, // 7
+    ];
+    const vm = makeVm(code);
+    const result = vm.tick();
+    expect(result.steps).toBe(7);
+    expect(result.gain).toBe(1);
+    expect(result.stall).toBeNull();
+  });
+
+  it('continue in while：JMP{WHILE_END} 跳回重判条件', () => {
+    const code = whileIr({ key: 'qi', value: 0, cmp: '<', body: [
+      { op: 'JMP', target: 5 }, // continue → WHILE_END
+      BREATH,
+    ]});
+    const vm = makeVm(code);
+    const result = vm.tick();
+    expect(result.steps).toBe(7);
+    expect(result.gain).toBe(0);
+  });
+
+  it('嵌套 while：内层 break 只跳内层', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' }, // 0: 外层
+      { op: 'LOAD', key: 'qi' }, // 1
+      { op: 'PUSH', value: 0 }, // 2
+      { op: 'CMP', arg: '==' }, // 3
+      { op: 'JMP_IF_FALSE', target: 16 }, // 4: 外层退出 → 外层 WHILE_EXIT
+      { op: 'WHILE_BEGIN' }, // 5: 内层
+      { op: 'LOAD', key: 'qi' }, // 6
+      { op: 'PUSH', value: 0 }, // 7
+      { op: 'CMP', arg: '==' }, // 8
+      { op: 'JMP_IF_FALSE', target: 13 }, // 9: 内层退出 → 内层 WHILE_EXIT
+      BREATH, // 10
+      { op: 'JMP', target: 13 }, // 11: 内层 break → 内层 WHILE_EXIT
+      { op: 'WHILE_END', begin: 5 }, // 12
+      { op: 'WHILE_EXIT' }, // 13: 内层退出
+      { op: 'JMP', target: 16 }, // 14: 外层也退出 → 外层 WHILE_EXIT
+      { op: 'WHILE_END', begin: 0 }, // 15
+      { op: 'WHILE_EXIT' }, // 16: 外层退出
+      HALT, // 17
+    ];
+    const vm = makeVm(code);
+    const result = vm.tick();
+    // WHILE_BEGIN + LOAD + PUSH + CMP + JMP_IF_FALSE + WHILE_BEGIN + LOAD + PUSH + CMP + JMP_IF_FALSE + BREATH + JMP + WHILE_EXIT + JMP + WHILE_EXIT + HALT = 16
+    expect(result.steps).toBe(16);
+    expect(result.gain).toBe(1);
+    expect(result.stall).toBeNull();
+  });
+
+  it('while 撞预算：条件永真 → stall', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' }, // 0
+      { op: 'LOAD', key: 'budget' }, // 1
+      { op: 'PUSH', value: 0 }, // 2
+      { op: 'CMP', arg: '>' }, // 3
+      { op: 'JMP_IF_FALSE', target: 7 }, // 4
+      BREATH, // 5
+      { op: 'WHILE_END', begin: 0 }, // 6
+      { op: 'WHILE_EXIT' }, // 7
+      HALT, // 8
+    ];
+    const vm = makeVm(code);
+    const result = vm.tick();
+    expect(result.stall).not.toBeNull();
+    expect(result.stall?.reason).toBe('budget');
+    expect(result.steps).toBe(200);
+  });
+});
+
+// 批次 5 补充：BREAK op。弹最内层帧并跳到循环出口之后，不用 JMP 绕过 LOOP_END/WHILE_EXIT。
+describe('BREAK op（批次 5 补充）', () => {
+  function makeVm(code: readonly Op[]): Vm {
+    const vm = new Vm({
+      content: CONTENT,
+      sink: { execute: () => ({ qi: 1, demonDelta: 0 }) },
+    });
+    vm.installUnchecked([program(code)]);
+    return vm;
+  }
+
+  it('repeat 内 BREAK：弹帧后落到 LOOP_END+1，只执行 1 次动作', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 2, count: 3 }, // 0
+      BREATH, // 1
+      { op: 'BREAK' }, // 2: 弹帧，跳到 LOOP_END(3)+1=4
+      { op: 'LOOP_END', begin: 0 }, // 3
+      HALT, // 4
+    ];
+    const vm = makeVm(code);
+    const result = vm.tick();
+    expect(result.gain).toBe(1);
+    expect(result.stall).toBeNull();
+    // LOOP_BEGIN + ACTION + BREAK + HALT = 4 步（LOOP_END 被跳过，不执行）
+    expect(result.steps).toBe(4);
+  });
+
+  it('while 内 BREAK：弹帧后落到 WHILE_EXIT+1', () => {
+    const code: Op[] = [
+      { op: 'WHILE_BEGIN' }, // 0
+      { op: 'PUSH', value: 1 }, // 1
+      { op: 'JMP_IF_FALSE', target: 5 }, // 2
+      BREATH, // 3
+      { op: 'BREAK' }, // 4: 弹帧，跳到 WHILE_EXIT(6)+1=7
+      { op: 'WHILE_END', begin: 0 }, // 5
+      { op: 'WHILE_EXIT' }, // 6
+      HALT, // 7
+    ];
+    const vm = makeVm(code);
+    const result = vm.tick();
+    expect(result.gain).toBe(1);
+    expect(result.stall).toBeNull();
+    // WHILE_BEGIN + PUSH + JMP_IF_FALSE + BREATH + BREAK + HALT = 6
+    expect(result.steps).toBe(6);
+  });
+
+  it('嵌套循环 BREAK 只弹最内层帧，外层继续', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 7, count: 2 }, // 0: 外层
+      { op: 'LOOP_BEGIN', end: 5, count: 5 }, // 1: 内层
+      BREATH, // 2
+      { op: 'BREAK' }, // 3: 弹内层帧，跳到 LOOP_END(5)+1=6
+      BREATH, // 4: 不可达（BREAK 已跳出内层）
+      { op: 'LOOP_END', begin: 1 }, // 5: 内层
+      { op: 'LOOP_END', begin: 0 }, // 6: 外层
+      HALT, // 7
+    ];
+    const vm = makeVm(code);
+    const result = vm.tick();
+    // 外层 2 轮 × 内层 1 次 BREATH = 2 次动作
+    expect(result.gain).toBe(2);
+    expect(result.stall).toBeNull();
   });
 });

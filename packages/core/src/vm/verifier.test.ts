@@ -188,4 +188,21 @@ describe('verifier 拒绝路径', () => {
     expect(result.ok).toBe(true);
     expect(result.warnings.join(' ')).toContain('静态不可达');
   });
+
+  it('BREAK 不在循环内 → break 错', () => {
+    const issue = firstIssue([BREATH, { op: 'BREAK' }, HALT], 'break');
+    expect(issue.pc).toBe(1);
+    expect(issue.message).toContain('不在任何循环内');
+  });
+
+  it('BREAK 在循环内 → 通过', () => {
+    const result = verify([
+      { op: 'LOOP_BEGIN', end: 3, count: 3 },
+      BREATH,
+      { op: 'BREAK' },
+      { op: 'LOOP_END', begin: 0 },
+      HALT,
+    ]);
+    expect(result.ok).toBe(true);
+  });
 });

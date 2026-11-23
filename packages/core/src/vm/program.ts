@@ -16,6 +16,10 @@ export type Op =
   | { op: 'JMP'; target: number }
   | { op: 'LOOP_BEGIN'; end: number; count: number }
   | { op: 'LOOP_END'; begin: number }
+  | { op: 'WHILE_BEGIN' }
+  | { op: 'WHILE_END'; begin: number }
+  | { op: 'WHILE_EXIT' }
+  | { op: 'BREAK' }
   | { op: 'HALT' };
 
 export type OpTag = Op['op'];
@@ -33,6 +37,10 @@ export const OP_TAGS: readonly OpTag[] = [
   'JMP',
   'LOOP_BEGIN',
   'LOOP_END',
+  'WHILE_BEGIN',
+  'WHILE_END',
+  'WHILE_EXIT',
+  'BREAK',
   'HALT',
 ];
 
@@ -67,6 +75,8 @@ export function jumpTarget(op: Op): number | null {
     case 'LOOP_BEGIN':
       return op.end;
     case 'LOOP_END':
+      return op.begin;
+    case 'WHILE_END':
       return op.begin;
     default:
       return null;

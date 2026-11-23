@@ -26,7 +26,10 @@ export type VerifyCheck =
   | 'loop-count'
   | 'stack-depth'
   | 'action-id'
-  | 'div-zero';
+  | 'div-zero'
+  | 'while-pair'
+  | 'while-body'
+  | 'break';
 
 export interface VerifyIssue {
   readonly check: VerifyCheck;
@@ -101,6 +104,8 @@ export function verifyProgram(program: Program, content: Content): VerifyResult 
   }
 
   checkLoopPairs(code, sink);
+  checkWhilePairs(code, sink);
+  checkBreakInLoop(code, sink);
   const reachable = walkStackModel(program, sink, warnings);
   markUnreachable(code, reachable, warnings);
 
@@ -184,10 +189,21 @@ function inspectOp(pc: number, raw: unknown, sink: Sink): void {
       }
       break;
     }
+    case 'WHILE_END': {
+      if (asIndex(field(raw, 'begin')) === null) {
+        sink.add('type', pc, `WHILE_END.begin 需要整数，收到 ${JSON.stringify(field(raw, 'begin'))}`);
+      }
+      break;
+    }
+    case 'WHILE_BEGIN':
+    case 'WHILE_EXIT': {
+      break;
+    }
     case 'ADD':
     case 'SUB':
     case 'MUL':
     case 'DIV':
+    case 'BREAK':
     case 'HALT':
       break;
   }
@@ -232,6 +248,86 @@ function checkLoopPairs(code: readonly unknown[], sink: Sink): void {
       if (outer.begin < inner.begin && inner.begin < outer.end && outer.end < inner.end) {
         sink.add('loop-pair', inner.begin, `循环区间 [${inner.begin},${inner.end}] 与 [${outer.begin},${outer.end}] 交叉嵌套`);
       }
+    }
+  }
+}
+
+// 批次 5：WHILE 成对检查 + 非空体检查。
+// WHILE_BEGIN 入栈，WHILE_EXIT 出栈；WHILE_END.begin 必须指向本层 WHILE_BEGIN+1。
+// WHILE_EXIT 必须紧跟 WHILE_END（exit === end+1）。
+function checkWhilePairs(code: readonly unknown[], sink: Sink): void {
+  const whileStack: number[] = [];
+  const claimedWhileExit = new Set<number>();
+
+  for (const [pc, raw] of code.entries()) {
+    const tag = opTag(raw);
+    if (tag === 'WHILE_BEGIN') {
+      whileStack.push(pc);
+    } else if (tag === 'WHILE_END') {
+      const begin = asIndex(field(raw, 'begin'));
+      if (begin === null) continue;
+      if (whileStack.length === 0) {
+        sink.add('while-pair', pc, `WHILE_END@${pc} 没有配对的 WHILE_BEGIN`);
+        continue;
+      }
+      const whileBeginPc = whileStack[whileStack.length - 1];
+      if (whileBeginPc === undefined) continue;
+      if (begin !== whileBeginPc + 1) {
+        sink.add('while-pair', pc, `WHILE_END.begin=${begin} 必须等于 WHILE_BEGIN@${whileBeginPc}+1=${whileBeginPc + 1}`);
+      }
+      // WHILE_EXIT 必须紧跟 WHILE_END
+      const exitPc = pc + 1;
+      if (exitPc >= code.length) {
+        sink.add('while-pair', pc, `WHILE_END@${pc} 之后缺少 WHILE_EXIT`);
+        continue;
+      }
+      const exitRaw = code[exitPc];
+      if (opTag(exitRaw) !== 'WHILE_EXIT') {
+        sink.add('while-pair', pc, `WHILE_END@${pc} 之后必须是 WHILE_EXIT，收到 ${opTag(exitRaw)}`);
+        continue;
+      }
+      claimedWhileExit.add(exitPc);
+      whileStack.pop();
+    } else if (tag === 'WHILE_EXIT') {
+      if (!claimedWhileExit.has(pc)) {
+        sink.add('while-pair', pc, `WHILE_EXIT@${pc} 没有被任何 WHILE_END 认领`);
+      }
+    }
+  }
+
+  if (whileStack.length > 0) {
+    for (const beginPc of whileStack) {
+      sink.add('while-pair', beginPc, `WHILE_BEGIN@${beginPc} 没有配对的 WHILE_END/WHILE_EXIT`);
+    }
+  }
+
+  // 非空体检查：WHILE_BEGIN 与 WHILE_END 之间至少一条 ACTION 或 LOOP_BEGIN
+  for (const [pc, raw] of code.entries()) {
+    if (opTag(raw) !== 'WHILE_BEGIN') continue;
+    let hasActionOrLoop = false;
+    for (let i = pc + 1; i < code.length; i++) {
+      const innerTag = opTag(code[i]);
+      if (innerTag === 'WHILE_END') break;
+      if (innerTag === 'ACTION' || innerTag === 'LOOP_BEGIN') {
+        hasActionOrLoop = true;
+        break;
+      }
+    }
+    if (!hasActionOrLoop) {
+      sink.add('while-body', pc, `WHILE_BEGIN@${pc} 体为空：至少需要一条 ACTION 或 LOOP_BEGIN`);
+    }
+  }
+}
+
+// BREAK 必须在循环内：用循环深度计数器扫一遍，深度为 0 处遇到 BREAK 即报错。
+function checkBreakInLoop(code: readonly unknown[], sink: Sink): void {
+  let depth = 0;
+  for (const [pc, raw] of code.entries()) {
+    const tag = opTag(raw);
+    if (tag === 'LOOP_BEGIN' || tag === 'WHILE_BEGIN') depth += 1;
+    else if (tag === 'LOOP_END' || tag === 'WHILE_EXIT') depth -= 1;
+    else if (tag === 'BREAK' && depth === 0) {
+      sink.add('break', pc, 'BREAK 不在任何循环内');
     }
   }
 }
@@ -408,6 +504,13 @@ function walkStackModel(program: Program, sink: Sink, warnings: string[]): Set<n
         const begin = asIndex(field(raw, 'begin'));
         if (begin !== null) next(begin + 1, state.stack, state.frames);
         next(state.pc + 1, state.stack, state.frames - 1);
+        break;
+      }
+      // BREAK 弹帧并跳出循环：静态分析里这条路径到此终止，不需要推后续状态。
+      case 'BREAK': {
+        if (state.frames === 0) {
+          report('stack-depth', state.pc, 'BREAK 处没有循环帧可弹');
+        }
         break;
       }
       case 'HALT':
