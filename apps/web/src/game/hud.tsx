@@ -230,6 +230,9 @@ export interface HudModel {
   readonly quest: { readonly label: string; readonly done: boolean }[];
   /** 批次 22：当前功法里有可折叠的直列 —— 在「更多工具」上点个点，别让炼器炉一直藏着。 */
   readonly furnaceReady: boolean;
+  /** 批次 28：藏经阁（悟道学功法）与当前悟道余额。 */
+  readonly insight: number;
+  readonly scriptures: readonly ScriptureRow[];
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -511,6 +514,56 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
   );
 }
 
+/**
+ * 藏经阁行（批次 28）：学会的功法可以「抄录」到画布。
+ * 抄录不是教程，是给你一份能跑的成品——看不懂就对照自己的写法。
+ */
+export interface ScriptureRow {
+  readonly id: string;
+  readonly name: string;
+  readonly algorithm: string;
+  readonly teach: string;
+  readonly cost: number;
+  readonly learned: boolean;
+  readonly affordable: boolean;
+}
+
+function ScripturePanel({ insight, rows, onLearn, onLoad }: {
+  readonly insight: number;
+  readonly rows: readonly ScriptureRow[];
+  readonly onLearn: (id: string) => void;
+  readonly onLoad: (id: string) => void;
+}) {
+  return (
+    <section className="scriptures">
+      <p className="label">藏经阁 · 悟道 {insight}</p>
+      <p className="scripture-hint">渡劫失败 +1 悟道；花悟道学一套上乘功法，学会可直接抄录到画布。</p>
+      <ul className="scripture-list">
+        {rows.map((row) => (
+          <li key={row.id} className={`scripture${row.learned ? ' is-learned' : ''}`}>
+            <div className="scripture-head">
+              <b>{row.name}</b>
+              <span className="scripture-algo">{row.algorithm}</span>
+            </div>
+            <p className="scripture-teach">{row.teach}</p>
+            <div className="scripture-actions">
+              {row.learned ? (
+                <button className="scripture-load" type="button" onClick={() => onLoad(row.id)}>
+                  抄录到画布
+                </button>
+              ) : (
+                <button className="scripture-learn" type="button" disabled={!row.affordable} onClick={() => onLearn(row.id)}>
+                  {row.affordable ? `学习（${row.cost} 悟道）` : `需 ${row.cost} 悟道`}
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // P2：阵修推演。它是**成本模型**，不是真的多节点执行——所以面板上必须自带那句声明，
 // 否则玩家会以为自己在配置真集群。
 function ClusterPanel() {
@@ -757,7 +810,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, onLearnScripture, onLoadScripture, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -817,6 +870,12 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         <CurvePanel model={model.curve} />
         {/* 批次 24：试炼挪进横条 —— 右列在 900px 高度下要塞 4 张卡，试炼会被裁掉一半。 */}
         {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}
+        <ScripturePanel
+          insight={model.insight}
+          rows={model.scriptures}
+          onLearn={(id) => onLearnScripture(id)}
+          onLoad={(id) => onLoadScripture(id)}
+        />
         <BookArtifactPanel
           bookModel={model.book}
           artifactRows={model.artifacts}

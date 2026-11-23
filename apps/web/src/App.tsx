@@ -36,7 +36,9 @@ import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { errandOf } from './game/errand';
-import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
+import { SCRIPTURES, canLearn, scriptureOf } from './game/scriptures';
+import { readInsight, readLearned, writeInsight, writeLearned } from './game/insightStore';
+import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
@@ -332,6 +334,8 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     trace: state.trace,
     quest: [],
     furnaceReady: false,
+    insight: 0,
+    scriptures: [],
     palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
   };
 }
@@ -394,6 +398,9 @@ export function App() {
   const tutAdvanceRef = useRef<(() => void) | null>(null);
   // 批次 19：窄屏积木库 —— 点一下就加一块，不依赖 Blockly 的侧边飞行栏。
   const addBlockRef = useRef<((type: string) => void) | null>(null);
+  // 批次 28：藏经阁（学功法 / 抄录）。
+  const learnScriptureRef = useRef<((id: string) => void) | null>(null);
+  const loadScriptureRef = useRef<((id: string) => void) | null>(null);
   // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
   const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
@@ -974,6 +981,62 @@ export function App() {
     };
     const detachArtifacts = (): void => {
       artifactActionRef.current = null;
+    };
+
+    // ---- 批次 28：藏经阁 ----
+    // 悟道是元进度（渡劫失败 +1），学过哪些功法也存元进度：换档不该把知识清空。
+    let metaInsight = readInsight(storage);
+    let learnedScriptures = readLearned(storage);
+    // runtime 的 insight 是本档累计，逐帧只做增量同步（刷新后从 0 起，不会重复加）。
+    let insightSynced = 0;
+
+    const scriptureRows = (): readonly ScriptureRow[] =>
+      SCRIPTURES.map((item) => ({
+        id: item.id,
+        name: item.name,
+        algorithm: item.algorithm,
+        teach: item.teach,
+        cost: item.cost,
+        learned: learnedScriptures.includes(item.id),
+        affordable: metaInsight >= item.cost,
+      }));
+
+    const refreshScriptures = (): void => {
+      setHud((previous) => ({ ...previous, insight: metaInsight, scriptures: scriptureRows() }));
+    };
+    refreshScriptures();
+
+    learnScriptureRef.current = (id: string): void => {
+      const item = scriptureOf(id);
+      if (item === null) return;
+      if (!canLearn(item, metaInsight, learnedScriptures)) {
+        showToast(learnedScriptures.includes(id) ? '这套已经学过了' : `悟道不够（需要 ${item.cost}）`);
+        return;
+      }
+      metaInsight -= item.cost;
+      learnedScriptures = [...learnedScriptures, id];
+      writeInsight(storage, metaInsight);
+      writeLearned(storage, learnedScriptures);
+      refreshScriptures();
+      showToast(`已习得《${item.name}》：${item.algorithm}`);
+    };
+
+    loadScriptureRef.current = (id: string): void => {
+      const item = scriptureOf(id);
+      if (item === null) return;
+      if (!learnedScriptures.includes(id)) {
+        showToast('还没学过这套功法');
+        return;
+      }
+      setModal({
+        title: `抄录《${item.name}》`,
+        body: `会用这套功法覆盖当前画布（当前程序会丢）。\n\n${item.teach}`,
+        confirmText: '覆盖并抄录',
+        onConfirm: () => {
+          reloadCanvas(item.workspace() as WorkspaceJson);
+          showToast(`已抄录《${item.name}》：${item.algorithm}`);
+        },
+      });
     };
 
     // HUD 的渲染闸门：逐帧把看得出来的变化量化成 key，key 不变就不重渲染。
@@ -1560,7 +1623,14 @@ export function App() {
         curveRealm = state.realmIndex;
         syncCurve(cache[0] ?? null);
       }
-        // 批次 24：考校达标 → 宽恕。逐帧同步（很便宜），达标立刻生效。
+        // 批次 28：runtime 的悟道增量同步到元进度（失败 +1，学功法花掉它）。
+      if (state.insight > insightSynced) {
+        metaInsight += state.insight - insightSynced;
+        insightSynced = state.insight;
+        writeInsight(storage, metaInsight);
+        refreshScriptures();
+      }
+      // 批次 24：考校达标 → 宽恕。逐帧同步（很便宜），达标立刻生效。
         const errand = errandOf(
           state.realmIndex,
           state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
@@ -1596,6 +1666,8 @@ export function App() {
         // 批次 19：积木库清单跟境界走（突破后新块要立刻出现在手机上）
         palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
         // 批次 20：第一境三步目标。做完（或突破）就不再显示，避免长期占版面。
+        insight: metaInsight,
+        scriptures: scriptureRows(),
         quest: state.realmIndex === 0
           ? [
               { label: '拖一块「吐纳」进「每 tick」', done: workspace.getBlocksByType('breath', false).length >= 1 },
@@ -1773,7 +1845,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onTakePill={handleTakePill} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
