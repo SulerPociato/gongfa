@@ -47,6 +47,8 @@ export interface TutorialSignals {
   readonly hasCompare: boolean;
   /** 本会话点过「可渡劫」：一旦点过就一直算点过 */
   readonly pressedChallenge: boolean;
+  /** 玩家在这一步点了「继续」（批次 15：翻页改成由玩家点击驱动） */
+  readonly clicked?: boolean;
 }
 
 /**
@@ -57,6 +59,15 @@ export interface TutorialSignals {
  * 原来的统一 3 秒会让第 3/5 步在读到一半时被撤走（实测差 4–6 秒）。
  */
 export const MIN_STEP_DWELL_MS = 4_500;
+
+/**
+ * 批次 15：翻页改成**玩家点击驱动**。
+ * 原来按字数定时翻页，实测问题很直接：读得慢的人还没看完就被撤走，
+ * 读得快的人又要干等 —— 同一份停留时间不可能同时满足两种人。
+ * 现在气泡右侧有「继续 →」，玩家点一下才走；这里只保留一个防误触下限，
+ * 避免一进来手一抖就跳过整段文字。
+ */
+export const MIN_ADVANCE_MS = 800;
 
 const STEP_DWELL_MS: Readonly<Record<number, number>> = {
   1: 6_500,
@@ -73,24 +84,14 @@ export function stepDwellMs(step: TutorialPlayStep): number {
 
 export function nextTutorialStep(step: TutorialStep, sig: TutorialSignals, stepAgeMs: number): TutorialStep {
   if (step === 'done') return 'done';
-  // 裁定 3：第 5 步不设「跳过这步」，直接点渡劫就视为跳到第 6 步；第 6 步等的那一下就是这次点击。
-  // 玩家的主动点击排在停留时间之前 —— 等待是给「读不完就翻页」设的，不是给按下按钮设的。
+  // 点过「可渡劫」是比继续更强的信号：第 5 步直接跳到第 6 步，第 6 步直接收尾。
   if (sig.pressedChallenge) return step === 6 ? 'done' : 6;
-  if (stepAgeMs < stepDwellMs(step)) return step;
-  switch (step) {
-    case 1:
-      return sig.breath >= 1 ? 2 : 1;
-    case 2:
-      return sig.qi > 0 ? 3 : 2;
-    case 3:
-      return sig.breath >= 2 ? 4 : 3;
-    case 4:
-      return !sig.hasCompare ? 4 : sig.demon > DEMON_HINT ? 5 : 6;
-    case 5:
-      return sig.calm >= 1 ? 6 : 5;
-    case 6:
-      return 6;
-  }
+  // 批次 15：只有玩家点了「继续」才翻页；没有点击就停在这一步，读多久都行。
+  if (sig.clicked !== true || stepAgeMs < MIN_ADVANCE_MS) return step;
+  if (step === 6) return 'done';
+  // 第 4 步按现场事实分叉：心魔没被压下去就不教调息，直接去渡劫（原裁定保留）。
+  if (step === 4) return sig.demon > DEMON_HINT ? 5 : 6;
+  return (step + 1) as TutorialStep;
 }
 
 /** 第 4 步要复述的数字：与曲线面板同源，字段名刻意和 CurveCompare 对齐。 */

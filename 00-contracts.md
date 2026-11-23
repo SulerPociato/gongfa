@@ -60,6 +60,18 @@ loopDepth = 运行期循环栈深度（VM 在 ACTION 时提供，**不进 IR**�
 - 只有 `kind === 'gain'` 的动作（吐纳类）触发增长；`调息` 不触发，且自身 `demonDelta = -0.0005`
 - `loopDepth` 取运行期值，与 `balance-sim.py` 的静态 `depth` 在参考程序上等价
 
+### 2.2.1 心魔增长（契约补齐）
+
+```
+demonDelta = 动作自身 demonDelta
+           + (kind === 'gain' ? 0.00005 × (1 + 0.5 × loopDepth) : 0)
+
+loopDepth = 运行期循环栈深度（VM 在 ACTION 时提供，**不进 IR**）
+```
+
+- 只有 `kind === 'gain'` 的动作（吐纳类）触发增长；`调息` 不触发，且自身 `demonDelta = -0.0005`
+- `loopDepth` 取运行期值，与 `balance-sim.py` 的静态 `depth` 在参考程序上等价
+
 ### 2.3 境界被动
 
 ```

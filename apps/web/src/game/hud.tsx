@@ -246,6 +246,9 @@ function BookPanel({ model, onAction }: { readonly model: BookModel; readonly on
 function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow[]; readonly onToggle: (id: string) => void }) {
   return (
     <div className="artifacts">
+      {/* 批次 15：玩家反馈"不知道道具怎么用"——所以把「点一下就生效」写在第一行，
+          并且每件都直接给出效果数字，不让人去翻图鉴。 */}
+      <p className="artifact-hint">点「装备」立刻生效，再点一次卸下</p>
       {rows.map((row) => (
         <div className="artifact" key={row.id}>
           <button className="artifact-toggle" type="button" aria-pressed={row.equipped} onClick={() => onToggle(row.id)}>
@@ -733,7 +736,8 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
         <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} onOpenCodex={onOpenCodex} />
-        <SprintPanel model={model.sprint} />
+        {/* 批次 15：试炼只在筑基后出现。炼气阶段连循环都没有，60 秒目标只会莫名其妙地弹。 */}
+        {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}
       </div>
 
       {/* 分隔线 + 渐隐遮罩 */}
@@ -743,19 +747,20 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           曲线必须在这里：它一进固定区，固定区就吃掉整列高度（实测 858px），
           滚动区 clientHeight 变 0 —— 红字和道具面板一起消失，比"曲线看不见"更糟。 */}
       <div className="hud-scroll">
-        {/* 批次 12：观测 Trace。每满 1 秒一条，最近 60 秒；只在内存，刷新清空。
-            它不是"历史存档"，是"刚才发生了什么"的取证：峰值、均值、当前值三行。 */}
-        <ClusterPanel />
-        <TracePanel samples={model.trace} />
-        {/* P1 纵切：炼器炉（Compiler / Optimizer）。只在"有可改写的直列"时才有动作，
-            分析结果与代价一起放进弹窗，不替玩家做决定。 */}
-        <section className="furnace">
-          <p className="label">炼器炉</p>
-          <button className="furnace-button" type="button" onClick={onOptimize}>
-            分析当前功法
-          </button>
-          <p className="furnace-hint">找连续 3 块以上的相同动作，建议改成循环（省指令，但多花步数）</p>
-        </section>
+        {/* 批次 15：进阶工具默认收起。首屏塞满五张卡的结果是"没有探索欲望"，
+            所以只留基础三块（曲线 / 功法与道具 / 道途），工具折叠在「更多工具」里。 */}
+        <details className="hud-tools">
+          <summary>更多工具（炼器炉 · 观测 · 阵修推演）</summary>
+          <section className="furnace">
+            <p className="label">炼器炉</p>
+            <button className="furnace-button" type="button" onClick={onOptimize}>
+              分析当前功法
+            </button>
+            <p className="furnace-hint">找连续 3 块以上的相同动作，建议改成循环（省指令，但多花步数）</p>
+          </section>
+          <TracePanel samples={model.trace} />
+          <ClusterPanel />
+        </details>
         {/* 批次 7：道途。筑基后第一次出现，选中即消失（一次定终身）。
             两条路都是"全产出"倍率；入魔的代价加在心魔基础增速上，调息压不住它。 */}
         {model.dao === null && model.realm.name !== '炼气' && (

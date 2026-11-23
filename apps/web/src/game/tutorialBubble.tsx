@@ -82,6 +82,8 @@ export interface TutorialBubbleProps {
    * 停在 boot 里起表等于状态机自己数自己的时间，玩家看到的会比数到的短几十毫秒。
    */
   readonly onStepPainted: (step: TutorialPlayStep) => void;
+  /** 批次 15：玩家点「继续」才翻页 —— 阅读节奏交回玩家手里。 */
+  readonly onAdvance: () => void;
 }
 
 /** 每次重新查：不缓存元素身份。 */
@@ -101,7 +103,7 @@ function getFlyoutRight(): number | null {
   return r.x + r.width;
 }
 
-export function TutorialBubble({ step, text, total, rev, release, onPlaced, onStepPainted }: TutorialBubbleProps) {
+export function TutorialBubble({ step, text, total, rev, release, onPlaced, onStepPainted, onAdvance }: TutorialBubbleProps) {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const ringRef = useRef<HTMLDivElement | null>(null);
   const badgesRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +283,12 @@ export function TutorialBubble({ step, text, total, rev, release, onPlaced, onSt
       <div ref={bubbleRef} className={`tutorial-bubble side-${side}${on}`} role="status">
         <span className="tutorial-bubble-badge">{`${step}/${total}`}</span>
         <span className="tutorial-bubble-text">{shown}</span>
+        {/* 翻页按钮：只在「这一步自己的文案」时出现；放新块那 2 秒里不抢焦点。 */}
+        {focus === null && (
+          <button className="tutorial-bubble-next" type="button" onClick={onAdvance}>
+            继续 →
+          </button>
+        )}
       </div>
     </>
   );

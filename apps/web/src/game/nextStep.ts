@@ -17,6 +17,10 @@ export interface NextStepInput {
   readonly state: RuntimeState;
   /** 画布上有没有可执行的程序（编译失败会保留上一份 lastGood，runtime 自己分不清）。 */
   readonly hasProgram: boolean;
+  /** 画布上吐纳块的个数（批次 15：教「别手搓，去用循环」）。 */
+  readonly breathBlocks?: number;
+  /** 画布上有没有循环块。 */
+  readonly hasRepeat?: boolean;
 }
 
 const NOISE_HINT = 0.7;
@@ -28,7 +32,7 @@ function mmss(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function nextStepOf({ state, hasProgram }: NextStepInput): string {
+export function nextStepOf({ state, hasProgram, breathBlocks = 0, hasRepeat = false }: NextStepInput): string {
   if (!hasProgram) return '拖「吐纳」进「每 tick」';
   if (state.pauseRemainingMs > 0) return `走火入魔：等 ${(state.pauseRemainingMs / 1000).toFixed(1)} 秒`;
   if (state.demon >= NOISE_HINT) return '心魔偏高：拖「调息」压住';
@@ -40,6 +44,8 @@ export function nextStepOf({ state, hasProgram }: NextStepInput): string {
   if (state.cooldownRemainingMs > 0) return `冷却 ${mmss(state.cooldownRemainingMs)} · 先改功法`;
   if (state.nextRealmName === null) return '已至末境 · 收集功法谱';
   if (state.rate <= 0) return '程序无产出：检查凹槽';
+  // 批次 15：手搓吐纳是最好抓的教学时机 —— 玩家已经尝到甜头，这时才愿意学循环。
+  if (!hasRepeat && breathBlocks >= 3) return '3 块吐纳可换 1 个循环';
   const remaining = Math.max(0, state.threshold - state.qi);
   return `攒 ${mmss((remaining / state.rate) * 1000)} 到阈值`;
 }

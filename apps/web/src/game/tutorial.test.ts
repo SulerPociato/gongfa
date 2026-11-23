@@ -25,6 +25,7 @@ import {
   releasedTarget,
   resumeTutorialStep,
   stepDwellMs,
+  MIN_ADVANCE_MS,
   tutorialActiveAt,
   tutorialBar,
   tutorialTarget,
@@ -39,73 +40,48 @@ const NO: TutorialSignals = { breath: 0, calm: 0, qi: 0, demon: 0, hasCompare: f
 const sig = (over: Partial<TutorialSignals>): TutorialSignals => ({ ...NO, ...over });
 const NUM = { perSec: 10, compare: null, goalQi: 480, windowSec: 60, demon: 0 };
 
-describe('步骤机：只往前走，条件不满足就停在原地', () => {
-
-  it('第 1 步等第一块吐纳落地', () => {
-    expect(nextTutorialStep(1, sig({ qi: 5 }), stepDwellMs(1) - 1)).toBe(1);
-    expect(nextTutorialStep(1, sig({ breath: 1 }), stepDwellMs(1))).toBe(2);
+describe('步骤机：玩家点「继续」才翻页', () => {
+  it('不点就不动：条件全满足、时间过很久也停在这一步', () => {
+    expect(nextTutorialStep(1, sig({ breath: 9, qi: 1e6 }), 60_000)).toBe(1);
+    expect(nextTutorialStep(3, sig({ breath: 9, qi: 1e6 }), 60_000)).toBe(3);
+    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 9 }), 60_000)).toBe(5);
   });
 
-  it('第 2 步等存量真涨起来（拖完积木到第一个 tick 之间不该就跳过去）', () => {
-    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0 }), stepDwellMs(2) - 1)).toBe(2);
-    expect(nextTutorialStep(2, sig({ breath: 1, qi: 0.1 }), stepDwellMs(2))).toBe(3);
+  it('点一下就前进：1→2→3→4→6（第 4 步心魔没涨直接去渡劫）', () => {
+    const click = sig({ clicked: true });
+    expect(nextTutorialStep(1, click, MIN_ADVANCE_MS)).toBe(2);
+    expect(nextTutorialStep(2, click, MIN_ADVANCE_MS)).toBe(3);
+    expect(nextTutorialStep(3, click, MIN_ADVANCE_MS)).toBe(4);
+    expect(nextTutorialStep(4, click, MIN_ADVANCE_MS)).toBe(6);
   });
 
-  it('第 3 步等第二块吐纳', () => {
-    expect(nextTutorialStep(3, sig({ breath: 1, qi: 50 }), stepDwellMs(3) - 1)).toBe(3);
-    expect(nextTutorialStep(3, sig({ breath: 2 }), stepDwellMs(3))).toBe(4);
+  it('第 4 步：心魔已经涨起来才教调息，否则直接去第 6 步', () => {
+    expect(nextTutorialStep(4, sig({ clicked: true, demon: 0.1 }), MIN_ADVANCE_MS)).toBe(6);
+    expect(nextTutorialStep(4, sig({ clicked: true, demon: 0.1001 }), MIN_ADVANCE_MS)).toBe(5);
   });
 
-  it('第 4 步要对比行出现且真停留够：同一次拖拽同时满足 3 和 4，不留停留时间这句话会一闪而过', () => {
-    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: false }), stepDwellMs(4))).toBe(4);
-    expect(nextTutorialStep(4, sig({ breath: 2, hasCompare: true }), stepDwellMs(4))).toBe(6);
+  it('第 6 步点一下收尾，done 之后不再动', () => {
+    expect(nextTutorialStep(6, sig({ clicked: true }), MIN_ADVANCE_MS)).toBe('done');
+    expect(nextTutorialStep('done', sig({ breath: 9, qi: 1e6, clicked: true }), 0)).toBe('done');
   });
 
-  it('第 4 步之后：心魔真在涨才提「调息」，否则直接进第 6 步', () => {
-    expect(nextTutorialStep(4, sig({ hasCompare: true, demon: 0.1 }), stepDwellMs(4))).toBe(6);
-    expect(nextTutorialStep(4, sig({ hasCompare: true, demon: 0.1001 }), stepDwellMs(4))).toBe(5);
+  it('防手抖：刚翻页就点不生效', () => {
+    expect(nextTutorialStep(1, sig({ clicked: true }), MIN_ADVANCE_MS - 1)).toBe(1);
+    expect(nextTutorialStep(2, sig({ clicked: true }), MIN_ADVANCE_MS - 1)).toBe(2);
   });
 
-  it('第 5 步等调息落地', () => {
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 0 }), stepDwellMs(5) - 1)).toBe(5);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), stepDwellMs(5))).toBe(6);
-  });
-
-  it('第 6 步等那一下点击，done 之后不再动', () => {
-    expect(nextTutorialStep(6, sig({ pressedChallenge: false }), 9_999)).toBe(6);
-    expect(nextTutorialStep(6, sig({ pressedChallenge: true }), 0)).toBe('done');
-    expect(nextTutorialStep('done', sig({ breath: 9, qi: 1e6, pressedChallenge: true }), 0)).toBe('done');
-  });
-
-  it('点过渡劫就当这一套他会了：从第 2 步直落第 6 步，再落结束', () => {
+  it('点过渡劫比「继续」更强：直接跳到第 6 步，再点收尾', () => {
     expect(nextTutorialStep(2, sig({ pressedChallenge: true }), 0)).toBe(6);
     expect(nextTutorialStep(5, sig({ pressedChallenge: true }), 0)).toBe(6);
-  });
-});
-
-describe('每步最短停留 3 秒（需求 13，第 4 步保留 5 秒）', () => {
-  it('条件在第一步就满足，不到该步停留也不许翻页', () => {
-    expect(nextTutorialStep(1, sig({ breath: 1 }), stepDwellMs(1) - 1)).toBe(1);
-    expect(nextTutorialStep(2, sig({ qi: 0.1 }), stepDwellMs(2) - 1)).toBe(2);
-    expect(nextTutorialStep(3, sig({ breath: 2 }), stepDwellMs(3) - 1)).toBe(3);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), stepDwellMs(5) - 1)).toBe(5);
-    // qi 过 0 只要一个 tick、第二块落地即满足 —— 这两处没有停留时间就会把话撤在玩家读到一半时
-    expect(nextTutorialStep(2, sig({ qi: 0.1 }), stepDwellMs(2))).toBe(3);
-    expect(nextTutorialStep(5, sig({ demon: 0.5, calm: 1 }), stepDwellMs(5))).toBe(6);
+    expect(nextTutorialStep(6, sig({ pressedChallenge: true }), 0)).toBe('done');
+    expect(nextTutorialStep(6, sig({ clicked: true }), 0)).toBe(6);
   });
 
-  it('停留按字数排：第 3/5 步最长，第 2 步最短', () => {
+  it('停留表还在，但只用于文案节奏与旧档兼容（不再驱动翻页）', () => {
+    expect(stepDwellMs(1)).toBe(6_500);
     expect(stepDwellMs(2)).toBe(MIN_STEP_DWELL_MS);
     expect(stepDwellMs(3)).toBeGreaterThanOrEqual(8_000);
     expect(stepDwellMs(5)).toBeGreaterThanOrEqual(10_000);
-    expect(stepDwellMs(1)).toBeGreaterThan(stepDwellMs(2));
-    expect(nextTutorialStep(4, sig({ hasCompare: true }), 5_000)).toBe(4);
-    expect(nextTutorialStep(4, sig({ hasCompare: true }), stepDwellMs(4))).toBe(6);
-  });
-
-  it('主动点「可渡劫」不排队：停留是给自动翻页设的，不是给玩家的点击设的', () => {
-    expect(nextTutorialStep(2, sig({ pressedChallenge: true }), 0)).toBe(6);
-    expect(nextTutorialStep(6, sig({ pressedChallenge: true }), 0)).toBe('done');
   });
 });
 

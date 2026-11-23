@@ -351,6 +351,8 @@ export function App() {
   // 道具开关同理：装备要当场重算 sink 与预算池，只有 useEffect 里才摸得到 runtime 与控制器。
   const artifactActionRef = useRef<((id: string) => void) | null>(null);
   const pillActionRef = useRef<(() => void) | null>(null);
+  // 批次 15：引导「继续」按钮转发（effect 闭包里的 tutClicked 只能这样改）。
+  const tutAdvanceRef = useRef<(() => void) | null>(null);
   // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
   const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
@@ -386,6 +388,8 @@ export function App() {
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 批次 15：面板加宽（画布让位）。手机/窄窗口下默认加宽，桌面默认 300。
+  const [wideHud, setWideHud] = useState(() => typeof window !== 'undefined' && window.innerWidth < 1280);
   // 试炼最佳效率（元进度 gongfa:best:<slot>）。读档在 effect 里做（storage 那时才建），
   // 这里只存一份内存镜像给 HUD 用；境界切换时按 realmIndex 取。
   const [bestMap, setBestMap] = useState<BestMap>({});
@@ -491,6 +495,8 @@ export function App() {
     let tutReleased = true;
     let tutBreathDragged = false;
     let tutPressed = false;
+  // 批次 15：这一步有没有被玩家点「继续」。翻页由它驱动。
+  let tutClicked = false;
     let tutStepAt = 0;
     // 需求 13：已经由「气泡上屏」起过表的那一步。每步只认第一次报告，重复报告会把计时一推再推。
     let tutArmedFor: TutorialPlayStep | null = null;
@@ -1096,6 +1102,11 @@ export function App() {
     // 需求 13 的起表口：气泡把「这一步的 n/6 已经画到屏上」报回来，那一刻才许开始数 3 秒。
     // boot 与翻页那两处仍然先写一份兜底时间：气泡万一贴不上、报告丢了，引导不能永远停在第 1 步，
     // 但报告一旦到达就以报告为准 —— 停留是给眼睛的，状态机不该替眼睛提前起表。
+    tutAdvanceRef.current = (): void => {
+      if (!tutActive) return;
+      tutClicked = true;
+    };
+
     tutPaintedRef.current = (shown: TutorialPlayStep): void => {
       if (!tutActive || shown !== tutStep || tutArmedFor === shown) return;
       tutArmedFor = shown;
@@ -1131,11 +1142,12 @@ export function App() {
       }
       const next = nextTutorialStep(
         tutStep,
-        { breath, calm, qi: state.qi, demon: state.demon, hasCompare: lastCompare !== null, pressedChallenge: tutPressed },
+        { breath, calm, qi: state.qi, demon: state.demon, hasCompare: lastCompare !== null, pressedChallenge: tutPressed, clicked: tutClicked },
         wallClock.now() - tutStepAt,
       );
       if (next !== tutStep) {
         tutStep = next;
+        tutClicked = false;
         tutStepAt = wallClock.now();
         refreshFlyoutClasses();
         if (next === 'done') {
@@ -1420,7 +1432,12 @@ export function App() {
         tutorial: tutBar,
         // 批次 7：下一步提示。cache 是宿主才知道的"有没有可执行程序"，
         // runtime 分不清"空画布"与"编译失败保留 lastGood"，所以这里传进去。
-        nextStep: nextStepOf({ state, hasProgram: cache.length > 0 }),
+        nextStep: nextStepOf({
+          state,
+          hasProgram: cache.length > 0,
+          breathBlocks: workspace.getBlocksByType('breath', false).length,
+          hasRepeat: workspace.getBlocksByType('gongfa_repeat', false).length > 0,
+        }),
         dao: state.dao,
         trace: state.trace,
       }));
@@ -1551,13 +1568,16 @@ export function App() {
   const tutClass = hud.tutorial === null || hud.tutorial.step === null ? '' : ` tut tut-${hud.tutorial.step}`;
 
   return (
-    <div className={`layout${tutClass}`}>
+    <div className={`layout${tutClass}${wideHud ? ' is-wide-hud' : ''}`}>
       <div className="topbar">
         <span className="topbar-logo">代码修仙</span>
         <div className="topbar-right">
           {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
           {!hud.demo && <span className="topbar-badge">在线</span>}
           <span className="topbar-mode">在线 ×1.0 ｜ 闭关 ×0.6</span>
+          <button className="topbar-wide" type="button" onClick={() => setWideHud((value) => !value)} title="加宽右侧面板 / 收回">
+            {wideHud ? '收起面板' : '加宽面板'}
+          </button>
           <button className="topbar-settings" type="button" aria-label="设置" onClick={() => setDrawerOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />
@@ -1582,7 +1602,7 @@ export function App() {
       )}
       {outcome !== null && <ChallengeResultLayer outcome={outcome} onDismiss={handleDismissOutcome} />}
       {hud.tutorial !== null && hud.tutorial.step !== null && (
-        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} onStepPainted={onTutPainted} />
+        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} onStepPainted={onTutPainted} onAdvance={() => { tutAdvanceRef.current?.(); }} />
       )}
       {/* 批次 5：境界解锁的「新」角标（不挂 .tut class，避免界面变暗）。 */}
       {unlockNewIds.length > 0 && (

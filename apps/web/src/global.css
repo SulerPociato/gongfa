@@ -27,6 +27,8 @@
   --glow: 0 0 24px rgba(53, 224, 200, 0.25);
   /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
   --hud-width: 300px;
+  /* 批次 15：面板加宽档（画布让位）。300 → 420，画布仍保留可用宽度。 */
+  --hud-width-wide: 420px;
   --topbar-height: 48px;
 }
 
@@ -1919,6 +1921,68 @@ body::before {
 .cluster-row input[type='range'] {
   width: 100%;
   accent-color: var(--spirit);
+}
+
+
+/* 批次 15：面板加宽。玩家嫌画布占地方时，一键把右侧从 300 换到 420。 */
+.layout.is-wide-hud {
+  grid-template-columns: 1fr var(--hud-width-wide);
+}
+
+.layout.is-wide-hud::after {
+  right: calc(var(--hud-width-wide) + 24px);
+}
+
+.artifact-hint {
+  margin: 0 0 6px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* 批次 15：进阶工具折叠区。首屏只留基础三块，工具默认收起。 */
+.hud-tools {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(20, 26, 32, 0.45);
+}
+
+.hud-tools > summary {
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(53, 224, 200, 0.82);
+  list-style: none;
+}
+
+.hud-tools > summary::-webkit-details-marker {
+  display: none;
+}
+
+.hud-tools[open] > summary {
+  margin-bottom: 8px;
+}
+
+.hud-tools > *:not(summary) {
+  margin-top: 8px;
+}
+
+/* 批次 15：引导气泡的「继续」按钮 —— 翻页交回玩家。 */
+.tutorial-bubble-next {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: #06231f;
+  background: var(--spirit);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.tutorial-bubble-next:hover {
+  filter: brightness(1.1);
 }
 
 /* 批次 12：观测 Trace。一行折线 + 两行摘要，不给缩放/导出——它是取证，不是产品仪表盘。 */
