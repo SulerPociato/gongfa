@@ -239,6 +239,13 @@ const ARTIFACT_GUIDE: readonly { readonly id: string; readonly glyph: string; re
     when: '任何时候都有效，但它是乘数不是加法：基础速率越高，收益越大',
   },
   {
+    id: 'pouch',
+    glyph: '袋',
+    name: '储物袋',
+    effect: '缓存槽位 +1（玉简默认只记 1 种动作，现在能记 2 种）',
+    when: '程序里交替使用吐纳和调息、玉简经常「记不住」上一次时。它不加快单次动作，只让缓存不被挤掉',
+  },
+  {
     id: 'vase',
     glyph: '瓶',
     name: '玉净瓶',
@@ -1382,6 +1389,7 @@ export function App() {
       if (game.equippedArtifacts.includes('abacus') || game.ownedArtifacts.includes('abacus')) pushMoment('art-abacus');
       if (game.equippedArtifacts.includes('pearl') || game.ownedArtifacts.includes('pearl')) pushMoment('art-pearl');
       if (game.equippedArtifacts.includes('vase') || game.ownedArtifacts.includes('vase')) pushMoment('art-vase');
+      if (game.equippedArtifacts.includes('pouch') || game.ownedArtifacts.includes('pouch')) pushMoment('art-pouch');
       const key = `${qi}|${state.rate}|${state.stall?.tick ?? -1}|${Math.round(state.demon * 1000)}|${Math.ceil(state.pauseRemainingMs / 100)}|${state.realmName}|${state.threshold}|${state.passivePerSec}|${state.canBreakthrough}|${Math.ceil(state.trialRemainingMs / 100)}|${Math.ceil(state.cooldownRemainingMs / 1000)}|${Math.ceil(state.chargeRemainingMs / 1000)}|${state.chargeReadyAt}|${state.attempt}|${state.insight}|${state.sprintGoalQi}|${Math.floor(state.sprintProgressQi)}|${state.sprintReached}|${tutBarSig}`;
       if (key === lastHudKey) return;
       lastHudKey = key;

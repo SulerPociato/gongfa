@@ -17,7 +17,9 @@ export interface JadeCacheSpec {
 
 export type ArtifactEffect =
   | { readonly type: 'cache'; readonly cache: JadeCacheSpec }
-  | { readonly type: 'modifier'; readonly modifier: Modifier };
+  | { readonly type: 'modifier'; readonly modifier: Modifier }
+  // 批次 14（P1 储物袋）：缓存槽位。玉简本身只缓存 1 个 actionId，储物袋 +1 个。
+  | { readonly type: 'cacheSlots'; readonly slots: number };
 
 export interface ArtifactDef {
   readonly id: string;
@@ -32,6 +34,8 @@ export interface ArtifactEquipment {
   readonly budgetBonus: number;
   /** 道具提供的通用修正（rate / demonRate）：由宿主合并进 sink 的 modifiers，与功法书的修改一起结算。 */
   readonly modifiers: readonly Modifier[];
+  /** 缓存槽位加成（储物袋 +1）；宿主把它加到玉简的基础槽位 1 上。 */
+  readonly cacheSlots: number;
   /** 表里没有的 id、以及当前还不消费的 modifier，逐条写明原因，不静默吞掉。 */
   readonly errors: readonly string[];
 }
@@ -122,6 +126,11 @@ function readEffect(value: unknown, at: string, errors: string[]): ArtifactEffec
     const cache = readCache(raw['cache'], `${at}.cache`, errors);
     return cache === null ? null : { type: 'cache', cache };
   }
+  if (type === 'cacheSlots') {
+    const slots = asInteger(raw['slots'], `${at}.slots`, errors, 1);
+    if (slots > 4) errors.push(`${at}.slots: 最多 +4（再多也没有第 5 种动作可缓存），收到 ${slots}`);
+    return slots < 1 ? null : { type: 'cacheSlots', slots };
+  }
   if (type === 'modifier') {
     if (raw['modifier'] === undefined) {
       errors.push(`${at}.modifier: type=modifier 需要 modifier 对象，收到 ${describe(raw['modifier'])}`);
@@ -183,6 +192,7 @@ export function equipArtifacts(artifacts: readonly ArtifactDef[], equippedIds: r
   const budgetById = new Map<string, number>();
   let jadeCache: JadeCacheSpec | null = null;
   const modifiers: Modifier[] = [];
+  let cacheSlots = 0;
 
   for (const id of equippedIds) {
     const artifact = byId.get(id);
@@ -194,6 +204,11 @@ export function equipArtifacts(artifacts: readonly ArtifactDef[], equippedIds: r
       if (effect.type === 'cache') {
         // 契约没定义两件缓存同时装备怎么叠，表里也只有一件：取最后一件，不静默相乘
         jadeCache = effect.cache;
+        continue;
+      }
+      if (effect.type === 'cacheSlots') {
+        // 槽位是加法的：储物袋 +1，装备位里两件同类也只按表里的数相加（表里只会有一件）
+        cacheSlots += effect.slots;
         continue;
       }
       const modifier = effect.modifier;
@@ -211,5 +226,5 @@ export function equipArtifacts(artifacts: readonly ArtifactDef[], equippedIds: r
 
   let budgetBonus = 0;
   for (const value of budgetById.values()) budgetBonus += value;
-  return { jadeCache, budgetBonus, modifiers, errors };
+  return { jadeCache, budgetBonus, modifiers, cacheSlots, errors };
 }

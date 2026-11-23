@@ -34,7 +34,7 @@ function expectErrors(raw: unknown, fragment: string): string {
 describe('道具表（契约 §2.4，任务 7A）', () => {
   it('content/artifacts.json 逐值钉住：玉简 ×0.7 计 0 步，算盘预算 +50', () => {
     const loaded = loadArtifacts(realArtifacts);
-    expect(loaded.map((artifact) => artifact.id)).toEqual(['jade', 'abacus', 'pearl', 'vase']);
+    expect(loaded.map((artifact) => artifact.id)).toEqual(['jade', 'abacus', 'pearl', 'vase', 'pouch']);
     const jade = loaded[0]!.effects[0];
     expect(jade).toEqual({ type: 'cache', cache: { sameActionId: true, hitGainMultiplier: 0.7, hitStepCost: 0 } });
     const abacus = loaded[1]!.effects[0];
@@ -88,7 +88,7 @@ describe('equipArtifacts：装备位换算成结算入参', () => {
   const TABLE = artifacts([JADE, ABACUS]);
 
   it('一个都不装：完全中性', () => {
-    expect(equipArtifacts(TABLE, [])).toEqual({ jadeCache: null, budgetBonus: 0, modifiers: [], errors: [] });
+    expect(equipArtifacts(TABLE, [])).toEqual({ jadeCache: null, budgetBonus: 0, modifiers: [], cacheSlots: 0, errors: [] });
   });
 
   it('只装玉简：给出缓存规格、预算不动', () => {

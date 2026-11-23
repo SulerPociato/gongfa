@@ -301,3 +301,35 @@ describe('玉简的产出与步数同源（契约 §2.4，任务 7A）', () => {
     expect(resolveModifiers(mods).add.budget).toBe(50);
   });
 });
+
+// 批次 14（P1 储物袋）：缓存容量 + LRU 淘汰。
+// 玉简基础 1 槽：`吐纳 → 调息 → 吐纳` 第三次不命中；储物袋 +1 槽后命中。
+// 用「步数」当判据最直接：命中那一步 stepCost 是 0，未命中是 1。
+describe('缓存槽位与 LRU 淘汰（储物袋）', () => {
+  it('1 槽：吐纳→调息→吐纳，第三次被淘汰，不命中', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE });
+    sink.execute(req('breath', 1));
+    sink.execute(req('calm', 2));
+    const third = sink.execute(req('breath', 3));
+    // 未命中时 sink 不返回 stepCost（VM 缺省按 1 计）
+    expect(third.stepCost).toBeUndefined();
+    expect(sink.observed.repeats).toBe(1);
+  });
+
+  it('2 槽（储物袋）：同一序列第三次命中，免步 + 打折', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE, cacheSlots: 2 });
+    sink.execute(req('breath', 1));
+    sink.execute(req('calm', 2));
+    const third = sink.execute(req('breath', 3));
+    expect(third.stepCost).toBe(0);
+  });
+
+  it('同一动作连续命中时 LRU 会续期：吐纳→吐纳→调息→吐纳 在 2 槽下仍命中', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0, jadeCache: JADE, cacheSlots: 2 });
+    sink.execute(req('breath', 1));
+    sink.execute(req('breath', 2));
+    sink.execute(req('calm', 3));
+    const fourth = sink.execute(req('breath', 4));
+    expect(fourth.stepCost).toBe(0);
+  });
+});

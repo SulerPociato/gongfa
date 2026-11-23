@@ -65,5 +65,17 @@
         }
       }
     ]
+  },
+  {
+    "id": "pouch",
+    "name": {
+      "zh": "储物袋"
+    },
+    "effects": [
+      {
+        "type": "cacheSlots",
+        "slots": 1
+      }
+    ]
   }
 ]

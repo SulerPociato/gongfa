@@ -11,7 +11,7 @@ import { activeSlot } from '@gongfa/core';
  * 文案里的数字一律由调用方现取（剩余蓄势、预算上限等），表里只放固定句式，
  * 避免第二天改了数值、提示还在说旧话。
  */
-export type MomentId = 'noise' | 'backlash' | 'sprint' | 'stall' | 'art-jade' | 'art-abacus' | 'art-pearl' | 'art-vase';
+export type MomentId = 'noise' | 'backlash' | 'sprint' | 'stall' | 'art-jade' | 'art-abacus' | 'art-pearl' | 'art-vase' | 'art-pouch';
 
 export const MOMENT_TEXTS: Readonly<Record<MomentId, string>> = {
   noise: '杂念开始了：这一 tick 的产出减半。拖「调息」压住心魔。',
@@ -23,10 +23,11 @@ export const MOMENT_TEXTS: Readonly<Record<MomentId, string>> = {
   'art-abacus': '算盘：每 tick 指令预算 +50 步。程序越深、动作越多，越先撞上限，那时它会明显提速。',
   'art-pearl': '灵珠：全产出 ×1.10。它是乘在最后的，所以速率越高、赚得越多。',
   'art-vase': '玉净瓶：心魔增速 ×0.90。不改产出，只让心魔涨得慢一点——配合「入魔」很好用。',
+  'art-pouch': '储物袋：缓存槽位 +1。玉简默认只记得住 1 种动作，交替用吐纳和调息时会被挤掉，它把槽位变成 2 个。',
 };
 
 /** 只有这些要"一辈子一次"：其余是事件，同一会话内可以反复发生。 */
-export const PERSISTED_MOMENTS: readonly MomentId[] = ['stall', 'art-jade', 'art-abacus', 'art-pearl', 'art-vase'];
+export const PERSISTED_MOMENTS: readonly MomentId[] = ['stall', 'art-jade', 'art-abacus', 'art-pearl', 'art-vase', 'art-pouch'];
 
 const SEEN_PREFIX = 'gongfa:seen:';
 

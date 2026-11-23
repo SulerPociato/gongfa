@@ -48,6 +48,9 @@ export function describeArtifact(artifact: ArtifactDef): string {
       if (effect.type === 'cache') {
         return `同 tick 重复动作产出 ×${effect.cache.hitGainMultiplier}，那一步计 ${effect.cache.hitStepCost} 步`;
       }
+      if (effect.type === 'cacheSlots') {
+        return `缓存槽位 +${effect.slots}（玉简可多记一种动作）`;
+      }
       const modifier = effect.modifier;
       const amount = modifier.kind === 'add' ? `+${modifier.value}` : `×${modifier.value}`;
       // budget 的单位是「步」，其余目标没有单位可言（7A 也只有 budget 会真的生效）

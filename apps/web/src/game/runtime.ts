@@ -218,7 +218,7 @@ export interface Runtime {
    * 玉简换 sink（命中折扣与免步都取自规格本身），算盘换 VM 的预算池。
    * 传全中性（jadeCache: null、budgetBonus: 0）就是两件都卸下。
    */
-  attachArtifacts(equipment: Pick<ArtifactEquipment, 'jadeCache' | 'budgetBonus' | 'modifiers'>): void;
+  attachArtifacts(equipment: Pick<ArtifactEquipment, 'jadeCache' | 'budgetBonus' | 'modifiers' | 'cacheSlots'>): void;
   /**
    * 「可渡劫」按钮的唯一入口（契约 §7.1）：蓄势就绪时开启 10 秒挑战，挑战中再点一次按 mode 当场结算，
    * 放手到点则由 run() 按托管 60% 自动结算。mode 默认 'manual'（85%），「交给天意」传 'auto'。
@@ -412,6 +412,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let currentJadeCache: JadeCacheSpec | null = null;
   // 道具提供的通用修正（rate / demonRate）：每次 attachArtifacts 整体替换，卸下即空数组。
   let artifactModifiers: readonly Modifier[] = [];
+  // 批次 14：储物袋的缓存槽位加成；玉简基础 1 槽。
+  let artifactCacheSlots = 0;
   let sink: SettleSink;
   // 离线快进期间要静音事件（36 000 条 stall 会刷爆控制台），用这个标志位控制 onEvent
   let offlineQuiet = false;
@@ -512,6 +514,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
       content,
       realmIndex,
       jadeCache: currentJadeCache,
+      // 玉简 1 槽 + 储物袋加成；没装玉简时槽位不影响任何东西（命中判定还要求 jade 存在）。
+      cacheSlots: 1 + artifactCacheSlots,
       // 道途（批次 7）：邪修的代价只加在「心魔基础增速」上，所以走 demonBase，
       // 不走 demonMult —— demonMult 会把调息的减量一起放大，等于惩罚变奖励。
       demonBase: demonBaseOf(dao),
@@ -857,6 +861,7 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     attachArtifacts: (equipment) => {
       currentJadeCache = equipment.jadeCache;
       artifactModifiers = equipment.modifiers;
+      artifactCacheSlots = equipment.cacheSlots;
       resetSink();
       // 池 = BASE_BUDGET + 道具加成（契约 §2.4「预算 = BASE_BUDGET(200) + 算盘加成」）。
       // 只换池不重建 VM：重建会把 ticksRun 归零，同种子回放就此散架。

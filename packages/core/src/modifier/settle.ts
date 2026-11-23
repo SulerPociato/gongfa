@@ -84,6 +84,11 @@ export interface SettleDeps {
   readonly bookDecay?: number | undefined;
   /** 契约 §6：装备来源的修正。卸下或固化时必须传空数组，与装载成对。 */
   readonly modifiers?: readonly Modifier[] | undefined;
+  /**
+   * 批次 14（P1 储物袋）：缓存槽位数。玉简基础 1 个，储物袋 +1。
+   * 超出槽位按 LRU 淘汰：`吐纳 → 调息 → 吐纳` 在 1 槽下第三次不命中，2 槽下命中。
+   */
+  readonly cacheSlots?: number | undefined;
 }
 
 export interface SettleSink extends ActionSink {
@@ -113,7 +118,13 @@ export function makeActionSink(deps: SettleDeps): SettleSink {
   const bookDecay = deps.bookDecay ?? 1;
   if (!Number.isFinite(bookDecay) || bookDecay < 0) throw new RangeError(`bookDecay 需要 ≥ 0 的有限数，收到 ${String(deps.bookDecay)}`);
   const mods = resolveModifiers(deps.modifiers ?? []);
+  const cacheSlots = deps.cacheSlots ?? 1;
+  if (!Number.isInteger(cacheSlots) || cacheSlots < 1) {
+    throw new RangeError(`cacheSlots 需要 ≥1 的整数，收到 ${String(deps.cacheSlots)}`);
+  }
   const seen = new Set<string>();
+  // LRU：Map 的插入顺序就是最近使用顺序；命中时先删再插 = 移到队尾。
+  const resident = new Map<string, true>();
   const observed = { repeats: 0, executed: 0, distinct: 0, stepCostTotal: 0 };
 
   return {
@@ -122,14 +133,22 @@ export function makeActionSink(deps: SettleDeps): SettleSink {
     execute(request: ActionRequest): ActionOutcome {
       // VM 只传 k：actionSeq 每 tick 从 1 重新计数，所以 k===1 就是 tick 边界，sink 不必额外挂 tick 钩子。
       // 集合跨程序共享（同一 tick 里前一个程序跑过的 actionId，后一个程序再跑就算命中）。
-      if (request.k === 1) seen.clear();
+      if (request.k === 1) { seen.clear(); resident.clear(); }
       const def = actions.get(request.actionId);
       if (def === undefined) throw new RangeError(`actionId "${request.actionId}" 不在 actions.json 中`);
       const repeat = seen.has(def.id);
       if (repeat) observed.repeats += 1;
       seen.add(def.id);
       // 产出与步数同源：一次命中判断同时决定打折和免步，不会出现「按命中打折、按未命中计步」的裂口径。
-      const hit = jade !== null && repeat;
+      // 批次 14：命中看的是「当前还在槽位里」而不是「本 tick 见过」——超出槽位按 LRU 淘汰。
+      const hit = jade !== null && resident.has(def.id);
+      if (resident.has(def.id)) resident.delete(def.id);
+      resident.set(def.id, true);
+      while (resident.size > cacheSlots) {
+        const oldest = resident.keys().next().value;
+        if (oldest === undefined) break;
+        resident.delete(oldest);
+      }
       observed.executed += 1;
       observed.distinct = seen.size;
       observed.stepCostTotal += hit ? jade.hitStepCost : 1;
