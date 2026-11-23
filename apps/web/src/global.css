@@ -1890,6 +1890,40 @@ body::before {
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* 批次 11：炼器炉（P1 纵切）。放在滚动区，不抢首屏；按钮是唯一入口。 */
+.furnace {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(232, 201, 120, 0.28);
+  border-radius: 12px;
+  background: rgba(232, 201, 120, 0.05);
+}
+
+.furnace-button {
+  align-self: flex-start;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: #06231f;
+  background: var(--gold);
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.furnace-button:hover {
+  filter: brightness(1.1);
+}
+
+.furnace-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 /* 批次 9：已发现图案给一句「人话版」教学说明，比术语更重要。 */
 .patterns-drawer-teach {
   margin: 2px 0 0;

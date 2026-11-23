@@ -622,7 +622,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -667,6 +667,15 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           曲线必须在这里：它一进固定区，固定区就吃掉整列高度（实测 858px），
           滚动区 clientHeight 变 0 —— 红字和道具面板一起消失，比"曲线看不见"更糟。 */}
       <div className="hud-scroll">
+        {/* P1 纵切：炼器炉（Compiler / Optimizer）。只在"有可改写的直列"时才有动作，
+            分析结果与代价一起放进弹窗，不替玩家做决定。 */}
+        <section className="furnace">
+          <p className="label">炼器炉</p>
+          <button className="furnace-button" type="button" onClick={onOptimize}>
+            分析当前功法
+          </button>
+          <p className="furnace-hint">找连续 3 块以上的相同动作，建议改成循环</p>
+        </section>
         {/* 批次 7：道途。筑基后第一次出现，选中即消失（一次定终身）。
             两条路都是"全产出"倍率；入魔的代价加在心魔基础增速上，调息压不住它。 */}
         {model.dao === null && model.realm.name !== '炼气' && (

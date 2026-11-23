@@ -8,12 +8,13 @@ import {
   BLOCK_SPECS,
   PROGRAM_ID,
   compileWorkspace,
+  suggestRewrite,
   GONGFA_THEME,
   STARTER_WORKSPACE_JSON,
   TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, NOISE_LINE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternDef, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, NOISE_LINE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, linearizeProgram, loadGame, newGameState, patternDef, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
 import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -342,6 +343,8 @@ export function App() {
   // 道具开关同理：装备要当场重算 sink 与预算池，只有 useEffect 里才摸得到 runtime 与控制器。
   const artifactActionRef = useRef<((id: string) => void) | null>(null);
   const pillActionRef = useRef<(() => void) | null>(null);
+  // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
+  const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
   const tutorialSkipRef = useRef<(() => void) | null>(null);
   // 需求 13 的起表报告：实现挂在 useEffect 作用域里，这里只留一条身份稳定的转发函数当 prop ——
@@ -939,6 +942,45 @@ export function App() {
       showToast('服丹：心魔 -15%，存量 -5%');
     };
 
+    // P1 纵切：炼器炉。只在"真有可改写段落"时给建议，且把代价（步数↑、心魔↑）一并写进弹窗。
+    // 不自动应用：改写是玩家的决定，炼器炉只负责把数摆出来。
+    optimizeActionRef.current = (): void => {
+      const workspaceJson = saved;
+      if (workspaceJson === null) {
+        showToast('画布上还没有可以分析的功法');
+        return;
+      }
+      const suggestion = suggestRewrite(workspaceJson);
+      if (suggestion === null) {
+        showToast('没有可改写的段落：需要 3 块以上连续相同的动作');
+        return;
+      }
+      const beforeProgram = compileWorkspace(workspaceJson).program;
+      const afterProgram = compileWorkspace(suggestion.after).program;
+      const stepsOf = (program: typeof beforeProgram): number =>
+        program === null ? 0 : linearizeProgram(program.code, runtime.state().budgetPool).steps;
+      const stepsBefore = stepsOf(beforeProgram);
+      const stepsAfter = stepsOf(afterProgram);
+      const actionName = suggestion.actionType === 'breath' ? '吐纳' : '调息';
+      const demonLine = suggestion.demonFactor === 1
+        ? '心魔增速不变（调息不涨心魔）'
+        : `心魔增速 ×${suggestion.demonFactor}（循环深度 0 → 1）`;
+      setModal({
+        title: '炼器炉：发现一处可改写',
+        body: [
+          `把连续 ${suggestion.runLength} 块「${actionName}」改成「循环 ${suggestion.runLength} 次」。`,
+          `IR 指令：${suggestion.irBefore} → ${suggestion.irAfter}（少 ${suggestion.irBefore - suggestion.irAfter} 条）`,
+          `每 tick 步数：${stepsBefore} → ${stepsAfter}（多 ${stepsAfter - stepsBefore} 步）`,
+          `产出完全等价；${demonLine}。`,
+        ].join('\n'),
+        confirmText: '应用改写',
+        onConfirm: () => {
+          reloadCanvas(suggestion.after);
+          showToast(`炼器炉：已把 ${suggestion.runLength} 块「${actionName}」折叠成循环`);
+        },
+      });
+    };
+
     challengeActionRef.current = (): void => {
       // 引导把它当「这一套他会了」：点过就一直算点过（第 5 步不设单独跳过，裁定 3）。
       tutPressed = true;
@@ -1425,6 +1467,7 @@ export function App() {
       detachArtifacts();
       challengeActionRef.current = null;
       pillActionRef.current = null;
+      optimizeActionRef.current = null;
       trialPressRef.current = null;
       // 浮层是本地 state：StrictMode 的第二次挂载没有 demoPanelOpen，留着会挂着一块关不掉的面板。
       setDemoTrial(false);
@@ -1521,7 +1564,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onTakePill={handleTakePill} onOpenCodex={() => setDrawerOpen(true)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
