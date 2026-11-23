@@ -123,6 +123,8 @@ export interface SprintModel {
   readonly steps: number;
   /** 每步换多少灵力 = progressQi / steps；steps 为 0 时为 0。 */
   readonly perQi: number;
+  /** 本境界历史最好效率（元进度 gongfa:best:<slot>）；null = 还没达成过。 */
+  readonly bestPerQi: number | null;
 }
 
 /**
@@ -442,7 +444,10 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
           : `${seconds} 秒内达成可减半蓄势`}
       </p>
       {!model.reached && model.steps > 0 && (
-        <p className="sprint-text sprint-eff">当前效率 {model.perQi.toFixed(3)} 灵力/步（{model.steps} 步）</p>
+        <p className="sprint-text sprint-eff">
+          当前效率 {model.perQi.toFixed(3)} 灵力/步（{model.steps} 步）
+          {model.bestPerQi !== null && ` · 本境最好 ${model.bestPerQi.toFixed(3)}`}
+        </p>
       )}
     </div>
   );

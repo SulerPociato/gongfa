@@ -32,6 +32,7 @@ import { Modal, type ModalRequest } from './game/Modal';
 import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
 import { nextStepOf } from './game/nextStep';
 import { readDao, writeDao } from './game/dao';
+import { readBest, writeBest, type BestMap } from './game/best';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -100,7 +101,7 @@ function challengePhaseOf(state: RuntimeState): ChallengePhase {
 
 // 试炼（契约 §7.1.1）：四个数全部现取自 runtime —— 目标查表、进度是滑动窗口、reached 是本境界的一次性布尔。
 // 这里不做「还差多少」「减半成几秒」的算术，HUD 拿到什么就写什么。
-function sprintModel(state: RuntimeState): SprintModel {
+function sprintModel(state: RuntimeState, bestPerQi: number | null = null): SprintModel {
   return {
     goalQi: state.sprintGoalQi,
     progressQi: state.sprintProgressQi,
@@ -108,6 +109,7 @@ function sprintModel(state: RuntimeState): SprintModel {
     reached: state.sprintReached,
     steps: state.sprintSteps,
     perQi: state.sprintPerQi,
+    bestPerQi,
   };
 }
 
@@ -255,7 +257,7 @@ function momentToastText(id: string): string {
   return moment ?? getUnlockToastText(id);
 }
 
-function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao'>): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao'> & { readonly bestPerQi: number | null }): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -268,7 +270,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     },
     realm: realmModel(state, found),
     curve: extra.curve,
-    sprint: sprintModel(state),
+    sprint: sprintModel(state, extra.bestPerQi),
     challenge: challengeModel(state),
     toolHint: toolHintOf(state),
     artifacts: extra.artifacts,
@@ -370,9 +372,14 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 试炼最佳效率（元进度 gongfa:best:<slot>）。读档在 effect 里做（storage 那时才建），
+  // 这里只存一份内存镜像给 HUD 用；境界切换时按 realmIndex 取。
+  const [bestMap, setBestMap] = useState<BestMap>({});
+  // 逐帧回调里的闭包只认首帧的 bestMap（永远空），所以再存一份 ref 给循环读。
+  const bestMapRef = useRef<BestMap>({});
   // 引导气泡（需求变更 2026-11-21）：贴得上目标 → 底部条降级成「n/6 · 跳过引导」；贴不上 → 底部条说完整文案。
   const [tutPlaced, setTutPlaced] = useState(false);
   // 「工具箱重建过了」的计数：updateToolbox 换掉整棵 flyout DOM，气泡要立刻重挂高亮，不等 400ms 轮询。
@@ -453,6 +460,10 @@ export function App() {
 
     const storage = createLocalStorageSaveStorage();
     const demoFlags = createSessionFlagStore();
+    // 试炼最佳效率是元进度：按活动槽读一次，之后由达成时更新（写回同一个键）。
+    const loadedBest = readBest(storage);
+    bestMapRef.current = loadedBest;
+    setBestMap(loadedBest);
 
     // R 键的清档走「写标记 + reload」，真正的删除发生在这里 —— 读存档之前。
     // 晚一步就不干净：runtime 一旦把旧档读进内存，收尾的 controller.flush() 会原样写回去。
@@ -1306,9 +1317,17 @@ export function App() {
         // 试炼评分（批次 6）：把"达成"变成可比较的数字——产出、用了多少步、每步换多少灵力。
         // 没有这三个数，「多算一遍」和「省步」就没有共同的度量。
         const goal = state.sprintGoalQi ?? 0;
+        const previousBest = bestMap[state.realmIndex] ?? null;
+        if (previousBest === null || state.sprintPerQi > previousBest) {
+          const nextMap: BestMap = { ...bestMap, [state.realmIndex]: state.sprintPerQi };
+          bestMapRef.current = nextMap;
+          setBestMap(nextMap);
+          writeBest(storage, nextMap);
+        }
+        const bestLine = previousBest === null ? '这是第一次达成' : `上次最好 ${previousBest.toFixed(3)}`;
         momentTextOverrides.set(
           'sprint',
-          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步。本境界蓄势减半。`,
+          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步 · ${bestLine}。本境界蓄势减半。`,
         );
         pushMoment('sprint');
       }
@@ -1344,7 +1363,7 @@ export function App() {
           perQi: state.stepsThisTick > 0 ? state.rate / 10 / state.stepsThisTick : 0,
         },
         realm: realmModel(state, algoFoundState),
-        sprint: sprintModel(state),
+        sprint: sprintModel(state, bestMapRef.current[state.realmIndex] ?? null),
         challenge: challengeModel(state),
         toolHint: toolHintOf(state),
         tutorial: tutBar,
@@ -1601,6 +1620,13 @@ export function App() {
               <p>洞府：你的画布。宗门与师尊：尚未出现。</p>
               <p>符箓＝条件，阵法＝循环，玉简＝缓存：这三句是这个世界的底层规则。</p>
               <p>转世与飞升：元婴之后的路，留给下一次更新。</p>
+            </details>
+            <details className="codex-section">
+              <summary>怎么看那几个数</summary>
+              <p><b>本 tick N / 200 步</b>：这一 tick 执行了多少条指令。撞满会变红，说明程序被预算截断。</p>
+              <p><b>效率 X 灵力/步</b>：本 tick 产出 ÷ 步数。两个程序每秒产出一样时，效率高的那个更抗预算。</p>
+              <p><b>产出曲线</b>：青线是灵力累计、红线是心魔；虚线是突破阈值。红线撞到 1.0 就是走火入魔。</p>
+              <p><b>试炼</b>：60 秒窗口内的产出与步数，达成目标可把本境蓄势减半。</p>
             </details>
             <div className="settings-drawer-item settings-drawer-danger">
               <button className="settings-reset" type="button" onClick={handleResetSave}>
