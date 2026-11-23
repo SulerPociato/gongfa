@@ -32,8 +32,9 @@ function mmss(ms: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function nextStepOf({ state, hasProgram, breathBlocks = 0, hasRepeat = false }: NextStepInput): string {
-  if (!hasProgram) return '拖「吐纳」进「每 tick」';
+export function nextStepOf({ state, hasProgram, breathBlocks, hasRepeat = false }: NextStepInput): string {
+  // 空画布也会编译出 HALT，所以 hasProgram 恒为真；真正该问的是「有没有动作」。
+  if (!hasProgram || breathBlocks === 0) return '拖「吐纳」进「每 tick」';
   if (state.pauseRemainingMs > 0) return `走火入魔：等 ${(state.pauseRemainingMs / 1000).toFixed(1)} 秒`;
   if (state.demon >= NOISE_HINT) return '心魔偏高：拖「调息」压住';
   if (state.stall !== null) return '预算撞顶：装算盘或减层';

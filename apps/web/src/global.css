@@ -28,7 +28,7 @@
   /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
   --hud-width: 320px;
   /* 批次 18：画布下方的信息横条高度（可拖动感不必，固定即可）。 */
-  --bottom-height: clamp(260px, 30vh, 360px);
+  --bottom-height: clamp(280px, 34vh, 380px);
   /* 批次 15：面板加宽档（画布让位）。300 → 420，画布仍保留可用宽度。 */
   --hud-width-wide: 420px;
   --topbar-height: 48px;
@@ -2116,6 +2116,66 @@ body::before {
     display: none !important;
   }
 }
+
+/* 批次 20：第一境三步目标。玩家原话「不知道在玩什么」，所以把最短路径写死在右列。 */
+.quest {
+  padding: 10px 12px;
+  border: 1px solid rgba(232, 201, 120, 0.28);
+  border-radius: 12px;
+  background: rgba(232, 201, 120, 0.05);
+}
+
+.quest-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quest-list li {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.quest-list li.is-done {
+  color: rgba(53, 224, 200, 0.85);
+  text-decoration: line-through;
+  text-decoration-color: rgba(53, 224, 200, 0.4);
+}
+
+.quest-check {
+  flex: 0 0 auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.book-empty {
+  margin: 6px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.artifact-when {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* 未解锁道具：整行降透明，按钮不可点 */
+.artifact.is-locked {
+  opacity: 0.55;
+}
+
+.artifact.is-locked .artifact-toggle {
+  cursor: not-allowed;
+}
+
 /* 批次 15：引导气泡的「继续」按钮 —— 翻页交回玩家。 */
 .tutorial-bubble-next {
   align-self: flex-start;

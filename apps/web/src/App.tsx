@@ -144,13 +144,30 @@ function toolHintOf(state: RuntimeState): string {
 
 // 道具面板的行 = 目录里的每一件 × 当前装备位。数值全靠 describeArtifact 从表里拼，
 // 这里不另写 0.7 / +50：表改了面板还在说旧数，就是第二份口径。
-function artifactRows(equippedIds: readonly string[]): readonly ArtifactRow[] {
-  return ARTIFACT_CATALOGUE.artifacts.map((artifact) => ({
-    id: artifact.id,
-    name: artifact.name.zh,
-    effect: describeArtifact(artifact),
-    equipped: equippedIds.includes(artifact.id),
-  }));
+// 批次 20：道具按境界解锁。原来五件一开局全都能装，玩家既不知道哪件有用，
+// 也不知道「为什么现在装不了」——解锁条件直接写在按钮上。
+const ARTIFACT_UNLOCK: Readonly<Record<string, { readonly realm: number; readonly label: string }>> = {
+  jade: { realm: 0, label: '炼气' },
+  abacus: { realm: 0, label: '炼气' },
+  pearl: { realm: 1, label: '筑基' },
+  vase: { realm: 1, label: '筑基' },
+  pouch: { realm: 2, label: '金丹' },
+};
+
+function artifactRows(equippedIds: readonly string[], realmIndex: number): readonly ArtifactRow[] {
+  return ARTIFACT_CATALOGUE.artifacts.map((artifact) => {
+    const unlock = ARTIFACT_UNLOCK[artifact.id];
+    const locked = unlock !== undefined && realmIndex < unlock.realm;
+    return {
+      id: artifact.id,
+      name: artifact.name.zh,
+      effect: describeArtifact(artifact),
+      equipped: equippedIds.includes(artifact.id),
+      locked,
+      unlockHint: locked ? `${unlock?.label ?? ''}解锁` : '',
+      when: ARTIFACT_GUIDE.find((row) => row.id === artifact.id)?.when ?? '',
+    };
+  });
 }
 
 // 每次 state() 都要重建整份 HudModel：book / corrupt / save / notices 这些跟帧无关的视图存在 view 里，
@@ -295,6 +312,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     nextStep: extra.nextStep,
     dao: extra.dao,
     trace: state.trace,
+    quest: [],
     palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
   };
 }
@@ -884,7 +902,7 @@ export function App() {
       const equipment = equipmentFor(ARTIFACT_CATALOGUE, game.equippedArtifacts);
       runtime.attachArtifacts(equipment);
       pushActionErrors(equipment.errors);
-      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts) }));
+      setHud((previous) => ({ ...previous, artifacts: artifactRows(game.equippedArtifacts, game.realm) }));
     };
     syncArtifacts();
 
@@ -1510,6 +1528,14 @@ export function App() {
         trace: state.trace,
         // 批次 19：积木库清单跟境界走（突破后新块要立刻出现在手机上）
         palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
+        // 批次 20：第一境三步目标。做完（或突破）就不再显示，避免长期占版面。
+        quest: state.realmIndex === 0
+          ? [
+              { label: '拖一块「吐纳」进「每 tick」', done: workspace.getBlocksByType('breath', false).length >= 1 },
+              { label: '用「循环」包住吐纳', done: workspace.getBlocksByType('gongfa_repeat', false).length >= 1 },
+              { label: '攒到 1000 · 点「可渡劫」', done: false },
+            ]
+          : [],
       }));
     });
     loop.start();

@@ -31,6 +31,11 @@ export interface ArtifactRow {
   readonly name: string;
   readonly effect: string;
   readonly equipped: boolean;
+  /** 批次 20：还没到手（境界不到）时不给装，并写明什么时候解锁。 */
+  readonly locked: boolean;
+  readonly unlockHint: string;
+  /** 批次 20：什么时候该用它 —— 玩家原话「不知道道具能干嘛、啥时候用」。 */
+  readonly when: string;
 }
 
 /** 境界面板（任务 6）：名字、阈值、被动全部来自 realms.json 当前行，HUD 不自己算数。 */
@@ -210,6 +215,8 @@ export interface HudModel {
   readonly trace: readonly TraceSample[];
   /** 批次 19：窄屏积木库的积木类型（点一下就加一块，替代 Blockly 侧栏）。 */
   readonly palette: readonly string[];
+  /** 批次 20：第一境的三步小目标。玩家说「不知道在玩什么」，这里给一条最短路径。 */
+  readonly quest: { readonly label: string; readonly done: boolean }[];
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -230,18 +237,24 @@ function BookPanel({ model, onAction }: { readonly model: BookModel; readonly on
   return (
     <div className="book">
       <p className="book-text">{model.text}</p>
-      <div className="book-actions">
-        {BOOK_BUTTONS[model.phase].map((button) => (
-          <button
-            key={button.action}
-            type="button"
-            disabled={button.action === 'load' && model.loadable === 0}
-            onClick={() => onAction(button.action)}
-          >
-            {button.text}
-          </button>
-        ))}
-      </div>
+      {/* 批次 21：一本都没有时，「装载功法书」这个灰按钮只会让人以为自己漏了什么。
+          直接说清来源：书是渡劫掉的。 */}
+      {model.loadable === 0 ? (
+        <p className="book-empty">还没有功法书 —— 渡劫成功后会掉一本。</p>
+      ) : (
+        <div className="book-actions">
+          {BOOK_BUTTONS[model.phase].map((button) => (
+            <button
+              key={button.action}
+              type="button"
+              disabled={button.action === 'load' && model.loadable === 0}
+              onClick={() => onAction(button.action)}
+            >
+              {button.text}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -254,11 +267,19 @@ function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow
           并且每件都直接给出效果数字，不让人去翻图鉴。 */}
       <p className="artifact-hint">点「装备」立刻生效，再点一次卸下</p>
       {rows.map((row) => (
-        <div className="artifact" key={row.id}>
-          <button className="artifact-toggle" type="button" aria-pressed={row.equipped} onClick={() => onToggle(row.id)}>
-            {row.equipped ? `卸下${row.name}` : `装备${row.name}`}
+        <div className={`artifact${row.locked ? ' is-locked' : ''}`} key={row.id}>
+          <button
+            className="artifact-toggle"
+            type="button"
+            aria-pressed={row.equipped}
+            disabled={row.locked}
+            onClick={() => onToggle(row.id)}
+          >
+            {row.locked ? `${row.name} · ${row.unlockHint}` : row.equipped ? `卸下${row.name}` : `装备${row.name}`}
           </button>
           <p className="artifact-effect">{row.effect}</p>
+          {/* 只给已装备的那件显示「什么时候用」：五件全展开会把横条撑爆（实测被裁掉两行）。 */}
+          {!row.locked && row.equipped && <p className="artifact-when">{row.when}</p>}
         </div>
       ))}
     </div>
@@ -583,10 +604,15 @@ export function ChallengePanel({ model, demo, onPress }: { readonly model: Chall
         </p>
       )}
       {/* 保底与冷却都在内存里（§5.1 没这两个字段）：文案必须写明刷新清零，否则玩家以为攒到了第 2 次。 */}
-      <p className="challenge-meta">
-        本档连续失败 {model.attempt - 1} 次（刷新清零）· 第 {model.attempt} 次冲关{model.attempt >= GUARANTEE_ATTEMPT ? '（保底必成）' : ''} ·
-        失败存量 ×{FAILURE_QI_MULT} · 悟道 {model.insight}（本档）
-      </p>
+      {/* 批次 21：第一次进来不要甩「失败 0 次 / 悟道 0」——玩家还没输过，这行只是噪音。 */}
+      {model.attempt > 1 || model.phase !== 'threshold' ? (
+        <p className="challenge-meta">
+          本档连续失败 {model.attempt - 1} 次（刷新清零）· 第 {model.attempt} 次冲关{model.attempt >= GUARANTEE_ATTEMPT ? '（保底必成）' : ''} ·
+          失败存量 ×{FAILURE_QI_MULT} · 悟道 {model.insight}（本档）
+        </p>
+      ) : (
+        <p className="challenge-meta">攒满存量就能渡劫：成功进下一境，失败只扣 15%。</p>
+      )}
     </div>
   );
 }
@@ -737,6 +763,19 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           {/* 下一步提示放在灵力卡里：独立一条会把固定区撑高 46px，曲线就被挤出首屏（实测 737→968）。 */}
           {model.nextStep !== '' && <p className="next-step" role="status">下一步：{model.nextStep}</p>}
         </div>
+        {model.quest.length > 0 && (
+          <section className="quest">
+            <p className="label">这一步做什么</p>
+            <ol className="quest-list">
+              {model.quest.map((step) => (
+                <li key={step.label} className={step.done ? 'is-done' : ''}>
+                  <span className="quest-check">{step.done ? '✓' : '○'}</span>
+                  {step.label}
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
@@ -814,7 +853,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
             ))}
           </ul>
         )}
-        <p className="hint">把工具箱里的积木拖进「每 tick」下面的凹槽：「如果 / 循环」控制产出节奏，「比较」读心魔、存量或预算。</p>
+        <p className="hint">拖积木进「每 tick」：循环管次数，如果管条件，比较管阈值。</p>
         <p className="tool-hint">{model.toolHint}</p>
       </section>
     </>
