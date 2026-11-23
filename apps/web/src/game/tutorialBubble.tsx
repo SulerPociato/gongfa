@@ -38,6 +38,24 @@ const POLL_MS = 400;
 /** CSS 里那段过渡是 200ms（.is-flip），这里给一点余量当作「还在飞」的判定窗口。 */
 const FLIP_GUARD_MS = 240;
 
+/**
+ * 「这一句已经上屏」的回调兜底。双 rAF 是最接近绘制完成的信号，但 headless 与后台标签会把
+ * rAF 压到几乎不回调（本仓库验收时实测 rAF 采样只拿到 1 帧），所以再挂一条定时器：
+ * 两条路径只许生效一条，且都不早于绘制 —— 宁可晚报几毫秒，也不能早报，否则停留计时又比眼睛短。
+ */
+const PAINT_FALLBACK_MS = 100;
+
+function afterPaint(done: () => void): void {
+  let fired = false;
+  const hit = (): void => {
+    if (fired) return;
+    fired = true;
+    done();
+  };
+  requestAnimationFrame(() => requestAnimationFrame(hit));
+  window.setTimeout(hit, PAINT_FALLBACK_MS);
+}
+
 interface FlipState {
   /** 上一次贴在哪儿：下一次 FLIP 的基线。 */
   readonly pos: BubblePosition | null;
@@ -59,6 +77,11 @@ export interface TutorialBubbleProps {
   readonly release: readonly ReleasedBlock[];
   /** 气泡贴上了没有：true = 底部条降级成「n/6 · 跳过引导」，false = 底部条给完整文案。 */
   readonly onPlaced: (placed: boolean) => void;
+  /**
+   * 需求 13 的起表口：这一步的「n/6」真的画到屏上了，宿主才准开始算这 3 秒。
+   * 停在 boot 里起表等于状态机自己数自己的时间，玩家看到的会比数到的短几十毫秒。
+   */
+  readonly onStepPainted: (step: TutorialPlayStep) => void;
 }
 
 /** 每次重新查：不缓存元素身份。 */
@@ -78,7 +101,7 @@ function getFlyoutRight(): number | null {
   return r.x + r.width;
 }
 
-export function TutorialBubble({ step, text, total, rev, release, onPlaced }: TutorialBubbleProps) {
+export function TutorialBubble({ step, text, total, rev, release, onPlaced, onStepPainted }: TutorialBubbleProps) {
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   const ringRef = useRef<HTMLDivElement | null>(null);
   const badgesRef = useRef<HTMLDivElement | null>(null);
@@ -231,6 +254,13 @@ export function TutorialBubble({ step, text, total, rev, release, onPlaced }: Tu
     // target / shown 都由 step 与 release 推出来，所以依赖里是这两者而不是 target 对象本身
     // （它每次渲染都是新的，写进依赖等于每帧重建 effect）。
   }, [step, total, rev, release, onPlaced]);
+
+  // 需求 13：起表等这一步的文字真上过屏。贴不上时底部条会说同一句话，所以两种状态都算「玩家看得见」。
+  useEffect(() => {
+    afterPaint(() => {
+      onStepPainted(step);
+    });
+  }, [step, onStepPainted]);
 
   const on = placed ? ' is-on' : '';
   return (

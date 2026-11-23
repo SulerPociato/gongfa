@@ -23,7 +23,7 @@ import { createLoop } from './game/loop';
 import { BOOK_CATALOGUE, STARTER_BOOK_ID, bookById, grantStarterBook } from './game/books';
 import { ARTIFACT_CATALOGUE, describeArtifact, equipmentFor } from './game/artifacts';
 import { lockedCount, toolboxForRealm } from './game/toolbox';
-import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialStep } from './game/tutorial';
+import { END_DWELL_MS, NEW_BADGE_MS, RELEASE_AFTER_DRAG_MS, TUTORIAL_PLAY_MS_MAX, flyoutFocusType, hiddenToolboxTypes, nextTutorialStep, readTutorialDone, releasedBlocks, resumeTutorialStep, tutorialActiveAt, tutorialBar, writeTutorialDone, type ReleasedBlock, type TutorialBarModel, type TutorialNumbers, type TutorialPlayStep, type TutorialStep } from './game/tutorial';
 import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { QiParticles } from './components/QiParticles';
@@ -258,6 +258,10 @@ export function App() {
   const artifactActionRef = useRef<((id: string) => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
   const tutorialSkipRef = useRef<(() => void) | null>(null);
+  // 需求 13 的起表报告：实现挂在 useEffect 作用域里，这里只留一条身份稳定的转发函数当 prop ——
+  // 气泡的起表 effect 直接依赖它，每次渲染换新函数等于每帧重排一次绘制回调。
+  const tutPaintedRef = useRef<((step: TutorialPlayStep) => void) | null>(null);
+  const onTutPainted = useRef((step: TutorialPlayStep): void => { tutPaintedRef.current?.(step); }).current;
   // 种子只在这里掷一次，新档的 GameState 与 runtime 都从 runtime.state().seed 取同一个值。
   // ?seed= 优先（验收 5 要同种子复现）；有存档时 restore() 把 seed 换成存档里那份。
   // 渡劫结算和蓄势起算都要立刻标脏 —— chargeReadyAt 不落盘，刷新就得重新等满 2 分钟。
@@ -324,6 +328,8 @@ export function App() {
     let tutBreathDragged = false;
     let tutPressed = false;
     let tutStepAt = 0;
+    // 需求 13：已经由「气泡上屏」起过表的那一步。每步只认第一次报告，重复报告会把计时一推再推。
+    let tutArmedFor: TutorialPlayStep | null = null;
     let tutBar: TutorialBarModel | null = null;
     let tutBarSig = '';
     let tutReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -472,6 +478,7 @@ export function App() {
       // 只在「刚拖上第一块」那一次排程，刷新回来的老玩家等不到它，就会永远少「调息 / 比较」两块）。
       tutBreathDragged = breathAtBoot >= 1;
       tutReleased = breathAtBoot >= 1 || tutStep >= 3;
+      // 需求 13：这里只是兜底钟（气泡贴不上、报告丢了时引导仍要能走）；真正起表等 onStepPainted 报回第 1 步。
       tutStepAt = wallClock.now();
       applyToolbox(tutState.realmIndex);
       // 聚焦描边按推导出来的这一步给：不补这一下，刷新回来的人看到的是第 1 步在闪。
@@ -796,6 +803,15 @@ export function App() {
       };
     };
 
+    // 需求 13 的起表口：气泡把「这一步的 n/6 已经画到屏上」报回来，那一刻才许开始数 3 秒。
+    // boot 与翻页那两处仍然先写一份兜底时间：气泡万一贴不上、报告丢了，引导不能永远停在第 1 步，
+    // 但报告一旦到达就以报告为准 —— 停留是给眼睛的，状态机不该替眼睛提前起表。
+    tutPaintedRef.current = (shown: TutorialPlayStep): void => {
+      if (!tutActive || shown !== tutStep || tutArmedFor === shown) return;
+      tutArmedFor = shown;
+      tutStepAt = wallClock.now();
+    };
+
     const syncTutorial = (state: RuntimeState): void => {
       if (!tutActive) return;
       const breath = workspace.getBlocksByType('breath', false).length;
@@ -1058,6 +1074,7 @@ export function App() {
       if (outcomeTimerRef.current !== null) clearTimeout(outcomeTimerRef.current);
       outcomeTimerRef.current = null;
       tutorialSkipRef.current = null;
+      tutPaintedRef.current = null;
       if (debugVisible) delete window.__gongfa_debug;
       // StrictMode 的双挂载与真实卸载都走这里：先落一次档再拆工作区，别把刚搭的程序丢在内存里
       controller.flush();
@@ -1129,7 +1146,7 @@ export function App() {
       )}
       {outcome !== null && <ChallengeResultLayer outcome={outcome} onDismiss={handleDismissOutcome} />}
       {hud.tutorial !== null && hud.tutorial.step !== null && (
-        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} />
+        <TutorialBubble step={hud.tutorial.step} total={hud.tutorial.total} text={hud.tutorial.text} rev={tutRev} release={tutRelease} onPlaced={setTutPlaced} onStepPainted={onTutPainted} />
       )}
       {hud.tutorial !== null && <TutorialBar model={hud.tutorial} mini={tutPlaced && hud.tutorial.step !== null} onSkip={() => { tutorialSkipRef.current?.(); }} />}
       {drawerOpen && (
