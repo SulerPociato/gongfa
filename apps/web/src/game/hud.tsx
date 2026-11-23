@@ -60,6 +60,8 @@ export interface PatternRow {
   readonly name: string;
   readonly algorithm: string;
   readonly requires: string;
+  /** 一句教学说明（已发现的条目显示它）。 */
+  readonly teach: string;
   readonly found: boolean;
 }
 

@@ -407,4 +407,30 @@ describe('patternsOf — 组合', () => {
     ];
     expect(patternsOf(shapeOf(code, []))).not.toContain('guard');
   });
+
+  it('心魔条件 + 中断 → 掐指一算（条件剪枝）', () => {
+    const code: Op[] = [
+      { op: 'LOOP_BEGIN', end: 10, count: 5 },
+      { op: 'LOAD', key: 'demon' },
+      { op: 'PUSH', value: 0.7 },
+      { op: 'CMP', arg: '>' },
+      { op: 'JMP_IF_FALSE', target: 7 },
+      { op: 'BREAK' },
+      { op: 'ACTION', actionId: 'breath' },
+      { op: 'LOOP_END', begin: 0 },
+      { op: 'HALT' },
+    ];
+    const patterns = patternsOf(shapeOf(code, []));
+    expect(patterns).toContain('prune');
+    expect(patterns).not.toContain('guard');
+  });
+
+  it('直列 6 块动作 → 一气呵成（批处理）；5 块不算', () => {
+    const many = (n: number): Op[] => [
+      ...Array.from({ length: n }, (_, i) => ({ op: 'ACTION' as const, actionId: 'breath' })),
+      { op: 'HALT' as const },
+    ]
+    expect(patternsOf(shapeOf(many(6), []))).toContain('batch');
+    expect(patternsOf(shapeOf(many(5), []))).not.toContain('batch');
+  });
 });

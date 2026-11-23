@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "notes": "算法 ↔ 修仙 的唯一映射表。PATTERNS 从这里生成；改名字/说明只改这里。id 必须与 PatternId 联合类型一致（catalogue.test.ts 会校验）。",
+  "patterns": [
+    {
+      "id": "linear",
+      "name": "直行吐纳",
+      "algorithm": "顺序执行",
+      "requires": "一块「吐纳」放进「每 tick」",
+      "teach": "程序从第一条指令依次往下跑，没有回头。",
+      "stage": 0
+    },
+    {
+      "id": "loop",
+      "name": "周天循环",
+      "algorithm": "for 循环",
+      "requires": "「循环」里放「吐纳」",
+      "teach": "把同一段动作重复 N 次，不用写 N 遍。",
+      "stage": 1
+    },
+    {
+      "id": "feedback",
+      "name": "清心诀",
+      "algorithm": "反馈控制",
+      "requires": "「如果 心魔 > x」里放「调息」",
+      "teach": "先测量，再根据测量值决定要不要修正——这就是控制回路。",
+      "stage": 1
+    },
+    {
+      "id": "cache",
+      "name": "玉简缓存",
+      "algorithm": "缓存命中",
+      "requires": "循环跑两遍以上 + 装备玉简",
+      "teach": "同样的计算做第二遍时，结果已经在手边，省下的是重复的开销。",
+      "stage": 1
+    },
+    {
+      "id": "break",
+      "name": "见好就收",
+      "algorithm": "提前退出",
+      "requires": "循环里放「中断」",
+      "teach": "条件已满足时不再把剩下的循环跑完——少做的每一步都是省下的预算。",
+      "stage": 2
+    },
+    {
+      "id": "while",
+      "name": "不定周天",
+      "algorithm": "条件循环",
+      "requires": "「重复直到」里放动作",
+      "teach": "循环次数事先不知道，先判断条件，真就继续、假就收手。",
+      "stage": 3
+    },
+    {
+      "id": "adaptive",
+      "name": "自适应周天",
+      "algorithm": "条件迭代",
+      "requires": "「循环」里放一个「如果」",
+      "teach": "每一圈都重新看条件，走不同的路——同一段代码在每一轮做不同的事。",
+      "stage": 1
+    },
+    {
+      "id": "nested",
+      "name": "大小周天",
+      "algorithm": "嵌套迭代",
+      "requires": "「循环」里再放一个「循环」",
+      "teach": "外层跑一次、内层跑一整轮：总数是乘积，代价也是乘积。",
+      "stage": 1
+    },
+    {
+      "id": "switch",
+      "name": "换气",
+      "algorithm": "状态机（双分支）",
+      "requires": "「如果」的两个分支都放了动作",
+      "teach": "两条路都能走，走哪条由当前状态决定——这就是最简单的状态机。",
+      "stage": 1
+    },
+    {
+      "id": "guard",
+      "name": "护体真气",
+      "algorithm": "预算守卫",
+      "requires": "循环里用「预算」条件 + 「中断」",
+      "teach": "给资源用量设一个上界，快超了就主动收手，而不是被系统掐断。",
+      "stage": 2
+    },
+    {
+      "id": "prune",
+      "name": "掐指一算",
+      "algorithm": "条件剪枝",
+      "requires": "循环里「如果 心魔/存量 > x」则「中断」",
+      "teach": "用一个代价很小的判断，提前砍掉一整批不需要做的事。",
+      "stage": 2
+    },
+    {
+      "id": "batch",
+      "name": "一气呵成",
+      "algorithm": "批处理 / 无分支展开",
+      "requires": "不用循环，直列 6 块以上动作",
+      "teach": "把固定的一批事一条道做完：没有判断、没有回头，代价可预测。",
+      "stage": 0
+    }
+  ]
+}

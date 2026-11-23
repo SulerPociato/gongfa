@@ -13,7 +13,7 @@ import {
   TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, NOISE_LINE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, NOISE_LINE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, loadGame, newGameState, patternDef, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
 import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -80,6 +80,7 @@ function realmModel(state: RuntimeState, found: readonly PatternId[]): RealmMode
       name: pattern.name,
       algorithm: pattern.algorithm,
       requires: pattern.requires,
+      teach: pattern.teach,
       found: found.includes(pattern.id),
     })),
   };
@@ -1207,9 +1208,18 @@ export function App() {
         const merged = [...previous, ...fresh.filter((id) => !previous.includes(id))];
         return merged;
       });
-      // 集齐 4 个 → 一次性 toast。
+      // 集齐全部 → 一次性 toast。
       if (next.length === PATTERN_TOTAL && known.length < PATTERN_TOTAL) {
-        showToast('已通晓基础算法 · 道统 +1');
+        showToast('已通晓全部算法 · 功法谱集齐');
+      } else if (fresh.length > 0) {
+        // 里程碑鼓励（评审：第一次自主实现算法要有正反馈）。
+        // 跨过 1/3、2/3 时各说一句，且只在"刚跨过"触发，同一会话不重播。
+        const before = next.length - fresh.length;
+        const mark = [Math.ceil(PATTERN_TOTAL / 3), Math.ceil((PATTERN_TOTAL * 2) / 3)]
+          .find((m) => before < m && next.length >= m);
+        if (mark !== undefined) {
+          showToast(`功法谱 ${next.length} / ${PATTERN_TOTAL} · 刚发现「${patternDef(fresh[0] ?? 'linear').name}」这种写法`);
+        }
       }
       // HUD 的功法谱行要刷新：把 found 计数塞进 lastHudKey 的派生源。
       lastHudKey = '';
@@ -1536,7 +1546,10 @@ export function App() {
                     <div className="patterns-drawer-content">
                       <p className="patterns-drawer-name">{pattern.name}</p>
                       <p className="patterns-drawer-algorithm">{pattern.algorithm}</p>
-                      {!pattern.found && <p className="patterns-drawer-requires">需要：{pattern.requires}</p>}
+                      {/* 已发现的给「一句教学」，未发现的给「怎么搭」——图鉴要既浅又有深度。 */}
+                      {pattern.found
+                        ? <p className="patterns-drawer-teach">{pattern.teach}</p>
+                        : <p className="patterns-drawer-requires">需要：{pattern.requires}</p>}
                     </div>
                   </li>
                 ))}

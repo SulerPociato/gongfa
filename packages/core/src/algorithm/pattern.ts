@@ -1,16 +1,21 @@
 import { BACKLASH_LINE } from '../demon/rules';
 import type { CmpArg, LoadKey, Op } from '../vm/program';
+import algorithmsJson from '../../../../content/algorithms.json';
 
 // 批次 3：算法识别（任务 8 续）。
 // 判据只读结构快照，不启动 VM、不跑 tickProfile —— 玩家拖出来的积木序列就是真相，
 // 展开后的 kinds 会把「则分支里的动作」丢掉（profile.ts 的 jmp 一律走 false 路径），
 // 用它判反馈控制等于把整条 then-branch 抹掉，判据就错了。
 
-export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive' | 'nested' | 'switch' | 'guard';
+export type PatternId = 'linear' | 'loop' | 'feedback' | 'cache' | 'break' | 'while' | 'adaptive' | 'nested' | 'switch' | 'guard' | 'prune' | 'batch';
 
 /**
  * 谱的分母从这张表来，不写死 4：表里加一行新图案，HUD 的「功法谱 N/4」自动变 N/5，
  * 集齐 toast 也按这张表的长度触发，不用回头改代码。
+ *
+ * 批次 9：表本身搬到 content/algorithms.json（`algorithmsJson`）。
+ * 名字、算法名、要求、一句教学说明都可以只改 JSON；catalogue.test.ts 保证
+ * 「JSON 的 id 集合 == PatternId 联合类型」——两边不同步就红，不会静默漏图案。
  */
 export interface PatternDef {
   readonly id: PatternId;
@@ -20,20 +25,20 @@ export interface PatternDef {
   readonly algorithm: string;
   /** 抽屉里未发现的「缺什么」提示，由宿主拼成一句完整的「需要……」 */
   readonly requires: string;
+  /** 图鉴里的一句教学说明（「浅显但有深度」的那一句）。 */
+  readonly teach: string;
+  /** 建议出现的最低境界下标（只用于展示顺序与说明，不做硬门控）。 */
+  readonly stage: number;
 }
 
-export const PATTERNS: readonly PatternDef[] = [
-  { id: 'linear', name: '直行吐纳', algorithm: '顺序执行', requires: '一块「吐纳」放进「每 tick」' },
-  { id: 'loop', name: '周天循环', algorithm: 'for 循环', requires: '「循环」里放「吐纳」' },
-  { id: 'feedback', name: '清心诀', algorithm: '反馈控制', requires: '「如果 心魔 > x」里放「调息」' },
-  { id: 'cache', name: '玉简缓存', algorithm: '缓存命中', requires: '循环跑两遍以上 + 装备玉简' },
-  { id: 'break', name: '见好就收', algorithm: '提前退出（early exit / 剪枝）', requires: '循环里放「中断」' },
-  { id: 'while', name: '不定周天', algorithm: '条件循环（while）', requires: '「重复直到」里放动作' },
-  { id: 'adaptive', name: '自适应周天', algorithm: '条件迭代（每圈看条件）', requires: '「循环」里放一个「如果」' },
-  { id: 'nested', name: '大小周天', algorithm: '嵌套迭代', requires: '「循环」里再放一个「循环」' },
-  { id: 'switch', name: '换气', algorithm: '状态机（双分支）', requires: '「如果」的两个分支都放了动作' },
-  { id: 'guard', name: '护体真气', algorithm: '预算守卫 / 剪枝', requires: '循环里用「预算」条件 + 「中断」' },
-];
+export const PATTERNS: readonly PatternDef[] = (algorithmsJson.patterns as readonly PatternDef[]).map((definition) => ({
+  id: definition.id,
+  name: definition.name,
+  algorithm: definition.algorithm,
+  requires: definition.requires,
+  teach: definition.teach,
+  stage: definition.stage,
+}));
 
 export const PATTERN_TOTAL = PATTERNS.length;
 
@@ -257,6 +262,8 @@ export function patternsOf(shape: ProgramShape): readonly PatternId[] {
   if (matchesNested(shape)) hits.push('nested');
   if (matchesSwitch(shape)) hits.push('switch');
   if (matchesGuard(shape)) hits.push('guard');
+  if (matchesPrune(shape)) hits.push('prune');
+  if (matchesBatch(shape)) hits.push('batch');
   return hits;
 }
 
@@ -350,4 +357,23 @@ function matchesSwitch(shape: ProgramShape): boolean {
 function matchesGuard(shape: ProgramShape): boolean {
   const hasBudgetBranch = shape.branches.some((branch) => branch.key === 'budget');
   return hasBudgetBranch && shape.loops.some((loop) => loop.hasBreak);
+}
+
+/**
+ * prune：条件 + 中断，但条件不是预算（预算那条已经算「护体真气」）。
+ * 用一个很便宜的判断提前退出整批工作 —— 与 guard 的区别只在「守的是什么」。
+ */
+function matchesPrune(shape: ProgramShape): boolean {
+  const hasNonBudgetBranch = shape.branches.some((branch) => branch.key !== 'budget');
+  return hasNonBudgetBranch && shape.loops.some((loop) => loop.hasBreak);
+}
+
+/**
+ * batch：没有控制流、直列 6 块以上动作 = 固定一批事一次做完（批处理/展开）。
+ * 它是"反模式"的正面对照：不循环也不判断，代价可预测但没有弹性。
+ */
+function matchesBatch(shape: ProgramShape): boolean {
+  return shape.loops.length === 0
+    && shape.branches.length === 0
+    && shape.actions.length >= 6;
 }

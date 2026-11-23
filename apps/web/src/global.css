@@ -1890,6 +1890,14 @@ body::before {
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* 批次 9：已发现图案给一句「人话版」教学说明，比术语更重要。 */
+.patterns-drawer-teach {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: rgba(232, 201, 120, 0.75);
+}
+
 /* 批次 6：应用内确认弹窗（替代 window.confirm）。原生弹窗会阻塞 JS、
    样式不可控，而且在录屏里一眼是半成品。 */
 .modal-overlay {
