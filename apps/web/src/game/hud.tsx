@@ -233,6 +233,8 @@ export interface HudModel {
   /** 批次 28：藏经阁（悟道学功法）与当前悟道余额。 */
   readonly insight: number;
   readonly scriptures: readonly ScriptureRow[];
+  /** 批次 29：刚拿到第一点悟道时把藏经阁点亮几秒，别让它一直躺在横条最右边。 */
+  readonly scriptureHighlight: boolean;
 }
 
 const STALL_REASON: Record<StallEvent['reason'], string> = {
@@ -528,14 +530,15 @@ export interface ScriptureRow {
   readonly affordable: boolean;
 }
 
-function ScripturePanel({ insight, rows, onLearn, onLoad }: {
+function ScripturePanel({ insight, rows, onLearn, onLoad, highlight }: {
   readonly insight: number;
   readonly rows: readonly ScriptureRow[];
   readonly onLearn: (id: string) => void;
   readonly onLoad: (id: string) => void;
+  readonly highlight: boolean;
 }) {
   return (
-    <section className="scriptures">
+    <section className={`scriptures${highlight ? ' is-highlight' : ''}`}>
       <p className="label">藏经阁 · 悟道 {insight}</p>
       <p className="scripture-hint">渡劫失败 +1 悟道；花悟道学一套上乘功法，学会可直接抄录到画布。</p>
       <ul className="scripture-list">
@@ -875,6 +878,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
           rows={model.scriptures}
           onLearn={(id) => onLearnScripture(id)}
           onLoad={(id) => onLoadScripture(id)}
+          highlight={model.scriptureHighlight}
         />
         <BookArtifactPanel
           bookModel={model.book}

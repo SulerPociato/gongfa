@@ -334,6 +334,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     trace: state.trace,
     quest: [],
     furnaceReady: false,
+    scriptureHighlight: false,
     insight: 0,
     scriptures: [],
     palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
@@ -436,6 +437,9 @@ export function App() {
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 批次 29：第一次拿到悟道时点亮藏经阁（2.6 秒后自动熄）。
+  // 逐帧回调只认首帧闭包，所以用 ref 而不是 state。
+  const scriptureHighlightRef = useRef(false);
   // 试炼最佳效率（元进度 gongfa:best:<slot>）。读档在 effect 里做（storage 那时才建），
   // 这里只存一份内存镜像给 HUD 用；境界切换时按 realmIndex 取。
   const [bestMap, setBestMap] = useState<BestMap>({});
@@ -989,6 +993,7 @@ export function App() {
     let learnedScriptures = readLearned(storage);
     // runtime 的 insight 是本档累计，逐帧只做增量同步（刷新后从 0 起，不会重复加）。
     let insightSynced = 0;
+    let scriptureHintShown = false;
 
     const scriptureRows = (): readonly ScriptureRow[] =>
       SCRIPTURES.map((item) => ({
@@ -1625,10 +1630,20 @@ export function App() {
       }
         // 批次 28：runtime 的悟道增量同步到元进度（失败 +1，学功法花掉它）。
       if (state.insight > insightSynced) {
-        metaInsight += state.insight - insightSynced;
+        const gained = state.insight - insightSynced;
+        metaInsight += gained;
         insightSynced = state.insight;
         writeInsight(storage, metaInsight);
         refreshScriptures();
+        // 批次 29：第一点悟道是最该被看见的一刻 —— 它解锁了藏经阁。
+        if (learnedScriptures.length === 0 && metaInsight >= 1 && !scriptureHintShown) {
+          scriptureHintShown = true;
+          scriptureHighlightRef.current = true;
+          window.setTimeout(() => { scriptureHighlightRef.current = false; lastHudKey = ''; }, 2600);
+          lastHudKey = '';
+          document.querySelector('.scriptures')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+          showToast(`悟道 +${gained}：去「藏经阁」学一套上乘功法`);
+        }
       }
       // 批次 24：考校达标 → 宽恕。逐帧同步（很便宜），达标立刻生效。
         const errand = errandOf(
@@ -1668,6 +1683,7 @@ export function App() {
         // 批次 20：第一境三步目标。做完（或突破）就不再显示，避免长期占版面。
         insight: metaInsight,
         scriptures: scriptureRows(),
+        scriptureHighlight: scriptureHighlightRef.current,
         quest: state.realmIndex === 0
           ? [
               { label: '拖一块「吐纳」进「每 tick」', done: workspace.getBlocksByType('breath', false).length >= 1 },

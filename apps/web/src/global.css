@@ -2126,6 +2126,18 @@ body::before {
 }
 
 
+
+/* 批次 29：第一次拿到悟道时藏经阁闪三下，引导视线到横条最右边。 */
+.scriptures.is-highlight {
+  animation: scripture-pulse 0.85s ease-in-out 3;
+  border-color: var(--gold);
+}
+
+@keyframes scripture-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(232, 201, 120, 0); }
+  50% { box-shadow: 0 0 24px rgba(232, 201, 120, 0.45); }
+}
+
 /* 批次 28：藏经阁。横条里的一列卡片，每套功法三行（名字/教学/按钮）。 */
 .scriptures {
   display: flex;
