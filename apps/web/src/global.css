@@ -1151,6 +1151,16 @@ body::before {
 /* 迷你进度（需求变更 2026-11-21）：气泡贴得上目标时，这条只剩「n/6 · 跳过引导」。
    类名一个都不动（.tutorial-count / .tutorial-skip 都留着），验收脚本与旧截图口径不断。 */
 .tutorial-bar.is-mini {
+  /* 批次 34：气泡贴得住时，这条只是「n/6 + 跳过」的辅助条。
+     放到底部会和左侧气泡/左下 toast 抢同一块地（实测第 4 步两者叠在一起），
+     移到顶栏下方居中，位置固定、面积小、不挡任何东西。 */
+  top: calc(var(--topbar-height) + 10px);
+  bottom: auto;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 360px;
   gap: 10px;
   padding: 6px 14px;
 }
@@ -1195,12 +1205,15 @@ body::before {
    量完再定位、再显示，否则 measure() 拿到的宽高是 0，placeBubble 直接返回 null。 */
 .tutorial-bubble {
   --tut-arrow: 0px;
-  background: var(--glass);
+  /* 批次 34：玻璃太透会让字发灰（实拍截图「青线是灵力」几乎读不出来）。
+     气泡里是要读的句子，不是装饰：底色压到近乎不透明，字给足对比。 */
+  background: rgba(8, 14, 18, 0.96);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(53, 224, 200, 0.35);
+  border: 1px solid rgba(53, 224, 200, 0.55);
   border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.6);
+  color: #e9f6f3;
   font-size: 14px;
   left: 0;
   line-height: 1.5;
@@ -2136,11 +2149,12 @@ body::before {
 
 /* 批次 33：起步卡。画布左下角，不挡工具箱、不挡横条；按钮自己接鼠标。 */
 .coach {
-  position: absolute;
-  left: 16px;
-  /* toast 也停在画布左下（bottom 16）：起步卡再往上让一格，两者不叠。 */
-  bottom: 84px;
-  z-index: 14;
+  /* 批次 34：改成和 toast / 算法卡同一套「左下堆叠」坐标：
+     toast 在 +16，起步卡在 +76，算法卡在 +132 —— 三者按高度分层，不再互相压。 */
+  position: fixed;
+  left: 24px;
+  bottom: calc(var(--bottom-height) + 76px);
+  z-index: 35;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2805,7 +2819,7 @@ body::before {
   .coach {
     left: 8px;
     right: 8px;
-    bottom: 120px;
+    bottom: 96px;
     max-width: none;
   }
 
