@@ -38,7 +38,7 @@ import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { errandOf } from './game/errand';
 import { SCRIPTURES, canLearn, scriptureOf } from './game/scriptures';
 import { readInsight, readLearned, writeInsight, writeLearned } from './game/insightStore';
-import { ChallengeResultLayer, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
+import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
@@ -440,6 +440,9 @@ export function App() {
   // 批次 29：第一次拿到悟道时点亮藏经阁（2.6 秒后自动熄）。
   // 逐帧回调只认首帧闭包，所以用 ref 而不是 state。
   const scriptureHighlightRef = useRef(false);
+  // 批次 33：起步卡（引导结束后的下一步）。关掉就这一会话不再出现。
+  const [coachDismissed, setCoachDismissed] = useState(false);
+  const coachRef = useRef<{ text: string } | null>(null);
   // 试炼最佳效率（元进度 gongfa:best:<slot>）。读档在 effect 里做（storage 那时才建），
   // 这里只存一份内存镜像给 HUD 用；境界切换时按 realmIndex 取。
   const [bestMap, setBestMap] = useState<BestMap>({});
@@ -1675,7 +1678,21 @@ export function App() {
         curveRealm = state.realmIndex;
         syncCurve(cache[0] ?? null);
       }
-        // 批次 28：runtime 的悟道增量同步到元进度（失败 +1，学功法花掉它）。
+        // 批次 33：起步卡。教程结束后，画布还没跑出东西时，把「下一步」放在画布左下角。
+      if (tutActive) {
+        coachRef.current = null;
+      } else if (workspace.getBlocksByType('breath', false).length + workspace.getBlocksByType('gongfa_array', false).length === 0) {
+        // 判据是「有没有动作块」，不是 rate：境界被动也会让 rate > 0。
+        coachRef.current = { text: '① 把「吐纳」拖进「每 tick」下面的凹槽' };
+      } else if (workspace.getBlocksByType('gongfa_repeat', false).length === 0) {
+        coachRef.current = { text: '② 用「循环」包住吐纳：次数改成一个数字，产出同样涨' };
+      } else if (!runtime.state().canChallenge) {
+        coachRef.current = { text: '③ 攒到 1000 就点「可渡劫」' };
+      } else {
+        coachRef.current = null;
+      }
+
+      // 批次 28：runtime 的悟道增量同步到元进度（失败 +1，学功法花掉它）。
       if (state.insight > insightSynced) {
         const gained = state.insight - insightSynced;
         metaInsight += gained;
@@ -1893,6 +1910,9 @@ export function App() {
         <div className="canvas" ref={containerRef} />
         {/* 批次 19：窄屏专用积木库。Blockly 的侧栏在手机上会吃掉半屏并把积木画到视口外，
             改成「点一下加一块」，画布独占整行。桌面隐藏，仍用原来的工具箱。 */}
+        {!coachDismissed && hud.tutorial === null && coachRef.current !== null && (
+          <CoachBanner text={coachRef.current.text} onDismiss={() => setCoachDismissed(true)} />
+        )}
         {hud.palette.length > 0 && (
           <div className="palette" role="toolbar" aria-label="积木库">
             {hud.palette.map((type) => (

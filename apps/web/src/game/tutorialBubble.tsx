@@ -211,7 +211,12 @@ export function TutorialBubble({ step, text, total, rev, release, onPlaced, onSt
       const vp: BoxRect = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
       const flyoutRight = getFlyoutRight();
       const p = isTargetVisible(box, vp)
-        ? placeBubble(box, { x: 0, y: 0, width: bubble.offsetWidth, height: bubble.offsetHeight }, vp, flyoutRight)
+        ? placeBubble(box, { x: 0, y: 0, width: bubble.offsetWidth, height: bubble.offsetHeight }, vp, flyoutRight, {
+          // 横条顶边与右列左边界：气泡靠这两个数决定"往哪儿放"，
+          // 而不是靠猜（原来第 5/6 步就是被塞进右列、盖住了同列文字）。
+          stripTop: document.querySelector('.hud-bottom')?.getBoundingClientRect().top,
+          rightColumnLeft: document.querySelector('.hud')?.getBoundingClientRect().left,
+        })
         : null;
       if (p === null) {
         setSpot(null);

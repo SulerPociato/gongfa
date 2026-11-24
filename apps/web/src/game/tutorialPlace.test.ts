@@ -51,14 +51,16 @@ describe('placeBubble（左栏强制右侧，其余右→下→上→左，不�
     expect(p?.left).toBe(400 + 50 + BUBBLE_GAP_PX);
   });
 
-  it('右侧放不下 → 下方', () => {
-    const p = placeBubble(rect(1400, 300, 30, 35), rect(0, 0, 240, 60), VP, null);
-    expect(p?.side).toBe('below');
+  // 批次 33：右列区域的目标改为「硬落左侧」——不再往右塞（会压同列卡片）。
+  it('右列目标 → 左侧（画布方向）', () => {
+    const p = placeBubble(rect(1400, 300, 30, 35), rect(0, 0, 240, 60), VP, null, { rightColumnLeft: 1120 });
+    expect(p?.side).toBe('left');
   });
 
-  it('右侧和下方都放不下 → 上方', () => {
-    const p = placeBubble(rect(1400, 850, 30, 35), rect(0, 0, 240, 60), VP, null);
+  it('横条里的目标 → 上方，且不进横条', () => {
+    const p = placeBubble(rect(300, 700, 200, 120), rect(0, 0, 240, 60), VP, null, { stripTop: 640 });
     expect(p?.side).toBe('above');
+    expect(p!.top + 60).toBeLessThanOrEqual(640);
   });
 
   it('右、下、上都放不下 → 左侧（用大气泡迫使上下都不够）', () => {

@@ -237,6 +237,19 @@ export interface HudModel {
   readonly scriptureHighlight: boolean;
 }
 
+/**
+ * 起步卡（批次 33）：引导结束后，画布还没产出时留在画布左下角的一句话。
+ * 它不是教程：不挡工具箱、不推进状态，只是把「下一步做什么」摆在视线里。
+ */
+export function CoachBanner({ text, onDismiss }: { readonly text: string; readonly onDismiss: () => void }) {
+  return (
+    <div className="coach" role="status">
+      <p className="coach-text">{text}</p>
+      <button className="coach-close" type="button" onClick={onDismiss}>我自己来</button>
+    </div>
+  );
+}
+
 const STALL_REASON: Record<StallEvent['reason'], string> = {
   budget: '超出本 tick 指令预算',
   loopLimit: '循环嵌套超过上限',

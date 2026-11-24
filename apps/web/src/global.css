@@ -1099,14 +1099,19 @@ body::before {
 .tutorial-bar {
   align-items: baseline;
   background: rgba(10, 14, 18, 0.94);
-  border-top: 1px solid var(--spirit);
-  bottom: 0;
+  border: 1px solid rgba(53, 224, 200, 0.35);
+  border-radius: 10px;
+  /* 批次 33：原来贴视口底部并横贯整行，正好压在下方横条卡片上（实测六步全压）。
+     改为悬浮在横条上方、宽度按内容，减少遮挡面积。 */
+  bottom: calc(var(--bottom-height) + 12px);
   display: flex;
   gap: 12px;
-  left: 0;
+  left: 16px;
+  max-width: 560px;
   padding: 8px 14px;
   position: fixed;
-  right: var(--hud-width);
+  right: auto;
+  width: max-content;
   z-index: 10;
 }
 
@@ -2128,6 +2133,50 @@ body::before {
 
 
 
+
+/* 批次 33：起步卡。画布左下角，不挡工具箱、不挡横条；按钮自己接鼠标。 */
+.coach {
+  position: absolute;
+  left: 16px;
+  /* toast 也停在画布左下（bottom 16）：起步卡再往上让一格，两者不叠。 */
+  bottom: 84px;
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 9px 12px;
+  border: 1px solid rgba(232, 201, 120, 0.4);
+  border-radius: 12px;
+  background: rgba(16, 20, 26, 0.9);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.coach-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--gold);
+}
+
+.coach-close {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.coach-close:hover {
+  color: var(--spirit);
+}
+
 /* 批次 32：底部引导条的「继续」。气泡贴不上目标时它是唯一出路。 */
 .tutorial-next {
   padding: 2px 10px;
@@ -2741,6 +2790,23 @@ body::before {
 
   .topbar-mode {
     display: none;
+  }
+
+  /* 窄屏横条是竖向堆叠、不与画布同屏：引导条固定在视口底部一条即可。 */
+  .tutorial-bar {
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  /* 窄屏底部有积木库（约 52px）：起步卡要让开 */
+  .coach {
+    left: 8px;
+    right: 8px;
+    bottom: 120px;
+    max-width: none;
   }
 
   /* 手机：toast 回文档流（固定定位会正好压在灵力卡上） */

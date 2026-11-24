@@ -88,11 +88,19 @@ function rectsIntersect(a: BoxRect, b: BoxRect): boolean {
  *
  * @param flyoutRight flyout 右边界（视口坐标）。左栏目标强制用此值定位；其他目标可传 null。
  */
+export interface PlaceBounds {
+  /** 下方横条的顶边：目标在这里时气泡只能往上，且不得进入横条。 */
+  readonly stripTop?: number | undefined;
+  /** 右列的左边界：目标在这里时气泡优先落到画布，而不是压在右列卡片上。 */
+  readonly rightColumnLeft?: number | undefined;
+}
+
 export function placeBubble(
   target: BoxRect,
   bubble: BoxRect,
   vp: Viewport,
   flyoutRight: number | null = null,
+  bounds: PlaceBounds = {},
 ): BubblePlacement | null {
   const w = bubble.width;
   const h = bubble.height;
@@ -143,6 +151,10 @@ export function placeBubble(
       }
       case 'left': {
         left = target.x - gap - w;
+        // 右列目标：气泡右边缘必须停在右列左边界之外，否则会压住同列卡片的字。
+        if (inRightColumn) {
+          left = Math.min(left, columnEdge - gap - w);
+        }
         top = clamp(cy - h / 2, limit, vp.height - h - limit);
         break;
       }
@@ -158,15 +170,59 @@ export function placeBubble(
     return { side, left: clampedLeft, top: clampedTop, arrowCross };
   };
 
-  // 批次 32：横条里的目标（曲线/道具/藏经阁）在屏幕下半部，
-  // 优先贴「上方」——那里是画布空白，不会盖住隔壁卡片；否则气泡会骑在下一张卡上。
-  const lowerHalf = cy > vp.height * 0.62;
-  const order: BubbleSide[] = lowerHalf
-    ? ['above', 'right', 'below', 'left']
-    : ['right', 'below', 'above', 'left'];
+  // 批次 33：按目标所在区域决定落点，而不是只看"在不在下半屏"。
+  //   横条里的目标：只能向上（上方是画布空白），且底边不许进入横条；
+  //   右列里的目标：优先向左（左边是画布），放不下再向上。
+  const inStrip = bounds.stripTop !== undefined && target.y + target.height > bounds.stripTop;
+  // 右列判据用「目标中心在右侧三分之一」而不是只靠 bounds：bounds 是 DOM 现量的，
+  // 某些窗口尺寸下 .hud 的 left 会晚一帧才稳定，靠它会漏判（实测 1280×720 第 5 步）。
+  const columnEdge = bounds.rightColumnLeft ?? vp.width * 0.62;
+  const inRightColumn = cx > columnEdge || (bounds.rightColumnLeft !== undefined && target.x >= bounds.rightColumnLeft);
+  const order: BubbleSide[] = inStrip
+    ? ['above']
+    : inRightColumn
+      ? ['left']
+      : ['right', 'below', 'above', 'left'];
+
+  // 批次 33：右列与横条各有一条"硬落点"，不走通用试探。
+  // 通用顺序在 1280×720 上会把心魔条的气泡放进右列（实测压住 challenge/realm 两张卡），
+  // 所以这两类目标直接指定位置，反而稳。
+  if (inRightColumn) {
+    const left = clamp(columnEdge - gap - w, limit, vp.width - w - limit);
+    let top = clamp(cy - h / 2, limit, vp.height - h - limit);
+    // 右列卡片可能一直排到横条顶边：气泡还得再往上让，别落进横条。
+    if (bounds.stripTop !== undefined) top = Math.min(top, bounds.stripTop - gap - h);
+    const rect: BoxRect = { x: left, y: top, width: w, height: h };
+    if (!rectsIntersect(rect, target)) {
+      return { side: 'left', left, top, arrowCross: clamp(cy, top + ARROW_PX + 2, top + h - ARROW_PX - 2) };
+    }
+  }
+  if (inStrip && bounds.stripTop !== undefined) {
+    const top = bounds.stripTop - gap - h;
+    const left = clamp(cx - w / 2, limit, vp.width - w - limit);
+    if (top >= limit) {
+      const rect: BoxRect = { x: left, y: top, width: w, height: h };
+      if (!rectsIntersect(rect, target)) {
+        return { side: 'above', left, top, arrowCross: clamp(cx, left + ARROW_PX + 2, left + w - ARROW_PX - 2) };
+      }
+    }
+  }
+
+  /** 横条场景：气泡必须整块待在横条上方，否则宁可返回 null 退回引导条。 */
+  const clampAboveStrip = (placement: BubblePlacement): BubblePlacement | null => {
+    if (!inStrip || bounds.stripTop === undefined) return placement;
+    const maxTop = bounds.stripTop - h - gap;
+    if (maxTop < limit) return null;
+    if (placement.top <= maxTop) return placement;
+    return { ...placement, top: maxTop };
+  };
+
   for (const side of order) {
     const p = trySide(side);
-    if (p !== null) return p;
+    if (p !== null) {
+      const clamped = clampAboveStrip(p);
+      if (clamped !== null) return clamped;
+    }
   }
 
   return null;
