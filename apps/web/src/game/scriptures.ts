@@ -15,6 +15,13 @@ export interface Scripture {
   readonly teach: string;
   /** 学习成本（悟道）。 */
   readonly cost: number;
+  /**
+   * 解锁境界（0 炼气 / 1 筑基 / 2 金丹 / 3 元婴）。
+   * 必须 ≥ 这套功法用到的最高级积木所要求的境界，否则会出现
+   * 「炼气期抄进一个循环」——绕过境界门控，等于白送积木。
+   */
+  readonly realm: number;
+  readonly realmName: string;
   /** 抄录时写进画布的工作区 JSON（由 builder 生成，避免共享可变对象）。 */
   readonly workspace: () => unknown;
 }
@@ -33,6 +40,14 @@ const breath = (id: string, next?: unknown): Record<string, unknown> => ({
 });
 
 const calm = (id: string): Record<string, unknown> => ({ type: 'calm', id });
+
+const chain = (blocks: readonly Record<string, unknown>[]): Record<string, unknown> => {
+  let node: Record<string, unknown> | undefined;
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    node = { ...blocks[i]!, ...(node === undefined ? {} : { next: { block: node } }) };
+  }
+  return node as Record<string, unknown>;
+};
 
 const repeat = (id: string, count: number, doBlock: unknown, next?: unknown): Record<string, unknown> => ({
   type: 'gongfa_repeat',
@@ -61,11 +76,24 @@ const ifBlock = (id: string, condition: unknown, thenBlock: unknown, elseBlock?:
 
 export const SCRIPTURES: readonly Scripture[] = [
   {
+    id: 'straight',
+    name: '直行吐纳',
+    algorithm: '顺序执行（无分支）',
+    teach: '六块吐纳一字排开：没有判断、没有回头，代价可预测，但一点弹性都没有。',
+    cost: 1,
+    realm: 0,
+    realmName: '炼气',
+    workspace: () =>
+      hat(chain(Array.from({ length: 6 }, (_, index) => breath(`sc-straight-${index}`)))),
+  },
+  {
     id: 'zhouTian',
     name: '小周天',
     algorithm: '循环（for）',
     teach: '一块「吐纳」跑 5 次，和拖 5 块一样，但改次数只改一个数字。',
     cost: 1,
+    realm: 1,
+    realmName: '筑基',
     workspace: () => hat(repeat('sc-r1', 5, breath('sc-b1'))),
   },
   {
@@ -74,6 +102,8 @@ export const SCRIPTURES: readonly Scripture[] = [
     algorithm: '循环 + 分支（反馈控制）',
     teach: '心魔超过一半才调息，否则继续吐纳：同一段代码每轮走不同的路。',
     cost: 2,
+    realm: 1,
+    realmName: '筑基',
     workspace: () =>
       hat(
         repeat(
@@ -89,6 +119,8 @@ export const SCRIPTURES: readonly Scripture[] = [
     algorithm: '预算守卫 + 中断',
     teach: '每一步先看预算：快撞顶就主动收手，而不是被系统掐断。',
     cost: 3,
+    realm: 2,
+    realmName: '金丹',
     workspace: () =>
       hat(
         repeat(
@@ -104,6 +136,8 @@ export const SCRIPTURES: readonly Scripture[] = [
     algorithm: '嵌套循环',
     teach: '外层 3 轮、内层 5 次呼吸：总数是乘积，代价也是乘积。',
     cost: 5,
+    realm: 2,
+    realmName: '金丹',
     workspace: () => hat(repeat('sc-r4', 3, repeat('sc-r5', 5, breath('sc-b4')))),
   },
 ];
@@ -112,6 +146,28 @@ export function scriptureOf(id: string): Scripture | null {
   return SCRIPTURES.find((item) => item.id === id) ?? null;
 }
 
-export function canLearn(scripture: Scripture, insight: number, learned: readonly string[]): boolean {
-  return !learned.includes(scripture.id) && insight >= scripture.cost;
+export function canLearn(
+  scripture: Scripture,
+  insight: number,
+  learned: readonly string[],
+  realmIndex: number,
+): boolean {
+  if (learned.includes(scripture.id)) return false;
+  if (realmIndex < scripture.realm) return false;
+  return insight >= scripture.cost;
+}
+
+/** 抄录前的最后一道闸：模板里用到的积木，当前境界必须都给得出来。 */
+export function missingBlocks(scripture: Scripture, available: readonly string[]): readonly string[] {
+  const availableSet = new Set(available);
+  const used = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (typeof node !== 'object' || node === null) return;
+    const record = node as Record<string, unknown>;
+    if (typeof record.type === 'string') used.add(record.type);
+    for (const value of Object.values(record)) walk(value);
+  };
+  walk(scripture.workspace());
+  used.delete('tick_hat');
+  return [...used].filter((type) => !availableSet.has(type));
 }

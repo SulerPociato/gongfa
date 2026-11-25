@@ -36,7 +36,7 @@ import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { errandOf } from './game/errand';
-import { SCRIPTURES, canLearn, scriptureOf } from './game/scriptures';
+import { SCRIPTURES, canLearn, missingBlocks, scriptureOf } from './game/scriptures';
 import { readInsight, readLearned, writeInsight, writeLearned } from './game/insightStore';
 import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
@@ -1010,15 +1010,20 @@ export function App() {
     let scriptureHintShown = false;
 
     const scriptureRows = (): readonly ScriptureRow[] =>
-      SCRIPTURES.map((item) => ({
-        id: item.id,
-        name: item.name,
-        algorithm: item.algorithm,
-        teach: item.teach,
-        cost: item.cost,
-        learned: learnedScriptures.includes(item.id),
-        affordable: metaInsight >= item.cost,
-      }));
+      SCRIPTURES.map((item) => {
+        const realmLocked = runtime.state().realmIndex < item.realm;
+        return {
+          id: item.id,
+          name: item.name,
+          algorithm: item.algorithm,
+          teach: item.teach,
+          cost: item.cost,
+          learned: learnedScriptures.includes(item.id),
+          affordable: metaInsight >= item.cost,
+          realmLocked,
+          unlockText: realmLocked ? `${item.realmName}解锁` : '',
+        };
+      });
 
     const refreshScriptures = (): void => {
       setHud((previous) => ({ ...previous, insight: metaInsight, scriptures: scriptureRows() }));
@@ -1028,8 +1033,13 @@ export function App() {
     learnScriptureRef.current = (id: string): void => {
       const item = scriptureOf(id);
       if (item === null) return;
-      if (!canLearn(item, metaInsight, learnedScriptures)) {
-        showToast(learnedScriptures.includes(id) ? '这套已经学过了' : `悟道不够（需要 ${item.cost}）`);
+      if (!canLearn(item, metaInsight, learnedScriptures, runtime.state().realmIndex)) {
+        const reason = learnedScriptures.includes(id)
+          ? '这套已经学过了'
+          : runtime.state().realmIndex < item.realm
+            ? `这套功法要 ${item.realmName}才能运转`
+            : `悟道不够（需要 ${item.cost}）`;
+        showToast(reason);
         return;
       }
       metaInsight -= item.cost;
@@ -1045,6 +1055,12 @@ export function App() {
       if (item === null) return;
       if (!learnedScriptures.includes(id)) {
         showToast('还没学过这套功法');
+        return;
+      }
+      // 最后一道闸：模板里的积木必须当前境界就能给（防「炼气抄进循环」这类绕过）。
+      const missing = missingBlocks(item, toolboxForRealm(runtime.state().realmIndex, runtime.state().demo).contents.map((entry) => entry.type));
+      if (missing.length > 0) {
+        showToast(`这套功法要 ${item.realmName}才能运转（缺 ${missing.join('、')}）`);
         return;
       }
       setModal({

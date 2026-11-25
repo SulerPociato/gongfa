@@ -550,6 +550,9 @@ export interface ScriptureRow {
   readonly cost: number;
   readonly learned: boolean;
   readonly affordable: boolean;
+  /** 境界不够：按钮显示「筑基解锁」，不可点。 */
+  readonly realmLocked: boolean;
+  readonly unlockText: string;
 }
 
 function ScripturePanel({ insight, rows, onLearn, onLoad, highlight }: {
@@ -577,8 +580,13 @@ function ScripturePanel({ insight, rows, onLearn, onLoad, highlight }: {
                   抄录到画布
                 </button>
               ) : (
-                <button className="scripture-learn" type="button" disabled={!row.affordable} onClick={() => onLearn(row.id)}>
-                  {row.affordable ? `学习（${row.cost} 悟道）` : `需 ${row.cost} 悟道`}
+                <button
+                  className="scripture-learn"
+                  type="button"
+                  disabled={row.realmLocked || !row.affordable}
+                  onClick={() => onLearn(row.id)}
+                >
+                  {row.realmLocked ? row.unlockText : row.affordable ? `学习（${row.cost} 悟道）` : `需 ${row.cost} 悟道`}
                 </button>
               )}
             </div>
