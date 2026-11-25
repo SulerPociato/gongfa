@@ -2985,3 +2985,45 @@ body::before {
     transform: none;
   }
 }
+
+
+/* 批次 36：右列故障条（红字/坏档/撞步的首屏摘要） */
+.issue-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: #ffb4a8;
+  background: rgba(255, 90, 70, 0.1);
+  border: 1px solid rgba(255, 90, 70, 0.35);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+}
+
+.issue-strip:hover {
+  background: rgba(255, 90, 70, 0.16);
+}
+
+.issue-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff6b57;
+}
+
+.issue-text {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-more {
+  flex: 0 0 auto;
+  color: rgba(255, 180, 168, 0.75);
+}

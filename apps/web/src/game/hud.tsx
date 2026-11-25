@@ -832,6 +832,16 @@ export function TutorialBar({ model, mini, onSkip, onAdvance }: { readonly model
   );
 }
 
+/** 灵力显示：小数字原样，上万用「万」、上亿用「亿」，避免 15 位数字把卡片撑破。 */
+export function formatQi(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const rounded = Math.round(value);
+  const abs = Math.abs(rounded);
+  if (abs >= 1e8) return `${(rounded / 1e8).toFixed(2)} 亿`;
+  if (abs >= 1e4) return `${(rounded / 1e4).toFixed(2)} 万`;
+  return String(rounded);
+}
+
 function CorruptEntry({ model }: { readonly model: CorruptLineModel }) {
   // 默认收起：玩家先要看得见「档还在、已备份」，不是 18 条字段路径
   const [open, setOpen] = useState(false);
@@ -872,7 +882,7 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
       <div className="hud-fixed">
         <div className="qi-card">
           <p className="label">灵力</p>
-          <p ref={qiRef} className="qi tut-target">{model.qi}</p>
+          <p ref={qiRef} className="qi tut-target">{formatQi(model.qi)}</p>
           <p className="rate tut-target">{model.rate.toFixed(1)} / 秒</p>
           {model.steps.used > 0 && (
             <p className={`steps${model.steps.used >= model.steps.pool ? ' is-full' : ''}`}>
@@ -901,6 +911,21 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {/* 批次 35：首屏只回答三件事 —— 有多少灵力、下一步做什么、主按钮在哪。
             心魔条保留（危险优先），其余全部进「面板」。 */}
         <DemonStrip model={model.realm} onTakePill={onTakePill} />
+        {/* 批次 36：红字/坏档/撞步不能只躺在面板里 —— 面板关着时玩家永远看不到。
+            首屏给一条摘要，点开面板看全文。 */}
+        {(model.corrupt !== null || model.errors.length > 0 || model.stall !== null) && (
+          <button className="issue-strip" type="button" onClick={onTogglePanel}>
+            <span className="issue-dot" aria-hidden="true" />
+            <span className="issue-text">
+              {model.corrupt !== null
+                ? model.corrupt.line
+                : model.errors.length > 0
+                  ? model.errors[0]
+                  : `第 ${model.stall?.steps ?? 0} 步没跑完`}
+            </span>
+            <span className="issue-more">详情</span>
+          </button>
+        )}
         <button className="panel-open" type="button" aria-expanded={panelOpen} onClick={onTogglePanel}>
           面板 · 详情
           <span className="panel-open-hint">境界 · 曲线 · 功法 · 藏经阁</span>

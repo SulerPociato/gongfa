@@ -369,6 +369,8 @@ type ChangeEvent = { readonly group?: string | undefined };
 // 存档损坏提示分层：HUD 只留 core 那一句「已备份为 …，已开新档」，
 // 逐字段明细 + 备份原文进 console.group('save:corrupt') 和「详情」展开区。
 // 回退备用槽成功（state 还在）不走这里：档读回来了，core 那时 errors 为空，只有一句灰字 notice。
+let pendingCorrupt: CorruptLineModel | null = null;
+
 function corruptReport(storage: SaveStorage, loaded: LoadResult): CorruptLineModel | null {
   if (loaded.state !== null || loaded.summary === null) return null;
 
@@ -380,7 +382,8 @@ function corruptReport(storage: SaveStorage, loaded: LoadResult): CorruptLineMod
   console.warn(loaded.summary);
   for (const message of detail) console.warn(message);
   console.groupEnd();
-  return { line: loaded.summary, detail };
+  pendingCorrupt = { line: loaded.summary, detail };
+  return pendingCorrupt;
 }
 
 
@@ -771,7 +774,7 @@ export function App() {
       refreshFlyoutClasses();
     }
     // 损坏提示分层：HUD 那一行 + 控制台明细 + 「详情」展开区，都由这一次装载的结果决定
-    const corrupted = corruptReport(storage, loaded);
+    const corrupted = corruptReport(storage, loaded) ?? pendingCorrupt;
     // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默。两处不进红字：
     // ① 积木没能上屏（已退回开局程序）时，core 对存档那份坏 workspace 的编译报错要丢掉——
     //    它说的不是眼前跑的程序，而且开局程序自带入口块，再报「缺少每 tick 入口块」就是假报错；
