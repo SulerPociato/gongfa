@@ -3,11 +3,44 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="代码修仙：别人挂时间，你挂自己写的算法。" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>代码修仙</title>
+    <!--
+      批次 37：首屏骨架。1.1MB 的 JS（Blockly 占大头）在 3G 下要 3 秒才到，
+      这段时间原来是一片纯黑；先画一个静态骨架，让 FCP 从 3.3s 提前到首字节后。
+      React 挂载时直接替换 #root 内容，不需要额外清理。
+    -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #080d11; }
+      #boot {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+        color: #e9f6f3;
+      }
+      #boot .inner { display: grid; gap: 10px; justify-items: center; }
+      #boot .title { font-size: 22px; letter-spacing: 0.12em; color: #35e0c8; }
+      #boot .hint { font-size: 12px; color: rgba(233, 246, 243, 0.55); }
+      #boot .bar { width: 132px; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+      #boot .bar::after {
+        content: ''; display: block; width: 40%; height: 100%; background: #35e0c8;
+        animation: boot-slide 1.1s ease-in-out infinite;
+      }
+      @keyframes boot-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+      @media (prefers-reduced-motion: reduce) { #boot .bar::after { animation: none; width: 100%; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot" role="status" aria-live="polite">
+        <div class="inner">
+          <div class="title">代码修仙</div>
+          <div class="bar"></div>
+          <div class="hint">正在铺开功法…</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

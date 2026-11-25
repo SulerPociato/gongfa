@@ -1936,6 +1936,19 @@ export function App() {
 
   return (
     <div className={`layout${tutClass}`}>
+      {/* 批次 37：键盘可达性。Blockly 注入的 SVG 会吃掉 6 个 Tab 位，
+          所以在最前面放一个跳转链接：第一下 Tab 就能直达主按钮。 */}
+      <a
+        className="skip-link"
+        href="#main-action"
+        onClick={(event) => {
+          event.preventDefault();
+          // 主按钮在不可渡劫时是 disabled，focus() 会静默失败；所以聚焦外层卡片（tabIndex=-1）。
+          document.querySelector<HTMLElement>('#main-action')?.focus();
+        }}
+      >
+        跳到主按钮
+      </a>
       <div className="topbar">
         <span className="topbar-logo">代码修仙</span>
         <div className="topbar-right">

@@ -523,6 +523,11 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
           ? `已达成 · 用了 ${model.steps} 步 · 效率 ${model.perQi.toFixed(3)} 灵力/步`
           : `${seconds} 秒内达成可减半蓄势`}
       </p>
+      {/* 批次 37：实测「单块吐纳」在本境达不到目标（35/s × 60s = 2100 < 3200），
+          目标本身就是在逼你叠第二块动作。不写这句，玩家会以为目标不可能。 */}
+      {!model.reached && (
+        <p className="sprint-hint">单块动作不够：再叠一块吐纳，或用循环把一套动作跑多次。</p>
+      )}
       {/* 批次 25：试炼也考效率 —— 只堆动作能过「达成」，但拿不到「优秀」。 */}
       <p className={`sprint-text sprint-eff${model.excellent ? ' is-excellent' : ''}`}>
         效率 {model.perQi.toFixed(2)} / 门槛 {model.perQiGoal.toFixed(1)} 灵力/步
@@ -699,7 +704,7 @@ export function ChallengePanel({ model, demo, onPress }: { readonly model: Chall
         : model.phase === 'ready' && model.nextRealmName !== null ? `→ ${model.nextRealmName}`
           : '';
   return (
-    <div className="challenge">
+    <div className="challenge" id="main-action" tabIndex={-1}>
       {/* is-ready：首次「可渡劫」的脉冲动画挂在这上面（P0-C 第 4 项），只看相位，不看别的。 */}
       {/* trial 也保持可点：玩家慌乱时会习惯性按原来那颗按钮，禁用等于把入口藏起来。点下去 = 手动 85%。 */}
       <button className={`challenge-button${model.phase === 'ready' ? ' is-ready' : ''} tut-target`} type="button" disabled={!model.enabled} onClick={onPress}>

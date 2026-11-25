@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { linearizeProgram } from '@gongfa/core';
 import { compileWorkspace } from './compiler';
 import { suggestRewrite } from './optimizer';
-import type { WorkspaceJson } from './definitions';
-
-const breath = (id: string): { block: Record<string, unknown> } => ({ block: { type: 'breath', id } });
+import type { WorkspaceJson } from './compiler';
 
 /** 直列 n 块吐纳。 */
 function straight(n: number): WorkspaceJson {

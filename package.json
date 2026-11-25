@@ -10,7 +10,9 @@
     "sim": "tsx tools/balance-sim.ts",
     "sim:table": "tsx tools/balance-sim.ts --table",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/blocks/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p packages/core/tsconfig.json --noEmit && tsc -p packages/blocks/tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "audit:balance": "tsx tools/audit-balance.ts",
+    "audit:fuzz": "tsx tools/audit-fuzz.ts"
   },
   "devDependencies": {
     "@gongfa/core": "workspace:*",

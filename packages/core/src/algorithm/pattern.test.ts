@@ -427,7 +427,7 @@ describe('patternsOf — 组合', () => {
 
   it('直列 6 块动作 → 一气呵成（批处理）；5 块不算', () => {
     const many = (n: number): Op[] => [
-      ...Array.from({ length: n }, (_, i) => ({ op: 'ACTION' as const, actionId: 'breath' })),
+      ...Array.from({ length: n }, () => ({ op: 'ACTION' as const, actionId: 'breath' })),
       { op: 'HALT' as const },
     ]
     expect(patternsOf(shapeOf(many(6), []))).toContain('batch');
