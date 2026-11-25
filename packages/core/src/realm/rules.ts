@@ -110,7 +110,36 @@ export const AUTO_RATE = 0.6;
 export const FAILURE_QI_MULT = 0.85;
 export const GUARANTEE_ATTEMPT = 3;
 
-export type ChallengeMode = 'manual' | 'auto';
+export type ChallengeMode = 'manual' | 'auto' | 'parry';
+
+// 批次 38：渡劫的「天雷」层。契约 §7.1 的 85/60 仍是两端，这里只加中间的手动空间。
+// 三波雷：进渡劫后 2/5/8 秒；每次承雷在 ±700ms 内算命中。
+export const TRIAL_WAVES_MS: readonly number[] = [2_000, 5_000, 8_000];
+export const TRIAL_PARRY_WINDOW_MS = 700;
+/** 渡劫期间心魔自然上涨速度（每秒），不压就会让成功率掉档。 */
+export const TRIAL_DEMON_RISE_PER_SEC = 0.05;
+/** 命中一波：压心魔 + 成功率 +2%。 */
+export const PARRY_DEMON_RELIEF = 0.12;
+export const PARRY_BONUS = 0.02;
+/** 漏一波：心魔 +16%、成功率 -5%。 */
+export const PARRY_MISS_DEMON = 0.16;
+export const PARRY_PENALTY = 0.05;
+export const PARRY_RATE_MIN = 0.55;
+export const PARRY_RATE_MAX = 0.95;
+
+export interface TrialParry {
+  readonly hits: number;
+  readonly misses: number;
+  readonly demon: number;
+}
+
+/** 承雷结算的成功率：85% 起，命中 +2%、漏掉 -5%，心魔高再扣一档。 */
+export function parryRate(input: TrialParry): number {
+  const base = MANUAL_RATE + input.hits * PARRY_BONUS - input.misses * PARRY_PENALTY;
+  const demonPenalty = input.demon >= 0.8 ? 0.2 : input.demon >= 0.6 ? 0.1 : 0;
+  const raw = base - demonPenalty;
+  return Math.min(PARRY_RATE_MAX, Math.max(PARRY_RATE_MIN, raw));
+}
 
 export interface ChallengeInput {
   readonly realms: readonly RealmDef[];
@@ -125,6 +154,8 @@ export interface ChallengeInput {
    */
   readonly mercy?: boolean | undefined;
   readonly mode: ChallengeMode;
+  /** 承雷模式的战绩；mode !== 'parry' 时忽略。 */
+  readonly parry?: TrialParry | undefined;
 }
 
 export interface ChallengeOutcome {
@@ -148,7 +179,9 @@ function challengeRefused(input: ChallengeInput, rate: number, roll: number, err
 // 成功复用 breakthrough 的后果口径（§7.1 境界 +1、qi = 0、demon = 0）；失败只加两件事：
 // 存量 ×0.85 与悟道 +1，境界与程序都不动。
 export function resolveChallenge(input: ChallengeInput): ChallengeOutcome {
-  const rate = input.mode === 'manual' ? MANUAL_RATE : AUTO_RATE;
+  const rate = input.mode === 'parry'
+    ? parryRate(input.parry ?? { hits: 0, misses: 0, demon: input.state.demon })
+    : input.mode === 'manual' ? MANUAL_RATE : AUTO_RATE;
   if (!Number.isInteger(input.attempt) || input.attempt < 1) {
     return challengeRefused(input, rate, 0, [`挑战次数 ${input.attempt} 不合法：本境界内第 N 次要从 1 起取整数`]);
   }

@@ -3063,3 +3063,77 @@ body::before {
   line-height: 1.5;
   color: rgba(232, 201, 120, 0.85);
 }
+
+
+/* 批次 38：渡劫·承雷。心魔条 + 三波雷 + 承雷按钮 */
+.trial-demon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 6px;
+  font-size: 11px;
+  color: var(--m3-on-surface-var);
+}
+
+.trial-demon-label { flex: 0 0 auto; color: #ff8f80; }
+
+.trial-demon-bar {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.trial-demon-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff6b57, #ff3d2e);
+  transition: width 160ms linear;
+}
+
+.trial-demon-value {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: #ffb4a8;
+}
+
+.trial-waves {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+
+.trial-wave {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  transition: all 160ms var(--ease-emphasized);
+}
+
+.trial-wave.is-hit {
+  border-color: var(--m3-primary);
+  color: var(--m3-primary);
+  background: rgba(53, 224, 200, 0.14);
+}
+
+.trial-waves-text {
+  margin-left: 6px;
+  color: var(--m3-on-surface-var);
+}
+
+.trial-parry {
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+.trial-parry:active {
+  transform: scale(0.97);
+}

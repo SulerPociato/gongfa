@@ -1,6 +1,11 @@
 import actionsJson from '../../../../content/actions.json';
 import realmsJson from '../../../../content/realms.json';
 import {
+  PARRY_DEMON_RELIEF,
+  PARRY_MISS_DEMON,
+  TRIAL_DEMON_RISE_PER_SEC,
+  TRIAL_PARRY_WINDOW_MS,
+  TRIAL_WAVES_MS,
   CHALLENGE_COOLDOWN_MS,
   CHALLENGE_TRIAL_MS,
   CHARGE_WINDOW_MS,
@@ -144,6 +149,14 @@ export interface RuntimeState {
   readonly challengeActive: boolean;
   /** 挑战剩余毫秒：0 = 不在挑战中。 */
   readonly trialRemainingMs: number;
+  /** 承雷进度（批次 38）：不在渡劫中时为 null。 */
+  readonly trialParry: {
+    readonly hits: number;
+    readonly misses: number;
+    readonly demon: number;
+    /** 下一波天雷还有多少毫秒；null = 三波都已过。 */
+    readonly nextWaveInMs: number | null;
+  } | null;
   /** 渡劫冷却剩余毫秒：0 = 可以开始下一次。 */
   readonly cooldownRemainingMs: number;
   /** realms.json 的下标（境界 id 在表里的位置）：工具箱门控与蓄势窗口都按它取，不假设 id 连续。 */
@@ -196,7 +209,7 @@ export interface RuntimeState {
  */
 type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
-  | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'cooldownRemainingMs' | 'demo'
+  | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'trialParry' | 'cooldownRemainingMs' | 'demo'
   | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi'
   | 'dao' | 'lingGen' | 'pillCooldownMs' | 'trace' | 'daoFallback';
 
@@ -467,6 +480,12 @@ const PILL_DEMON_RELIEF = 0.1;
   // 契约 §5.1 没有对应字段，任务 8 造 schema v2 时一并落盘；HUD 的文案必须写明「刷新清零」。
   // 只有 chargeReadyAt（§5.1 现成字段）落盘，蓄势这条时间墙跨刷新继续。
   let trialUntil = 0;
+  // 批次 38：承雷。trialStart 用来排三波雷；hits/misses 只在本次渡劫内累计。
+  let trialStart = 0;
+  let trialHits = 0;
+  let trialMisses = 0;
+  let trialDemon = 0;
+  const trialWavesHit: boolean[] = [];
   let cooldownUntil = 0;
 
   // 试炼（契约 §7.1.1）：60 秒滑动窗口只统计在线逐 tick 产出，达成一次就把本境界正在等的蓄势窗口减半。
@@ -520,6 +539,18 @@ const PILL_DEMON_RELIEF = 0.1;
       chargeRemainingMs: chargeRemainingMs(state.chargeReadyAt, now),
       challengeActive: active,
       trialRemainingMs: active ? trialUntil - now : 0,
+      trialParry: active
+        ? (() => {
+            const elapsed = now - trialStart;
+            const next = TRIAL_WAVES_MS.find((wave, index) => !trialWavesHit[index] && wave + TRIAL_PARRY_WINDOW_MS >= elapsed);
+            return {
+              hits: trialHits,
+              misses: trialMisses,
+              demon: trialDemon,
+              nextWaveInMs: next === undefined ? null : Math.max(0, next - elapsed),
+            };
+          })()
+        : null,
       cooldownRemainingMs: Math.max(0, cooldownUntil - now),
       demo: demoMode,
       // 试炼这一行的四个数：目标、窗口、此刻窗口内已产出、本境是否已拿到减半。
@@ -600,6 +631,47 @@ const PILL_DEMON_RELIEF = 0.1;
   // 结算 = 契约 §7.1 的全部后果。成功复用 breakthrough 规则（境界 +1、qi=0、demon=0）并换 sink；
   // 失败是 qi ×0.85、心魔归 0、悟道 +1、境界不动。报错路径（阈值没到 / 末境 / 坏下标）一个数字都不动，
   // 也不记冷却、不吃掉第 N 次：渡劫压根没开始。
+  /**
+   * 承雷（批次 38）：渡劫期间唯一的操作。落在某波雷的 ±700ms 内算命中，
+   * 命中压心魔、加成功率；拍空不罚（罚的是整波漏掉，在结算时算）。
+   */
+  const parryTrial = (): ChallengeResult => {
+    const now = clock.now();
+    if (trialUntil === 0 || trialUntil <= now) {
+      return idleResult('parry', state.attempt, 0, 0, ['不在渡劫中，没有雷可接']);
+    }
+    const elapsed = now - trialStart;
+    let hitIndex = -1;
+    for (let index = 0; index < TRIAL_WAVES_MS.length; index += 1) {
+      if (trialWavesHit[index] === true) continue;
+      const wave = TRIAL_WAVES_MS[index] ?? 0;
+      if (Math.abs(elapsed - wave) <= TRIAL_PARRY_WINDOW_MS) {
+        hitIndex = index;
+        break;
+      }
+    }
+    if (hitIndex >= 0) {
+      trialWavesHit[hitIndex] = true;
+      trialHits += 1;
+      trialDemon = Math.max(0, trialDemon - PARRY_DEMON_RELIEF);
+      state.demon = trialDemon;
+      markDirty();
+    }
+    return {
+      errors: [],
+      phase: 'trial',
+      ok: false,
+      mode: 'parry',
+      attempt: state.attempt,
+      rate: 0,
+      roll: 0,
+      forced: false,
+      qi: state.qi,
+      realmName: currentRealm().name.zh,
+      fromRealmName: currentRealm().name.zh,
+    };
+  };
+
   const settle = (mode: ChallengeMode): ChallengeResult => {
     const attempt = state.attempt;
     // 结算前的境界名：成功路径下面 realmIndex 要 +1，副标「旧 → 新」的旧那一头只能在这里取。
@@ -612,8 +684,10 @@ const PILL_DEMON_RELIEF = 0.1;
       attempt,
       mode,
       mercy: failureMercy,
+      parry: { hits: trialHits, misses: trialMisses, demon: trialDemon },
     });
     trialUntil = 0;
+    trialStart = 0;
     if (outcome.errors.length > 0) {
       // 结算口径的拒绝（10 秒里存量掉回阈值下）：数字一个都不动，但这一发确实开始了，得让宿主把原因说出来。
       state.lastChallenge = { ...idleResult(mode, attempt, outcome.rate, outcome.roll, outcome.errors), phase: 'refused' };
@@ -707,7 +781,25 @@ const PILL_DEMON_RELIEF = 0.1;
     const now = clock.now();
     // 挑战的 10 秒是墙钟，和走火惩罚期并行：暂停只冻 tick 产出，不该把渡劫拖长。
     // 放在函数开头，惩罚期那一帧也能按托管结算 —— 玩家「放手」的语义就是到点必出结果。
-    if (trialUntil !== 0 && now >= trialUntil) settle('auto');
+    // 三波雷都过去了还没结算：按承雷战绩结（漏掉的波在这里算 miss）。
+    // 渡劫期间心魔持续上涨：不接雷就会掉进低成功率档。走火/入魔在这一段不判定，
+    // 否则玩家会在渡劫中途被强制改道，规则太黑。
+    if (trialUntil !== 0 && now < trialUntil) {
+      const dtMs = Math.max(0, realMs);
+      if (dtMs > 0) {
+        trialDemon = Math.min(0.95, trialDemon + TRIAL_DEMON_RISE_PER_SEC * (dtMs / 1000));
+        state.demon = trialDemon;
+      }
+    }
+    if (trialUntil !== 0 && now >= trialUntil) {
+      // 漏掉的波在结算时统一记 miss。
+      for (let index = 0; index < TRIAL_WAVES_MS.length; index += 1) {
+        if (trialWavesHit[index] !== true) trialMisses += 1;
+      }
+      trialDemon = Math.min(0.95, trialDemon + trialMisses * PARRY_MISS_DEMON);
+      state.demon = trialDemon;
+      settle('parry');
+    }
     const remaining = pausedUntil - now;
     if (remaining > 0) {
       // 惩罚期：不跑 tick、不计 playMs（D3），accumulator 也清掉。
@@ -926,7 +1018,13 @@ const PILL_DEMON_RELIEF = 0.1;
       const now = clock.now();
       // 挑战中再点一次 = 当场结算：主按钮给 'manual'（85%），「交给天意」给 'auto'（60%）。
       // 已经到期那一帧交给 run() 按托管结算，这里不抢它的口径。
-      if (trialUntil !== 0) return trialUntil > now ? settle(mode) : settle('auto');
+      // 批次 38：渡劫中再点主按钮 = 承雷（不是当场结算）。
+      // 想立刻认输走『交给天意』，那是另一个 API（pressChallenge('auto')）。
+      if (trialUntil !== 0) {
+        if (mode === 'auto') return settle('auto');
+        if (trialUntil <= now) return settle('parry');
+        return parryTrial();
+      }
       if (pausedUntil > now) return idleResult('manual', state.attempt, 0, 0, [`走火入魔还剩 ${Math.ceil((pausedUntil - now) / 1000)} 秒，惩罚期内不能渡劫`]);
       const realm = currentRealm();
       if (!isThresholdReached(state.qi, realm)) {
@@ -943,6 +1041,12 @@ const PILL_DEMON_RELIEF = 0.1;
       // 演示模式：跳过 10 秒倒计时，直接按手动口径结算（评审 1:50 那一步只有几秒画面）。
       if (demoMode) return settle('manual');
       trialUntil = now + CHALLENGE_TRIAL_MS;
+      trialStart = now;
+      trialHits = 0;
+      trialMisses = 0;
+      trialDemon = state.demon;
+      trialWavesHit.length = 0;
+      for (let index = 0; index < TRIAL_WAVES_MS.length; index += 1) trialWavesHit.push(false);
       return { errors: [], phase: 'trial', ok: false, mode: null, attempt: state.attempt, rate: 0, roll: 0, forced: false, qi: state.qi, realmName: realm.name.zh, fromRealmName: realm.name.zh };
     },
     jumpToDemoTarget: () => {

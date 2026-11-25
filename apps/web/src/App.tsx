@@ -136,6 +136,8 @@ function challengeModel(state: RuntimeState): ChallengeModel {
     realmName: state.realmName,
     chargeRemainingMs: state.chargeRemainingMs,
     trialRemainingMs: state.trialRemainingMs,
+    // 批次 38：承雷战绩直接透传，HUD 不自己数。
+    trialParry: state.trialParry,
     cooldownRemainingMs: state.cooldownRemainingMs,
     attempt: state.attempt,
     insight: state.insight,
@@ -483,7 +485,7 @@ export function App() {
   const outcomeSinceRef = useRef(0);
   const outcomeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 面板里两个按钮的实现在 useEffect 里才拿得到 runtime，这里同样只留转发口。
-  const trialPressRef = useRef<((mode: 'manual' | 'auto') => void) | null>(null);
+  const trialPressRef = useRef<((mode: 'manual' | 'auto' | 'parry') => void) | null>(null);
   // 调试跳关（F 键）后立刻清 HUD 闸门，不等下一帧自然刷新。
   const clearHudKeyRef = useRef<(() => void) | null>(null);
 
@@ -1281,9 +1283,10 @@ export function App() {
       setDemoTrial(false);
     };
     // 面板里的确认 = 手动 85%，「交给天意」= 托管 60%：档位由这一次点击定，runtime 只认参数。
-    trialPressRef.current = (mode: 'manual' | 'auto'): void => {
+    trialPressRef.current = (mode: 'manual' | 'auto' | 'parry'): void => {
       closeDemoPanel();
-      const result = runtime.pressChallenge(mode);
+      // 'parry' = 渡劫中的承雷：runtime 里走 parryTrial，不动 results、不结算。
+      const result = runtime.pressChallenge(mode === 'parry' ? undefined : mode);
       // 面板举着的这 10 秒里存量可能掉回阈值下（§7.1「渡劫无从开始」）：那句拒绝得说出来，不能静默。
       if (result.phase === 'idle' || result.phase === 'refused') pushActionErrors(result.errors);
       lastHudKey = '';
@@ -1988,7 +1991,7 @@ export function App() {
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
-        <TrialPanel model={hud.challenge} demo={hud.demo} onPress={(mode) => { trialPressRef.current?.(mode); }} />
+        <TrialPanel model={hud.challenge} demo={hud.demo} onPress={(mode) => { trialPressRef.current?.(mode); }} onParry={() => { trialPressRef.current?.('parry'); }} />
       )}
       {outcome !== null && <ChallengeResultLayer outcome={outcome} onDismiss={handleDismissOutcome} />}
       {hud.tutorial !== null && hud.tutorial.step !== null && (

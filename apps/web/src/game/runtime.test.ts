@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Program } from '@gongfa/core';
-import { AUTO_RATE, MANUAL_RATE } from '@gongfa/core';
+import { AUTO_RATE } from '@gongfa/core';
 import { createRuntime } from './runtime';
 
 // runtime 读 ?seed= / ?demo= / ?realm= 这些查询串，node 环境里没有 window，构造时先补一个空 location。
@@ -96,12 +96,23 @@ describe('pressChallenge 的档位与结算前的境界名', () => {
     expect(runtime.state().lastChallenge).toBe(result);
   });
 
-  it('挑战中点「立即冲关」= 按 MANUAL_RATE 结算，mode 落 manual（默认参数不变）', () => {
+  it('挑战中再点主按钮 = 承雷，不是当场结算', () => {
+    // 批次 38：渡劫中再点主按钮 = 承雷，不再当场结算（结算要等三波雷走完或点「交给天意」）。
     const runtime = challengeable(11);
     runtime.pressChallenge();
     const result = runtime.pressChallenge();
-    expect(result.mode).toBe('manual');
-    expect(result.rate).toBe(MANUAL_RATE);
+    expect(result.phase).toBe('trial');
+    expect(result.mode).toBe('parry');
+    expect(runtime.state().trialParry?.hits).toBe(0); // 刚进渡劫就点，不在雷点窗口内 = 拍空
+  });
+
+  it('渡劫中点「交给天意」= 立即按 AUTO_RATE 结算', () => {
+    const runtime = challengeable(11);
+    runtime.pressChallenge();
+    const result = runtime.pressChallenge('auto');
+    expect(result.mode).toBe('auto');
+    expect(result.rate).toBe(AUTO_RATE);
+    expect(runtime.state().trialParry).toBeNull();
   });
 
   // 开启那一次点击只负责把 10 秒窗口打开（mode 在这一帧没有意义），档位由窗口里的第二次点击定。

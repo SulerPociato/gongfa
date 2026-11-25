@@ -97,6 +97,13 @@ export interface ChallengeModel {
   readonly nextRealmName: string | null;
   readonly chargeRemainingMs: number;
   readonly trialRemainingMs: number;
+  /** 承雷进度（批次 38）：不在渡劫中为 null。 */
+  readonly trialParry: {
+    readonly hits: number;
+    readonly misses: number;
+    readonly demon: number;
+    readonly nextWaveInMs: number | null;
+  } | null;
   readonly cooldownRemainingMs: number;
   /** 下一次冲关是本境界第几次（§7.1 的 N，从 1 起）；连续失败次数 = N - 1。 */
   readonly attempt: number;
@@ -739,10 +746,11 @@ export function ChallengePanel({ model, demo, onPress }: { readonly model: Chall
  * 它不在 HUD 里：HUD 宽 300px 塞不下「最显眼的一行」，而窗口期玩家的手还在画布上，眼睛不该被迫右移。
  * demo 那一支没有 10 秒窗口（runtime 的 pressChallenge 当场结算），所以藏掉倒计时、只留一个按钮。
  */
-export function TrialPanel({ model, demo, onPress }: {
+export function TrialPanel({ model, demo, onPress, onParry }: {
   readonly model: ChallengeModel;
   readonly demo: boolean;
   readonly onPress: (mode: 'manual' | 'auto') => void;
+  readonly onParry: () => void;
 }) {
   return (
     <div className="trial-panel" role="dialog" aria-label="渡劫挑战">
@@ -752,6 +760,41 @@ export function TrialPanel({ model, demo, onPress }: {
           ? `演示模式：面板只由 X 键打开，点「确认冲关」当场按 ${percent(MANUAL_RATE)} 结算，无 10 秒窗口。`
           : `不操作也会自动结算（${percent(AUTO_RATE)}）；点「立即冲关」= ${percent(MANUAL_RATE)}`}
       </p>
+      {model.trialParry !== null ? (
+        <>
+          {/* 批次 38：承雷。三波雷，接住压心魔、漏掉涨心魔；成功率全程可见。 */}
+          <div className="trial-demon">
+            <span className="trial-demon-label">心魔</span>
+            <span className="trial-demon-bar"><i style={{ width: `${Math.min(100, model.trialParry.demon * 100)}%` }} /></span>
+            <span className="trial-demon-value">{(model.trialParry.demon * 100).toFixed(0)}%</span>
+          </div>
+          <div className="trial-waves" aria-label="天雷进度">
+            {[0, 1, 2].map((index) => (
+              <span
+                key={index}
+                className={`trial-wave${model.trialParry !== null && model.trialParry.hits > index ? ' is-hit' : ''}`}
+              >
+                {model.trialParry !== null && model.trialParry.hits > index ? '✓' : '⚡'}
+              </span>
+            ))}
+            <span className="trial-waves-text">
+              {model.trialParry.nextWaveInMs === null
+                ? '三波已过 · 结算中'
+                : `下一波 ${(model.trialParry.nextWaveInMs / 1000).toFixed(1)}s`}
+            </span>
+          </div>
+          <div className="trial-panel-actions">
+            <button className="trial-primary trial-parry" type="button" onClick={onParry}>
+              承雷
+            </button>
+            <button className="trial-secondary" type="button" onClick={() => onPress('auto')}>
+              交给天意 {percent(AUTO_RATE)}
+            </button>
+          </div>
+          <p className="trial-panel-note">雷到的一瞬点「承雷」：压心魔、抬成功率；漏一波心魔 +16%。</p>
+        </>
+      ) : (
+        <>
       <div className="trial-panel-actions">
         {/* demo 那一支写「确认」而不是「立即」：窗口是 X 键开的，这一下只是确认，
             而点 HUD「可冲关」仍然是当场结算 —— 两条路的差别必须能从文案上读出来。 */}
@@ -764,6 +807,9 @@ export function TrialPanel({ model, demo, onPress }: {
           </button>
         )}
       </div>
+      <p className="trial-panel-note">改功法只改接下来的产出，不改成功率。</p>
+        </>
+      )}
       {/* 01-design §4.4 的「限时改功法」：改的是产出，不是概率 —— 这句必须写死，不然玩家会以为磨得越久越容易。 */}
       <p className="trial-panel-note">改功法只改接下来的产出，不改成功率。</p>
     </div>

@@ -23,6 +23,7 @@ import {
   chargeRemainingMs,
   isChargeReady,
   isThresholdReached,
+  parryRate,
   passivePerTick,
   resolveChallenge,
 } from './rules';
@@ -378,5 +379,32 @@ describe('resolveChallenge：手动 85% / 托管 60% / 第 3 次必成（§7.1�
     const first = challenge(0, 2, 'manual', 987_654_321);
     const second = challenge(0, 2, 'manual', 987_654_321);
     expect(second).toEqual(first);
+  });
+});
+
+
+describe('承雷（批次 38）', () => {
+  it('三波全中 = 91%；中两波漏一波 = 84%', () => {
+    expect(parryRate({ hits: 3, misses: 0, demon: 0.2 })).toBeCloseTo(0.91, 5);
+    expect(parryRate({ hits: 2, misses: 1, demon: 0.5 })).toBeCloseTo(0.84, 5);
+  });
+
+  it('心魔高会掉档：≥60% 扣 10%，≥80% 扣 20%', () => {
+    expect(parryRate({ hits: 0, misses: 0, demon: 0.65 })).toBeCloseTo(0.75, 5);
+    expect(parryRate({ hits: 0, misses: 0, demon: 0.85 })).toBeCloseTo(0.65, 5);
+  });
+
+  it('夹在 55%–95% 之间：全漏且心魔爆表也不会低于 55%', () => {
+    expect(parryRate({ hits: 0, misses: 3, demon: 0.95 })).toBe(0.55);
+    expect(parryRate({ hits: 3, misses: 0, demon: 0 })).toBeCloseTo(0.91, 5);
+  });
+
+  it('结算走承雷口径：mode=parry 用 parryRate', () => {
+    const realms = [{ id: 0, name: { zh: '炼气' }, threshold: '100', passivePerSec: 0, actionMult: 1 }, { id: 1, name: { zh: '筑基' }, threshold: '1000', passivePerSec: 0, actionMult: 3 }];
+    const base = { realms: realms as never, realmIndex: 0, state: { qi: 500 as never, demon: 0, realm: 0 }, seed: 1, attempt: 1, mode: 'parry' as const };
+    const perfect = resolveChallenge({ ...base, parry: { hits: 3, misses: 0, demon: 0.1 } });
+    const sloppy = resolveChallenge({ ...base, parry: { hits: 0, misses: 3, demon: 0.9 } });
+    expect(perfect.rate).toBeCloseTo(0.91, 5);
+    expect(sloppy.rate).toBe(0.55);
   });
 });
