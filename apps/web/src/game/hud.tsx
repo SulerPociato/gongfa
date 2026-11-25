@@ -440,7 +440,36 @@ function CurvePanel({ model }: { readonly model: CurveModel }) {
   );
 }
 
-function RealmPanel({ model, qi, onTakePill, onOpenCodex }: { readonly model: RealmModel; readonly qi: number; readonly onTakePill: () => void; readonly onOpenCodex: () => void }) {
+/**
+ * 心魔状态条（批次 35）：从境界卡里拆出来单独成块。
+ * 理由：首屏要回答"我现在有多危险"，它比存量和灵根更紧急；
+ * 拆出来才能放进右列窄条，而不必把整张境界卡摆在首屏。
+ */
+function DemonStrip({ model, onTakePill }: { readonly model: RealmModel; readonly onTakePill: () => void }) {
+  return (
+    <div className="realm-demon status-demon">
+      <div className="demon-row">
+        <p className="demon-label">心魔</p>
+        <Bar value={model.demon} of={1} label="心魔" kind="demon" danger={model.demon >= NOISE_LINE} />
+        <p className="demon-text">
+          {(model.demon * 100).toFixed(1)}%
+          {model.calmText !== null && <span className="demon-calm"> {model.calmText}</span>}
+        </p>
+        <button
+          className="pill-button"
+          type="button"
+          onClick={onTakePill}
+          disabled={model.pillCooldownMs > 0}
+          title="消耗 5% 存量，心魔 -10%"
+        >
+          {model.pillCooldownMs > 0 ? `${Math.ceil(model.pillCooldownMs / 1000)}s` : '服丹'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RealmPanel({ model, qi, onTakePill, onOpenCodex, showDemon = true }: { readonly model: RealmModel; readonly qi: number; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly showDemon?: boolean }) {
   const paused = model.pauseRemainingMs > 0;
   return (
     <div className="realm">
@@ -453,27 +482,7 @@ function RealmPanel({ model, qi, onTakePill, onOpenCodex }: { readonly model: Re
       {paused && (
         <p className="backlash">走火入魔：存量 ×0.7、心魔归 0，停 5 秒（刷新可跳过）· 剩余 {(model.pauseRemainingMs / 1000).toFixed(1)} 秒</p>
       )}
-      {/* 心魔这一小截单独成组：引导第 5 步只点亮它，不点亮整块境界面板。 */}
-      <div className="realm-demon tut-target">
-        <div className="demon-row">
-          <p className="demon-label">心魔</p>
-          <Bar value={model.demon} of={1} label="心魔" kind="demon" danger={model.demon >= NOISE_LINE} />
-          <p className="demon-text">
-            {(model.demon * 100).toFixed(1)}%
-            {model.calmText !== null && <span className="demon-calm"> {model.calmText}</span>}
-          </p>
-          {/* 批次 8：丹药。存量换心魔，冷却期显示倒计时 —— 它是给"入魔"用的对冲手段。 */}
-          <button
-            className="pill-button"
-            type="button"
-            onClick={onTakePill}
-            disabled={model.pillCooldownMs > 0}
-            title="消耗 5% 存量，心魔 -15%"
-          >
-            {model.pillCooldownMs > 0 ? `${Math.ceil(model.pillCooldownMs / 1000)}s` : '服丹'}
-          </button>
-        </div>
-      </div>
+      {showDemon && <DemonStrip model={model} onTakePill={onTakePill} />}
       {/* 批次 3：功法谱。 */}
       <div className="realm-patterns">
         <p className="patterns-label">灵根 · {model.lingGen}{model.dao === null ? '' : ` · 道途 ${model.dao === 'orthodox' ? '守正' : '入魔'}`}</p>
@@ -833,7 +842,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, onLearnScripture, onLoadScripture, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, panelOpen, onTogglePanel, onLearnScripture, onLoadScripture, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly panelOpen: boolean; readonly onTogglePanel: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -881,15 +890,27 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         {model.toast !== null && <p className="toast" role="status">{model.toast}</p>}
         {model.retreat !== null && <RetreatPanel report={model.retreat} onClose={onCloseRetreat} />}
         <ChallengePanel model={model.challenge} demo={model.demo} onPress={onChallenge} />
-        <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} onOpenCodex={onOpenCodex} />
+        {/* 批次 35：首屏只回答三件事 —— 有多少灵力、下一步做什么、主按钮在哪。
+            心魔条保留（危险优先），其余全部进「面板」。 */}
+        <DemonStrip model={model.realm} onTakePill={onTakePill} />
+        <button className="panel-open" type="button" aria-expanded={panelOpen} onClick={onTogglePanel}>
+          面板 · 详情
+          <span className="panel-open-hint">境界 · 曲线 · 功法 · 藏经阁</span>
+        </button>
       </div>
     </aside>
 
     {/* 批次 18：右侧只留「此刻要看」的四张卡；其余信息全部挪到画布下方的横条。
         玩家原话：「右侧有一个能滚动的区域，我想把它拆到屏幕下方」。
         横条是横向滚动的多列卡片，画布因此拿回整列高度。 */}
-    <section className="hud-bottom" aria-label="更多信息">
-        {/* 批次 19：横条顺序按「先看结果，再看手段」：曲线 → 功法与道具 → 道途 → 工具 → 红字/存档 → 提示。 */}
+    {panelOpen && <div className="panel-backdrop" onClick={onTogglePanel} />}
+    <section className={`hud-bottom panel-sheet${panelOpen ? ' is-open' : ''}`} aria-label="面板" aria-hidden={!panelOpen}>
+      <div className="panel-header">
+        <p className="panel-title">面板</p>
+        <button className="panel-close" type="button" onClick={onTogglePanel}>关闭</button>
+      </div>
+        {/* 批次 19：面板顺序按「先看结果，再看手段」：境界 → 曲线 → 功法与道具 → 藏经阁 → 工具 → 红字。 */}
+        <RealmPanel model={model.realm} qi={model.qi} onTakePill={onTakePill} onOpenCodex={onOpenCodex} showDemon={false} />
         <CurvePanel model={model.curve} />
         {/* 批次 24：试炼挪进横条 —— 右列在 900px 高度下要塞 4 张卡，试炼会被裁掉一半。 */}
         {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}

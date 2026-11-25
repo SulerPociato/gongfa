@@ -27,6 +27,20 @@
   --glow: 0 0 24px rgba(53, 224, 200, 0.25);
   /* 右栏宽度只在这里定一次：网格和底部引导条的右边界都要用它 */
   --hud-width: 320px;
+  /* 批次 35：iOS / M3 取向的 token（颜色沿用现有品牌色，不换皮） */
+  --m3-primary: #35e0c8;
+  --m3-on-primary: #04211d;
+  --m3-surface-1: #111a20;
+  --m3-surface-2: #16232b;
+  --m3-outline: rgba(255, 255, 255, 0.1);
+  --m3-on-surface: #e9f6f3;
+  --m3-on-surface-var: rgba(233, 246, 243, 0.68);
+  --radius-xs: 8px;
+  --radius-m: 12px;
+  --radius-l: 20px;
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --motion-med: 300ms;
+  --motion-short: 180ms;
   /* 批次 18：画布下方的信息横条高度（可拖动感不必，固定即可）。 */
   --bottom-height: clamp(280px, 34vh, 380px);
   /* 批次 15：面板加宽档（画布让位）。300 → 420，画布仍保留可用宽度。 */
@@ -73,7 +87,7 @@ body::before {
 
 .layout {
   display: grid;
-  grid-template-rows: var(--topbar-height) 1fr var(--bottom-height);
+  grid-template-rows: var(--topbar-height) 1fr;
   grid-template-columns: 1fr var(--hud-width);
   height: 100%;
   position: relative;
@@ -751,7 +765,7 @@ body::before {
 :is(.hud, .hud-bottom) .toast {
   position: fixed;
   left: 24px;
-  bottom: calc(var(--bottom-height) + 16px);
+  bottom: 24px;
   z-index: 36;
   max-width: 460px;
   margin: 0;
@@ -1112,7 +1126,7 @@ body::before {
   position: fixed;
   right: auto;
   width: max-content;
-  z-index: 10;
+  z-index: 70;
 }
 
 .tutorial-text {
@@ -1232,7 +1246,8 @@ body::before {
      这条曲线两端都慢，中段快，长距离才跟得上。改时长必须同步 tutorialBubble 的 FLIP_GUARD_MS。 */
   transition: transform 260ms cubic-bezier(0.4, 0, 0.2, 1);
   visibility: hidden;
-  z-index: 12;
+  /* 批次 35：面板背板是 39，教程气泡必须在它之上，否则「继续」点不到。 */
+  z-index: 70;
 }
 
 .tutorial-bubble.is-on {
@@ -1781,7 +1796,7 @@ body::before {
 .algorithm-card {
   position: fixed;
   /* 批次 19：从右上挪到画布左下 —— 原来压在右列上，正好盖住灵力与渡劫。 */
-  bottom: calc(var(--bottom-height) + 132px);
+  bottom: 144px;
   left: 24px;
   right: auto;
   z-index: 30;
@@ -2153,7 +2168,7 @@ body::before {
      toast 在 +16，起步卡在 +76，算法卡在 +132 —— 三者按高度分层，不再互相压。 */
   position: fixed;
   left: 24px;
-  bottom: calc(var(--bottom-height) + 76px);
+  bottom: 84px;
   z-index: 35;
   display: flex;
   align-items: center;
@@ -2832,3 +2847,141 @@ body::before {
 }
 
 
+
+
+/* ============================================================
+   批次 35：面板 sheet（替代原来的下方横条）
+   设计依据：iOS 的 side sheet / bottom sheet + M3 的 tonal surface。
+   DOM 仍复用 .hud-bottom，测试与教程选择器不用改。
+   ============================================================ */
+.panel-sheet {
+  position: fixed;
+  top: var(--topbar-height);
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 28px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--m3-surface-2);
+  border-left: 1px solid var(--m3-outline);
+  border-top-left-radius: var(--radius-l);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45);
+  transform: translateX(103%);
+  transition: transform var(--motion-med) var(--ease-emphasized);
+  z-index: 40;
+  scrollbar-width: thin;
+}
+
+.panel-sheet.is-open {
+  transform: none;
+}
+
+.panel-sheet > * {
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(0, 0, 0, 0.45);
+  animation: panel-fade 200ms var(--ease-emphasized);
+}
+
+@keyframes panel-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--m3-on-surface);
+}
+
+.panel-close {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--m3-on-surface-var);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--m3-outline);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.panel-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 右列的「面板 · 详情」入口：全宽 tonal 按钮 */
+.panel-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--m3-primary);
+  background: rgba(53, 224, 200, 0.1);
+  border: 1px solid rgba(53, 224, 200, 0.28);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  transition: background var(--motion-short) var(--ease-emphasized), transform 120ms var(--ease-emphasized);
+}
+
+.panel-open:hover {
+  background: rgba(53, 224, 200, 0.16);
+}
+
+.panel-open:active {
+  transform: scale(0.98);
+}
+
+.panel-open-hint {
+  font-size: 10px;
+  color: var(--m3-on-surface-var);
+}
+
+/* 窄屏：sheet 从底部滑出（iOS bottom sheet 习惯） */
+@media (max-width: 899px) {
+  .panel-sheet {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    height: 88vh;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    border-left: 0;
+    border-top: 1px solid var(--m3-outline);
+    border-radius: var(--radius-l) var(--radius-l) 0 0;
+    transform: translateY(103%);
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .panel-sheet.is-open {
+    transform: none;
+  }
+}

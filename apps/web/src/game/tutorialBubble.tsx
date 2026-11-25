@@ -214,8 +214,17 @@ export function TutorialBubble({ step, text, total, rev, release, onPlaced, onSt
         ? placeBubble(box, { x: 0, y: 0, width: bubble.offsetWidth, height: bubble.offsetHeight }, vp, flyoutRight, {
           // 横条顶边与右列左边界：气泡靠这两个数决定"往哪儿放"，
           // 而不是靠猜（原来第 5/6 步就是被塞进右列、盖住了同列文字）。
-          stripTop: document.querySelector('.hud-bottom')?.getBoundingClientRect().top,
-          rightColumnLeft: document.querySelector('.hud')?.getBoundingClientRect().left,
+          // 面板现在是覆盖式 side sheet：目标可能在面板内部。
+          // 所以不再把"面板顶边"当横条边界，而是把面板左边界当成右列边界 ——
+          // 气泡一律落在面板左边的画布上，箭头指向面板里的那张卡。
+          stripTop: undefined,
+          rightColumnLeft: (() => {
+            const sheet = document.querySelector('.hud-bottom.is-open');
+            const hudLeft = document.querySelector('.hud')?.getBoundingClientRect().left;
+            const sheetLeft = sheet?.getBoundingClientRect().left;
+            if (sheetLeft !== undefined && hudLeft !== undefined) return Math.min(sheetLeft, hudLeft);
+            return sheetLeft ?? hudLeft;
+          })(),
         })
         : null;
       if (p === null) {

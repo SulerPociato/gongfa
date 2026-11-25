@@ -442,6 +442,8 @@ export function App() {
   const scriptureHighlightRef = useRef(false);
   // 批次 33：起步卡（引导结束后的下一步）。关掉就这一会话不再出现。
   const [coachDismissed, setCoachDismissed] = useState(false);
+  // 批次 35：右侧只留必要信息，其余进「面板」sheet。
+  const [panelOpen, setPanelOpen] = useState(false);
   const coachRef = useRef<{ text: string } | null>(null);
   // 试炼最佳效率（元进度 gongfa:best:<slot>）。读档在 effect 里做（storage 那时才建），
   // 这里只存一份内存镜像给 HUD 用；境界切换时按 realmIndex 取。
@@ -1368,9 +1370,10 @@ export function App() {
       if (next !== tutStep) {
         tutStep = next;
         // 批次 32：第 4 步指的是下方横条里的曲线，滚动过去它才看得见（否则气泡没处贴）。
-        if (next === 4) {
-          document.querySelector('.curve')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-        }
+        // 批次 35：第 4 步的曲线在面板里，得先开面板；第 5/6 步的心魔条与渡劫按钮在右列，
+        // 面板开着会把它们盖住，所以再关掉。一开一关都发生在本步开始前，玩家看不到闪。
+        if (next === 4) setPanelOpen(true);
+        if (next === 5 || next === 6) setPanelOpen(false);
         // 批次 32：走到第 5 步要让「调息」真的在工具箱里 —— 否则文案叫玩家拖一个
         // 被引导自己藏起来的块。所以 ≥3 步就放块，不再等「拖完 5 秒」。
         if (next !== 'done' && next >= 3 && !tutReleased) {
@@ -1478,7 +1481,12 @@ export function App() {
         },
       });
     };
+    // 面板：Esc 关闭（当前打开时）。放在这里是因为 EventListener 需要稳定引用。
+    const onPanelEsc = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setPanelOpen(false);
+    };
     window.addEventListener('keydown', onDemoKey);
+    window.addEventListener('keydown', onPanelEsc);
 
     // 批次 22：炼器炉提示。只在「程序真的变了」时重算，不逐帧编译。
     let furnaceFor: unknown = null;
@@ -1810,6 +1818,7 @@ export function App() {
       window.removeEventListener('orientationchange', resizeCanvas);
       cleanupResizeObserver?.();
       window.removeEventListener('keydown', onDemoKey);
+      window.removeEventListener('keydown', onPanelEsc);
       if (toastTimer !== null) clearTimeout(toastTimer);
       if (tutReleaseTimer !== null) clearTimeout(tutReleaseTimer);
       if (tutBadgeTimer !== null) clearTimeout(tutBadgeTimer);
@@ -1928,7 +1937,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen((open) => !open)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
