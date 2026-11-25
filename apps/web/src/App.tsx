@@ -36,7 +36,7 @@ import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { errandOf } from './game/errand';
-import { SCRIPTURES, canLearn, missingBlocks, scriptureOf } from './game/scriptures';
+import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, scriptureOf } from './game/scriptures';
 import { readInsight, readLearned, writeInsight, writeLearned } from './game/insightStore';
 import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
@@ -878,6 +878,15 @@ export function App() {
         const target = bookById(BOOK_CATALOGUE, STARTER_BOOK_ID);
         // 真正的装载动作：FROZEN 分支要等弹窗确认后才执行，所以抽成闭包。
         const applyLoad = (): void => {
+          // 防御性校验：书本身带 realm，模板里的积木也必须是当前境界能给的。
+          // 现在只有一本炼气书，这条不会触发；加高阶书时它就是闸门。
+          const realmIndexNow = runtime.state().realmIndex;
+          const availableNow = toolboxForRealm(realmIndexNow, runtime.state().demo).contents.map((entry) => entry.type);
+          const missingNow = target.book === null ? [] : missingBlocksIn(target.book.workspace, availableNow);
+          if (target.book !== null && (target.book.realm > realmIndexNow || missingNow.length > 0)) {
+            showToast(`这本功法要 ${target.book.realm === 0 ? '炼气' : target.book.realm === 1 ? '筑基' : target.book.realm === 2 ? '金丹' : '元婴'}才能运转`);
+            return;
+          }
           if (target.book === null) {
             pushActionErrors(target.errors);
             return;
@@ -1200,7 +1209,13 @@ export function App() {
         showToast('画布上还没有可以分析的功法');
         return;
       }
-      const suggestion = suggestRewrite(workspaceJson);
+      // 炼气没有「循环」：炼器炉若把直列折成循环，就绕过了境界门控。
+      const repeatUnlocked = runtime.state().realmIndex >= (MIN_REALM['gongfa_repeat'] ?? 0);
+      const suggestion = suggestRewrite(workspaceJson, { allowRepeat: repeatUnlocked });
+      if (suggestion === null && !repeatUnlocked) {
+        showToast('炼器炉要「循环」才能改写 —— 循环在筑基解锁');
+        return;
+      }
       if (suggestion === null) {
         showToast('没有可改写的段落：需要 3 块以上连续相同的动作');
         return;

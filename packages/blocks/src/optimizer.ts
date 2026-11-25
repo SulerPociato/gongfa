@@ -112,7 +112,16 @@ function chainLength(json: WorkspaceJson): number {
   return compiled.ok && compiled.program !== null ? compiled.program.code.length : 0;
 }
 
-export function suggestRewrite(json: WorkspaceJson): RewriteSuggestion | null {
+export interface SuggestOptions {
+  /**
+   * 是否允许把直列折成「循环」。炼气期没有循环积木，
+   * 折出来的块会绕过境界门控（玩家实测：炼气被建议折成循环）。
+   */
+  readonly allowRepeat?: boolean;
+}
+
+export function suggestRewrite(json: WorkspaceJson, options: SuggestOptions = {}): RewriteSuggestion | null {
+  if (options.allowRepeat === false) return null;
   const chains = collectChains(json);
   if (chains.length === 0) return null;
 

@@ -159,6 +159,11 @@ export function canLearn(
 
 /** 抄录前的最后一道闸：模板里用到的积木，当前境界必须都给得出来。 */
 export function missingBlocks(scripture: Scripture, available: readonly string[]): readonly string[] {
+  return missingBlocksIn(scripture.workspace(), available);
+}
+
+/** 通用版：任意 Blockly workspace JSON 里用到的积木，有多少是当前境界给不出的。 */
+export function missingBlocksIn(workspace: unknown, available: readonly string[]): readonly string[] {
   const availableSet = new Set(available);
   const used = new Set<string>();
   const walk = (node: unknown): void => {
@@ -167,7 +172,7 @@ export function missingBlocks(scripture: Scripture, available: readonly string[]
     if (typeof record.type === 'string') used.add(record.type);
     for (const value of Object.values(record)) walk(value);
   };
-  walk(scripture.workspace());
+  walk(workspace);
   used.delete('tick_hat');
   return [...used].filter((type) => !availableSet.has(type));
 }

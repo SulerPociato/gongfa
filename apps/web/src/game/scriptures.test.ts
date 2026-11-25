@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileWorkspace } from '@gongfa/blocks';
-import { SCRIPTURES, canLearn, missingBlocks, scriptureOf } from './scriptures';
+import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, scriptureOf } from './scriptures';
 
 describe('藏经阁（主动学功法）', () => {
   it('每套功法都能编译成合法程序', () => {
@@ -29,6 +29,12 @@ describe('藏经阁（主动学功法）', () => {
     expect(zhouTian.realm).toBe(1);
     expect(canLearn(zhouTian, 99, [], 0)).toBe(false);
     expect(canLearn(zhouTian, 99, [], 1)).toBe(true);
+  });
+
+  it('通用校验：任意画布都能算出缺哪些积木', () => {
+    const workspace = { blocks: { languageVersion: 0, blocks: [{ type: 'tick_hat', id: 'h', inputs: { BODY: { block: { type: 'gongfa_batch', id: 'b', inputs: { DO: { block: { type: 'breath', id: 'x' } } } } } } }] } };
+    expect(missingBlocksIn(workspace, ['breath'])).toEqual(['gongfa_batch']);
+    expect(missingBlocksIn(workspace, ['breath', 'gongfa_batch'])).toEqual([]);
   });
 
   it('抄录前校验积木：炼气缺循环，会被拦下', () => {
