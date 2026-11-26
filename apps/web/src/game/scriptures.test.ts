@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileWorkspace } from '@gongfa/blocks';
-import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, scriptureOf } from './scriptures';
+import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, missingPatterns, scriptureOf } from './scriptures';
 
 describe('藏经阁（主动学功法）', () => {
   it('每套功法都能编译成合法程序', () => {
@@ -11,14 +11,21 @@ describe('藏经阁（主动学功法）', () => {
     }
   });
 
-  it('成本按难度递增，且没有重复 id', () => {
-    const costs = SCRIPTURES.map((item) => item.cost);
+  it('基础段成本按难度递增；天阶全 0 悟道', () => {
+    const basic = SCRIPTURES.filter((item) => item.tier !== 'advanced');
+    const costs = basic.map((item) => item.cost);
     expect([...costs].sort((a, b) => a - b)).toEqual(costs);
     expect(new Set(SCRIPTURES.map((item) => item.id)).size).toBe(SCRIPTURES.length);
+    const advanced = SCRIPTURES.filter((item) => item.tier === 'advanced');
+    expect(advanced.length).toBeGreaterThanOrEqual(10);
+    for (const item of advanced) {
+      expect(item.cost, item.id).toBe(0);
+      expect(item.requires?.length, item.id).toBeGreaterThan(0);
+    }
   });
 
-  it('总价 16，不超过「13 图案 + 4 试炼 = 17」的顺风上限', () => {
-    const total = SCRIPTURES.reduce((sum, item) => sum + item.cost, 0);
+  it('基础总价 16；天阶不增加悟道总价', () => {
+    const total = SCRIPTURES.filter((item) => item.tier !== 'advanced').reduce((sum, item) => sum + item.cost, 0);
     expect(total).toBe(16);
     expect(total).toBeLessThanOrEqual(13 + 4);
   });
@@ -54,5 +61,13 @@ describe('藏经阁（主动学功法）', () => {
   it('按 id 能查到，查不到返回 null', () => {
     expect(scriptureOf(SCRIPTURES[0]!.id)?.name).toBe(SCRIPTURES[0]!.name);
     expect(scriptureOf('nope')).toBeNull();
+  });
+
+  it('天阶：缺图案不能学，领悟后 0 悟道可学', () => {
+    const item = SCRIPTURES.find((entry) => entry.id === 'mapReduce')!;
+    expect(missingPatterns(item, [])).toEqual(['batch']);
+    expect(canLearn(item, 99, [], 2, [])).toBe(false);
+    expect(canLearn(item, 0, [], 2, ['batch'])).toBe(true);
+    expect(missingPatterns(item, ['batch'])).toEqual([]);
   });
 });

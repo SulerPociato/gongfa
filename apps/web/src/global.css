@@ -2465,6 +2465,13 @@ body::before {
   gap: 8px;
 }
 
+.tier-title {
+  margin: 4px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--gold);
+}
+
 .scripture {
   padding: 8px 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2817,6 +2824,85 @@ body::before {
   font-size: 11px;
   line-height: 1.7;
   color: rgba(255, 255, 255, 0.66);
+}
+
+/* 2026-11-26：世界观图鉴（境界/界域/宗门/丹药/法宝/灵根），每条带现实对照 */
+.codex-world {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.codex-world-group {
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+}
+
+.codex-world-group summary {
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
+
+.codex-section .codex-group-note {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.codex-world-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.codex-world-item {
+  padding: 6px 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.codex-world-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.codex-section .codex-world-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--m3-on-surface);
+}
+
+.codex-playable-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--spirit);
+  box-shadow: 0 0 6px rgba(53, 224, 200, 0.55);
+  flex: 0 0 auto;
+}
+
+.codex-section .codex-world-note {
+  margin: 3px 0 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.codex-section .codex-world-analog {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: rgba(53, 224, 200, 0.7);
 }
 
 /* 批次 6：应用内确认弹窗（替代 window.confirm）。原生弹窗会阻塞 JS、

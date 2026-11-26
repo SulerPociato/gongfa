@@ -39,12 +39,13 @@ import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { errandOf } from './game/errand';
-import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, scriptureOf } from './game/scriptures';
+import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, missingPatterns, scriptureOf } from './game/scriptures';
 import { readInsight, readLearned, readAwarded, writeInsight, writeLearned, writeAwarded } from './game/insightStore';
 import { insightFromSources, insightValueOf, missingSources, patternSource, sourceIds, trialSource } from './game/insightSources';
 import { FORMATIONS, formationOf, mergeFormation } from './game/formations';
 import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type FormationRow, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
+import { WorldCodex } from './game/WorldCodex';
 import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
 
@@ -1096,12 +1097,15 @@ export function App() {
     const scriptureRows = (): readonly ScriptureRow[] =>
       SCRIPTURES.map((item) => {
         const realmLocked = runtime.state().realmIndex < item.realm;
+        const missing = missingPatterns(item, algoFoundState);
         return {
           id: item.id,
           name: item.name,
           algorithm: item.algorithm,
           teach: item.teach,
           cost: item.cost,
+          tier: item.tier ?? 'basic',
+          requiresText: missing.map((id) => patternDef(id).name).join('、'),
           learned: learnedScriptures.includes(item.id),
           affordable: metaInsight >= item.cost,
           realmLocked,
@@ -1151,12 +1155,15 @@ export function App() {
     learnScriptureRef.current = (id: string): void => {
       const item = scriptureOf(id);
       if (item === null) return;
-      if (!canLearn(item, metaInsight, learnedScriptures, runtime.state().realmIndex)) {
+      if (!canLearn(item, metaInsight, learnedScriptures, runtime.state().realmIndex, algoFoundState)) {
+        const missing = missingPatterns(item, algoFoundState);
         const reason = learnedScriptures.includes(id)
           ? '这套已经学过了'
           : runtime.state().realmIndex < item.realm
             ? `这套功法要 ${item.realmName}才能运转`
-            : `悟道不够（需要 ${item.cost}）`;
+            : missing.length > 0
+              ? `需先领悟：${missing.map((pattern) => patternDef(pattern).name).join('、')}`
+              : `悟道不够（需要 ${item.cost}）`;
         showToast(reason);
         return;
       }
@@ -2260,6 +2267,11 @@ export function App() {
               <p>洞府：你的画布。宗门与师尊：尚未出现。</p>
               <p>符箓＝条件，阵法＝循环，玉简＝缓存：这三句是这个世界的底层规则。</p>
               <p>转世与飞升：元婴之后的路，留给下一次更新。</p>
+            </details>
+            {/* 2026-11-26：世界观资产扩充——境界/界域/宗门/丹药/法宝/灵根，每条带计算机对照。 */}
+            <details className="codex-section">
+              <summary>世界观图鉴 · 境界/界域/宗门</summary>
+              <WorldCodex />
             </details>
             <details className="codex-section">
               <summary>怎么看那几个数</summary>

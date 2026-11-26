@@ -576,6 +576,9 @@ export interface ScriptureRow {
   readonly algorithm: string;
   readonly teach: string;
   readonly cost: number;
+  readonly tier: 'basic' | 'advanced';
+  /** 天阶功法还缺哪些图案（中文名，逗号分隔）；基础功法为空串。 */
+  readonly requiresText: string;
   readonly learned: boolean;
   readonly affordable: boolean;
   /** 境界不够：按钮显示「筑基解锁」，不可点。 */
@@ -591,37 +594,55 @@ function ScripturePanel({ insight, rows, sources, onLearn, onLoad, highlight }: 
   readonly onLoad: (id: string) => void;
   readonly highlight: boolean;
 }) {
+  const renderRow = (row: ScriptureRow) => {
+    const patternLocked = !row.learned && row.requiresText !== '';
+    return (
+      <li key={row.id} className={`scripture${row.learned ? ' is-learned' : ''}`}>
+        <div className="scripture-head">
+          <b>{row.name}</b>
+          <span className="scripture-algo">{row.algorithm}</span>
+        </div>
+        <p className="scripture-teach">{row.teach}</p>
+        <div className="scripture-actions">
+          {row.learned ? (
+            <button className="scripture-load" type="button" onClick={() => onLoad(row.id)}>
+              抄录到画布
+            </button>
+          ) : (
+            <button
+              className="scripture-learn"
+              type="button"
+              disabled={row.realmLocked || patternLocked || !row.affordable}
+              onClick={() => onLearn(row.id)}
+            >
+              {row.realmLocked
+                ? row.unlockText
+                : patternLocked
+                  ? `需先领悟：${row.requiresText}`
+                  : row.cost === 0
+                    ? '参悟（免费）'
+                    : row.affordable
+                      ? `学习（${row.cost} 悟道）`
+                      : `需 ${row.cost} 悟道`}
+            </button>
+          )}
+        </div>
+      </li>
+    );
+  };
+  const basic = rows.filter((row) => row.tier === 'basic');
+  const advanced = rows.filter((row) => row.tier === 'advanced');
   return (
     <section className={`scriptures${highlight ? ' is-highlight' : ''}`}>
       <p className="label">藏经阁 · 悟道 {insight}</p>
       <p className="scripture-hint">{sources || '渡劫失败 +1 悟道；花悟道学一套上乘功法，学会可直接抄录到画布。'}</p>
-      <ul className="scripture-list">
-        {rows.map((row) => (
-          <li key={row.id} className={`scripture${row.learned ? ' is-learned' : ''}`}>
-            <div className="scripture-head">
-              <b>{row.name}</b>
-              <span className="scripture-algo">{row.algorithm}</span>
-            </div>
-            <p className="scripture-teach">{row.teach}</p>
-            <div className="scripture-actions">
-              {row.learned ? (
-                <button className="scripture-load" type="button" onClick={() => onLoad(row.id)}>
-                  抄录到画布
-                </button>
-              ) : (
-                <button
-                  className="scripture-learn"
-                  type="button"
-                  disabled={row.realmLocked || !row.affordable}
-                  onClick={() => onLearn(row.id)}
-                >
-                  {row.realmLocked ? row.unlockText : row.affordable ? `学习（${row.cost} 悟道）` : `需 ${row.cost} 悟道`}
-                </button>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+      <ul className="scripture-list">{basic.map(renderRow)}</ul>
+      {advanced.length > 0 && (
+        <>
+          <p className="tier-title">天阶功法 · 0 悟道，需先领悟对应图案</p>
+          <ul className="scripture-list">{advanced.map(renderRow)}</ul>
+        </>
+      )}
     </section>
   );
 }

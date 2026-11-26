@@ -40,7 +40,8 @@ function countArrays(node: unknown): number {
 }
 
 describe('阵法阁：只追加、不替换', () => {
-  it('四套预设都能编译', () => {
+  it('八套预设都能编译', () => {
+    expect(FORMATIONS).toHaveLength(8);
     for (const preset of FORMATIONS) {
       const merged = mergeFormation(undefined, preset);
       const compiled = compileWorkspace(merged.workspace as never);

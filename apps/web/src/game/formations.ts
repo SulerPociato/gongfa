@@ -86,6 +86,43 @@ export const FORMATIONS: readonly FormationPreset[] = [
     realmName: '金丹',
     build: (id) => batch(id('batch'), chain([arrayBlock(id('array'), 2), arrayBlock(id('array'), 2)])),
   },
+  // ---- 元婴天阶（2026-11-26）：更重的阵法，仍然只追加 ----
+  {
+    id: 'swordArray',
+    name: '玄天剑阵',
+    algorithm: '阵法 + 循环（流水线）',
+    teach: '循环 3 次、每次 4 眼引灵：把高单次增益摊成一条持续输出的剑阵。',
+    realm: 3,
+    realmName: '元婴',
+    build: (id) => repeat(id('repeat'), 3, arrayBlock(id('array'), 4)),
+  },
+  {
+    id: 'asuraArray',
+    name: '十二凶煞阵',
+    algorithm: '阵法 + 批处理（背压）',
+    teach: '一批里塞 3 块 3 眼引灵：批内重新计第一次，代价是每批固定启动费。',
+    realm: 3,
+    realmName: '元婴',
+    build: (id) => batch(id('batch'), chain([arrayBlock(id('array'), 3), arrayBlock(id('array'), 3), arrayBlock(id('array'), 3)])),
+  },
+  {
+    id: 'beastArray',
+    name: '四灵群妖阵',
+    algorithm: '阵法 + 调息（限流）',
+    teach: '循环 4 次：每次 2 眼引灵后补一次调息，产出与心魔一起管。',
+    realm: 3,
+    realmName: '元婴',
+    build: (id) => repeat(id('repeat'), 4, chain([arrayBlock(id('array'), 2), calm(id('calm'))])),
+  },
+  {
+    id: 'lockArray',
+    name: '天罡锁灵阵',
+    algorithm: '阵法 + 互斥（锁）',
+    teach: '两次 3 眼引灵中间夹一次调息：像加锁一样，一段高产出后必须先让出一次。',
+    realm: 3,
+    realmName: '元婴',
+    build: (id) => chain([arrayBlock(id('array'), 3), calm(id('calm')), arrayBlock(id('array'), 3)]),
+  },
 ];
 
 export function formationOf(id: string): FormationPreset | null {
