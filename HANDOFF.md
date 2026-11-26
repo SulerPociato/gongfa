@@ -18,7 +18,7 @@
 HEAD = origin/master，工作区干净
 测试：672 通过（55 文件）
 类型检查：pnpm typecheck 四个工程全绿
-线上产物：index-BsTzszdh.js（2026-11-26 22:44 推送后构建，含 9 境/宗门/界域/丹药/8 法宝/6 灵根）
+线上产物：index-fSE0mwsZ.js（2026-11-27 00:35 推送后构建；纯静态 Pages 隐藏社区入口，服务器版见 server/README.md）
 ```
 
 三条命令自检：

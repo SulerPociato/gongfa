@@ -77,4 +77,5 @@
 - 静态 Pages：社区按钮自动隐藏（无 `/api`）。
 - typecheck 0；**672 测试 / 55 文件**；fuzz 0；a11y 0 失败。
 - 服务端未跑 Docker（本机 Docker daemon 未启动）；Dockerfile/README 已给，需在服务器上验证。
+- Pages：`index-fSE0mwsZ.js`，社区按钮正确隐藏；服务器版 bundle 由同一份 dist 提供。
 - 仍未做：实时聊天/PvP/公会、服务端存档、防作弊回放、自动审核。
