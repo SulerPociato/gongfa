@@ -189,10 +189,30 @@ body::before {
 .canvas {
   height: 100%;
   position: relative;
+  background-color: #060b0d;
+  /* 国风墨底：法阵 → 远山 → 两团祥云 → 中心灵气光。全部在积木之下，不产生可点元素。 */
   background-image:
-    linear-gradient(rgba(53, 224, 200, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(53, 224, 200, 0.04) 1px, transparent 1px);
-  background-size: 24px 24px;
+    radial-gradient(1100px 680px at 52% 60%, rgba(20, 96, 88, 0.2), transparent 68%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 600'%3E%3Cg fill='none' stroke='%2335e0c8' stroke-opacity='.15'%3E%3Ccircle cx='300' cy='300' r='238'/%3E%3Ccircle cx='300' cy='300' r='196' stroke-dasharray='3 12'/%3E%3Ccircle cx='300' cy='300' r='150' stroke-opacity='.08'/%3E%3Ccircle cx='300' cy='300' r='96' stroke-opacity='.07'/%3E%3C/g%3E%3Cg fill='%2335e0c8' fill-opacity='.32'%3E%3Ccircle cx='300' cy='62' r='3'/%3E%3Ccircle cx='538' cy='300' r='3'/%3E%3Ccircle cx='300' cy='538' r='3'/%3E%3Ccircle cx='62' cy='300' r='3'/%3E%3Ccircle cx='468' cy='132' r='2.4'/%3E%3Ccircle cx='468' cy='468' r='2.4'/%3E%3Ccircle cx='132' cy='468' r='2.4'/%3E%3Ccircle cx='132' cy='132' r='2.4'/%3E%3C/g%3E%3Cg stroke='%2335e0c8' stroke-opacity='.18'%3E%3Cpath d='M300 40v22M300 538v22M40 300h22M538 300h22'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 260' preserveAspectRatio='none'%3E%3Cpath d='M0 260V176l86-52 78 40 92-70 88 58 96-82 90 70 96-40 84 62 88-54 92 66 82-38 88 52 60-26v98z' fill='%230b1e20' fill-opacity='.62'/%3E%3Cpath d='M0 260V210l110-44 96 42 118-58 104 52 120-44 108 50 110-30 96 44 108-36 90 40 120-24v58z' fill='%23061214' fill-opacity='.92'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 360 180'%3E%3Cg fill='none' stroke='%2335e0c8' stroke-opacity='.13' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M18 120c8-24 32-36 54-30 4-20 30-30 48-18 8-16 34-18 48-4 18-6 38 2 44 18 18-2 34 10 36 24'/%3E%3Cpath d='M64 138c8-16 26-22 42-16 4-12 22-18 36-10 8-10 24-10 34 0 12-2 24 4 28 14'/%3E%3Cpath d='M128 155c6-9 17-13 27-10 4-8 15-11 23-5'/%3E%3C/g%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 160'%3E%3Cg fill='none' stroke='%23e8c978' stroke-opacity='.1' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M24 110c10-22 30-30 48-26 6-18 28-26 44-16 10-14 32-16 44-4 16-6 34 2 38 16 16 0 28 10 30 22'/%3E%3Cpath d='M70 128c8-14 24-20 38-16 4-12 20-18 32-10 8-8 22-8 30 2 12-2 24 4 28 14'/%3E%3C/g%3E%3C/svg%3E"),
+    linear-gradient(180deg, #070c0f 0%, #081214 55%, #050a0b 100%);
+  background-repeat: no-repeat;
+  background-position:
+    center,
+    center 58%,
+    center bottom,
+    left -34px bottom 58px,
+    right -26px top 20px,
+    center;
+  background-size:
+    auto,
+    640px 640px,
+    100% 240px,
+    380px 190px,
+    320px 160px,
+    auto;
 }
 
 /* 画布顶部渐隐线：区分顶栏与工作区 */
@@ -206,19 +226,195 @@ body::before {
   background: linear-gradient(90deg, transparent, rgba(53, 224, 200, 0.3), transparent);
 }
 
-/* 角落符箓纹样：SVG path 装饰，不拦截交互 */
+/* 四边暗角：把视线收到中间，不挡交互 */
 .canvas::after {
   content: '';
   position: absolute;
-  top: 24px;
-  left: 24px;
-  width: 80px;
-  height: 80px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cpath d='M10 10 L30 10 L30 15 L15 15 L15 30 L10 30 Z M20 20 L40 20 L40 25 L25 25 L25 40 L20 40 Z' fill='none' stroke='rgba(232,201,120,0.12)' stroke-width='1'/%3E%3C/svg%3E");
-  background-size: contain;
-  background-repeat: no-repeat;
+  inset: 0;
   pointer-events: none;
-  opacity: 0.6;
+  box-shadow: inset 0 0 140px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* ===== 国风挂件（挂件层在积木之上、HUD 之下；只贴边，不压主块） ===== */
+.canvas-ornaments {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 缓慢漂移的雾：两团预模糊径向渐变，80 秒一轮；不触发重排 */
+.canvas-mist {
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(38% 26% at 30% 68%, rgba(53, 224, 200, 0.09), transparent 70%),
+    radial-gradient(34% 24% at 74% 34%, rgba(232, 201, 120, 0.05), transparent 72%);
+  animation: canvas-mist-drift 80s ease-in-out infinite alternate;
+}
+
+@keyframes canvas-mist-drift {
+  from { transform: translate3d(-1.5%, 0.8%, 0) scale(1); }
+  to { transform: translate3d(1.8%, -1%, 0) scale(1.04); }
+}
+
+/* 朱印：右下角一枚「道」，双线边框、轻微做旧倾斜 */
+.canvas-seal {
+  position: absolute;
+  right: 64px;
+  bottom: 24px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 3px;
+  background: rgba(168, 44, 30, 0.78);
+  color: #f6e9d9;
+  font-family: 'KaiTi', 'STKaiti', 'Songti SC', 'SimSun', serif;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: 0;
+  transform: rotate(-2.5deg);
+  box-shadow:
+    inset 0 0 0 1px rgba(246, 233, 217, 0.5),
+    inset 0 0 0 3px rgba(168, 44, 30, 0.9),
+    0 0 0 1px rgba(255, 186, 160, 0.18),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+  opacity: 0.86;
+}
+
+/* 竖排题字：贴在工具箱右侧，不压积木主区 */
+.canvas-inscription {
+  position: absolute;
+  left: 220px;
+  top: 50%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  font-family: 'Songti SC', 'SimSun', 'Noto Serif SC', serif;
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  color: rgba(53, 224, 200, 0.34);
+  user-select: none;
+}
+
+/* 窄屏：挂件让位给积木库与主按钮 */
+@media (max-width: 899px) {
+  .canvas-inscription { display: none; }
+  .canvas-seal { display: none; }
+  /* 手机上省一层全屏雾：软件合成时它是最大的那笔开销，背景云纹已经够用 */
+  .canvas-mist { display: none; }
+}
+
+/* ===== 积木皮肤：墨底 + 亮描边（参考图的读法；thrasos 渲染器） =====
+   颜色按块型分：入口青白 / 动作灵气青 / 控件符纸金 / 条件朱砂 / 值块淡青。
+   不挂 filter 到 text 上，文字永远清晰；发光只在选中与 hover 加强，静态也留一点。 */
+.blocklyDraggable.gongfa_hat { --gf-stroke: #8ff5e6; --gf-fill: rgba(8, 26, 28, 0.84); --gf-glow: rgba(143, 245, 230, 0.4); }
+.blocklyDraggable.gongfa_action { --gf-stroke: #35e0c8; --gf-fill: rgba(5, 22, 24, 0.8); --gf-glow: rgba(53, 224, 200, 0.42); }
+.blocklyDraggable.gongfa_control { --gf-stroke: #e8c978; --gf-fill: rgba(24, 19, 8, 0.8); --gf-glow: rgba(232, 201, 120, 0.42); }
+.blocklyDraggable.gongfa_logic { --gf-stroke: #ff7b63; --gf-fill: rgba(27, 12, 9, 0.8); --gf-glow: rgba(255, 123, 99, 0.4); }
+.blocklyDraggable.gongfa_value { --gf-stroke: #9fe8dd; --gf-fill: rgba(8, 20, 22, 0.84); --gf-glow: rgba(159, 232, 221, 0.36); }
+
+.blocklyDraggable.gongfa_hat > .blocklyPath,
+.blocklyDraggable.gongfa_action > .blocklyPath,
+.blocklyDraggable.gongfa_control > .blocklyPath,
+.blocklyDraggable.gongfa_logic > .blocklyPath,
+.blocklyDraggable.gongfa_value > .blocklyPath {
+  fill: var(--gf-fill);
+  stroke: var(--gf-stroke);
+  stroke-width: 1.35px;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px var(--gf-glow));
+  transition: stroke-width 160ms ease, filter 160ms ease;
+}
+
+/* 选中：描边加粗 + 光晕放大；禁用：整体压暗，仍看得出是同一块 */
+.blocklyDraggable.blocklySelected > .blocklyPath {
+  stroke-width: 2.2px;
+  filter: drop-shadow(0 0 9px var(--gf-glow));
+}
+
+.blocklyDraggable.blocklyDisabled > .blocklyPath {
+  opacity: 0.55;
+}
+
+@media (hover: hover) {
+  .blocklyDraggable:hover > .blocklyPath {
+    stroke-width: 1.8px;
+    filter: drop-shadow(0 0 7px var(--gf-glow));
+  }
+}
+
+/* 块内文字：宋体（Windows 有 SimSun，macOS 有 Songti），不放大字号，避免撑破 Blockly 量好的盒子。
+   Blockly 注入的 CSS 是 `#id .blocklyText` 级别，这里必须 !important 才盖得住。 */
+.blocklyDraggable .blocklyText,
+.blocklyDraggable .blocklyFieldText {
+  fill: #e9f6f3 !important;
+  font-family: 'KaiTi', 'STKaiti', 'Songti SC', 'SimSun', 'Noto Serif SC', serif !important;
+  letter-spacing: 0.02em;
+}
+
+/* 输入槽：压成暗色凹槽 + 细金边，像刻进木牌的一格 */
+.blocklyDraggable .blocklyFieldRect,
+.blocklyDraggable .blocklyDropdownRect {
+  fill: rgba(0, 0, 0, 0.34) !important;
+  stroke: rgba(232, 201, 120, 0.42) !important;
+  stroke-width: 0.8px !important;
+}
+
+/* Blockly 给 SVG 根节点刷了不透明底色，会盖住 .canvas 的墨底 */
+.blocklySvg {
+  background-color: transparent !important;
+}
+
+/* 拖拽时的连接高亮：青色细线 */
+.blocklyHighlightedConnectionPath {
+  fill: none;
+  stroke: #8ff5e6;
+  stroke-width: 1.6px;
+  stroke-dasharray: 5 4;
+}
+
+/* 工具栏（飞行栏）与缩放控件：深玻璃 + 青光边 */
+.blocklyFlyoutBackground {
+  fill: rgba(6, 13, 15, 0.86) !important;
+  stroke: rgba(53, 224, 200, 0.18);
+  stroke-width: 1px;
+}
+
+.blocklyFlyout {
+  filter: drop-shadow(12px 0 28px rgba(0, 0, 0, 0.5));
+}
+
+.blocklyToolboxDiv {
+  background: rgba(6, 12, 14, 0.92) !important;
+  border-right: 1px solid rgba(53, 224, 200, 0.16);
+}
+
+.blocklyZoom > image {
+  opacity: 0.55;
+  filter: invert(1);
+}
+
+.blocklyZoom > image:hover {
+  opacity: 0.92;
+}
+
+.blocklyMainBackground {
+  fill: transparent !important;
+  stroke: none;
+}
+
+/* 动效敏感：雾停住，选中/hover 也不做过渡 */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-mist { animation: none; }
+  .blocklyDraggable.gongfa_hat > .blocklyPath,
+  .blocklyDraggable.gongfa_action > .blocklyPath,
+  .blocklyDraggable.gongfa_control > .blocklyPath,
+  .blocklyDraggable.gongfa_logic > .blocklyPath,
+  .blocklyDraggable.gongfa_value > .blocklyPath {
+    transition: none;
+  }
 }
 
 .hud {

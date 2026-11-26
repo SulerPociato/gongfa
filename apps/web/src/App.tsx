@@ -33,6 +33,7 @@ import { Modal, type ModalRequest } from './game/Modal';
 import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
 import { nextStepOf } from './game/nextStep';
 import { palettePlacement } from './game/palette';
+import { RENDERER_NAME } from './game/blockSkin';
 import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
@@ -586,6 +587,8 @@ export function App() {
     // 但 flyout 是「打开时才渲染」的，所以只换 ToolboxJson 不会碰画布上已有的积木，也不触发 compile。
     // 引导的临时藏块（hidden）叠在同一份 ToolboxJson 上、走同一个入口，才不会出现两份工具箱口径。
     const workspace = Blockly.inject(container, {
+      // 积木皮肤：thrasos 上改圆角/凹槽（见 blockSkin.ts）；删掉这行就回默认外观。
+      renderer: RENDERER_NAME,
       theme: Blockly.Theme.defineTheme(GONGFA_THEME.name, GONGFA_THEME as unknown as ThemeConfig),
       toolbox: toolboxForRealm(booted.realmIndex, booted.demo) as unknown as NonNullable<InjectOptions['toolbox']>,
       // 批次 19：手机上一块积木按 1.0 画出来有半个屏大，工具箱直接溢出。
@@ -2006,11 +2009,18 @@ export function App() {
       </div>
       <div className="canvas-wrap" style={{ position: 'relative', height: '100%' }}>
         <div className="canvas" ref={containerRef} />
-        {/* 批次 19：窄屏专用积木库。Blockly 的侧栏在手机上会吃掉半屏并把积木画到视口外，
-            改成「点一下加一块」，画布独占整行。桌面隐藏，仍用原来的工具箱。 */}
-        {!coachDismissed && hud.tutorial === null && coachRef.current !== null && (
+        {/* 国风挂件：纯装饰，pointer-events:none；只贴边，不压积木主区 */}
+        <div className="canvas-ornaments" aria-hidden="true">
+          <span className="canvas-mist" />
+          <span className="canvas-seal">道</span>
+          <span className="canvas-inscription">灵台方寸 · 一念通天</span>
+        </div>
+        {/* 手机：toast 回到文档流、起步卡仍是 fixed，两者会在底部压成一团；让 toast 先说完再出起步卡。 */}
+        {!coachDismissed && hud.tutorial === null && hud.toast === null && coachRef.current !== null && (
           <CoachBanner text={coachRef.current.text} onDismiss={() => setCoachDismissed(true)} />
         )}
+        {/* 批次 19：窄屏专用积木库。Blockly 的侧栏在手机上会吃掉半屏并把积木画到视口外，
+            改成「点一下加一块」，画布独占整行。桌面隐藏，仍用原来的工具箱。 */}
         {hud.palette.length > 0 && (
           <div className="palette" role="toolbar" aria-label="积木库">
             {hud.palette.map((type) => (
