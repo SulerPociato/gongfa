@@ -45,16 +45,16 @@ function req(k: number, loopDepth = 0): ActionRequest {
 }
 
 describe('content/realms.json 逐字段对契约（§2.3 表 + §3 阈值，不自己算）', () => {
-  it('四个境界，id 0..3，名字与阈值/被动/倍率一字不差', () => {
-    expect(REALMS.map((realm) => realm.id)).toEqual([0, 1, 2, 3]);
-    expect(REALMS.map((realm) => realm.name.zh)).toEqual(['炼气', '筑基', '金丹', '元婴']);
-    expect(REALMS.map((realm) => realm.threshold)).toEqual([1e3, 1e4, 1.2e5, 8e5]);
-    expect(REALMS.map((realm) => realm.passivePerSec)).toEqual([0, 5, 30, 150]);
-    expect(REALMS.map((realm) => realm.actionMult)).toEqual([1, 3, 25, 100]);
+  it('九个境界，id 0..8，名字与阈值/被动/倍率一字不差', () => {
+    expect(REALMS.map((realm) => realm.id)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(REALMS.map((realm) => realm.name.zh)).toEqual(['炼气', '筑基', '金丹', '元婴', '化神', '炼虚', '合体', '大乘', '渡劫']);
+    expect(REALMS.map((realm) => realm.threshold)).toEqual([1e3, 1e4, 1.2e5, 8e5, 5e6, 3e7, 2e8, 1.5e9, 1e10]);
+    expect(REALMS.map((realm) => realm.passivePerSec)).toEqual([0, 5, 30, 150, 600, 2400, 10000, 40000, 160000]);
+    expect(REALMS.map((realm) => realm.actionMult)).toEqual([1, 3, 25, 100, 400, 1600, 6400, 25600, 100000]);
   });
 
   it('表能过 loadContent 的多行规则（首境 id 0、id/threshold 严格递增、actionMult 不回退）', () => {
-    expect(REALMS.length).toBe(4);
+    expect(REALMS.length).toBe(9);
     expect(() => loadContent({ actions: actionsJson, realms: realmsJson })).not.toThrow();
   });
 });
@@ -138,16 +138,16 @@ describe('breakthrough 结果（契约 §7.1：成功 → 境界 +1、qi=0、dem
     expect(out.errors[0]).toContain('阈值');
   });
 
-  it('末境（元婴）无可渡之劫：报境界名，不抛异常', () => {
-    const out = breakthrough({ realms: REALMS, realmIndex: 3, state: at(1e12, 3) });
+  it('末境（渡劫）无可渡之劫：报境界名，不抛异常', () => {
+    const out = breakthrough({ realms: REALMS, realmIndex: 8, state: at(1e12, 8) });
     expect(out.ok).toBe(false);
-    expect(out.realmIndex).toBe(3);
-    expect(out.state).toEqual({ qi: 1e12, demon: 0.8, realm: 3 });
-    expect(out.errors[0]).toContain('元婴');
+    expect(out.realmIndex).toBe(8);
+    expect(out.state).toEqual({ qi: 1e12, demon: 0.8, realm: 8 });
+    expect(out.errors[0]).toContain('渡劫');
   });
 
   it('下标越界（含 -1）只报错：坏表/坏档不该把运行时报成异常', () => {
-    for (const realmIndex of [-1, 4, 9]) {
+    for (const realmIndex of [-1, 9]) {
       const input = { realms: REALMS, realmIndex, state: { qi: 5000, demon: 0.2, realm: 0 } };
       const out = breakthrough(input);
       expect(out.ok).toBe(false);
@@ -157,19 +157,19 @@ describe('breakthrough 结果（契约 §7.1：成功 → 境界 +1、qi=0、dem
     }
   });
 
-  it('一路渡到顶：0→1→2→3 成功四次里前三次成立，第四次被末境挡住', () => {
+  it('一路渡到顶：0→8 成功八次，第九次被末境挡住', () => {
     let realmIndex = 0;
     let state = { qi: 1e3, demon: 0.9, realm: 0 };
     const visited: number[] = [];
-    for (let step = 0; step < 4; step++) {
+    for (let step = 0; step < 9; step++) {
       const out = breakthrough({ realms: REALMS, realmIndex, state: { ...state, qi: REALMS[realmIndex]!.threshold } });
       if (!out.ok) break;
       realmIndex = out.realmIndex;
       visited.push(state.realm + 1);
       state = out.state;
     }
-    expect(visited).toEqual([1, 2, 3]);
-    expect(realmIndex).toBe(3);
+    expect(visited).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(realmIndex).toBe(8);
   });
 });
 
@@ -182,8 +182,8 @@ const NOW = 1_795_000_000_000;
 const atRealm = (realmIndex: number, qi: number, demon = 0.5) => ({ qi, demon, realm: REALMS[realmIndex]!.id });
 
 describe('常量逐字对契约（§7.3 窗口 + §7.1 概率/时长/保底/索引）', () => {
-  it('窗口按【目标境界】下标取：进筑基 0、进金丹 2 分钟、进元婴 5 分钟；下标 0 是「炼气不是任何挑战的目标」', () => {
-    expect(CHARGE_WINDOW_MS).toEqual([0, 0, 2 * 60_000, 5 * 60_000]);
+  it('窗口按【目标境界】下标取：进筑基 0、进金丹 2 分钟、进元婴 5 分钟；新境 8/12/18/25/30 分钟', () => {
+    expect(CHARGE_WINDOW_MS).toEqual([0, 0, 2 * 60_000, 5 * 60_000, 8 * 60_000, 12 * 60_000, 18 * 60_000, 25 * 60_000, 30 * 60_000]);
     expect(CHARGE_WINDOW_MS[1]).toBe(0);
     expect(CHARGE_WINDOW_MS[2]).toBe(120_000);
     expect(CHARGE_WINDOW_MS[3]).toBe(300_000);
@@ -343,13 +343,13 @@ describe('resolveChallenge：手动 85% / 托管 60% / 第 3 次必成（§7.1�
     expect(out.realmIndex).toBe(1);
   });
 
-  it('末境（元婴）没有劫可渡：报境界名，不动数字', () => {
-    const out = resolveChallenge({ realms: REALMS, realmIndex: 3, state: atRealm(3, 1e12), seed: 1, attempt: 1, mode: 'manual' });
+  it('末境（渡劫）没有劫可渡：报境界名，不动数字', () => {
+    const out = resolveChallenge({ realms: REALMS, realmIndex: 8, state: atRealm(8, 1e12), seed: 1, attempt: 1, mode: 'manual' });
     expect(out.ok).toBe(false);
-    expect(out.errors[0]).toContain('元婴');
-    expect(out.state).toEqual(atRealm(3, 1e12));
+    expect(out.errors[0]).toContain('渡劫');
+    expect(out.state).toEqual(atRealm(8, 1e12));
     expect(out.insight).toBe(0);
-    expect(out.realmIndex).toBe(3);
+    expect(out.realmIndex).toBe(8);
   });
 
   it('N 必须从 1 起：0、负数、非整数、NaN 一律报错，不静默当第 1 次', () => {

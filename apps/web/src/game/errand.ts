@@ -18,6 +18,11 @@ export const ERRAND_GOALS: readonly ErrandGoal[] = [
   { realmIndex: 1, goal: 0.8 },
   { realmIndex: 2, goal: 1.2 },
   { realmIndex: 3, goal: 2.0 },
+  { realmIndex: 4, goal: 3.0 },
+  { realmIndex: 5, goal: 4.5 },
+  { realmIndex: 6, goal: 6.5 },
+  { realmIndex: 7, goal: 9.0 },
+  { realmIndex: 8, goal: 13.0 },
 ];
 
 export interface ErrandState {

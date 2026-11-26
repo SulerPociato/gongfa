@@ -17,9 +17,9 @@ import {
 const REALMS = loadContent({ actions: actionsJson, realms: realmsJson }).realms;
 
 describe('试炼常量逐字对契约（§7.1.1）', () => {
-  it('60 秒窗口、四境目标 480 / 3 200 / 30 000 / 157 000', () => {
+  it('60 秒窗口、九境目标 480 / 3 200 / 30 000 / 157 000 / 2e6 / 1.2e7 / 8e7 / 5e8 / 3e9', () => {
     expect(SPRINT_WINDOW_MS).toBe(60_000);
-    expect(SPRINT_GOAL_QI).toEqual([480, 3_200, 30_000, 157_000]);
+    expect(SPRINT_GOAL_QI).toEqual([480, 3_200, 30_000, 157_000, 2_000_000, 12_000_000, 80_000_000, 500_000_000, 3_000_000_000]);
   });
 
   it('窗口格数 = 60 秒 / TICK_MS = 600 格', () => {

@@ -95,7 +95,7 @@ describe('加载顺序与阶段归因（契约 §5.2 固定顺序）', () => {
     const cases: readonly [string, string, string][] = [
       ['envelope', 'garbage{', '不是合法 JSON'],
       ['migrate', saveText({ schemaVersion: 2 }), '比本程序支持的版本新'],
-      ['validate', saveText({ realm: 4 }), 'state.realm'],
+      ['validate', saveText({ realm: 9 }), 'state.realm'],
     ];
 
     for (const [stage, text, fragment] of cases) {
@@ -130,7 +130,7 @@ describe('加载顺序与阶段归因（契约 §5.2 固定顺序）', () => {
   });
 
   it('两槽都坏：summary 一句给界面，明细留在 errors 给日志，灰字不重复', () => {
-    const storage = createFake({ [ACTIVE_KEY]: 'A', [SLOT_KEYS[0]!]: 'garbage{', [SLOT_KEYS[1]!]: saveText({ realm: 4 }) });
+    const storage = createFake({ [ACTIVE_KEY]: 'A', [SLOT_KEYS[0]!]: 'garbage{', [SLOT_KEYS[1]!]: saveText({ realm: 9 }) });
 
     const result = loadGame({ storage, clock, compile: okCompile(EMPTY_PROGRAM) });
 

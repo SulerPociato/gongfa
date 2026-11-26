@@ -1,5 +1,7 @@
 import actionsJson from '../../../../content/actions.json';
 import realmsJson from '../../../../content/realms.json';
+import { DOMAIN_EFFECTS, SECT_EFFECTS, factionDemon, factionRate } from './factions';
+import { pillOf } from './pills';
 import {
   PARRY_DEMON_RELIEF,
   PARRY_MISS_DEMON,
@@ -187,6 +189,9 @@ export interface RuntimeState {
   readonly sprintReached: boolean;
   /** 批次 7：当前道途（null = 还没选）。元进度，不入档。 */
   readonly dao: DaoPath | null;
+  /** 2026-11-26：当前宗门 / 界域（元进度，null = 未选）。 */
+  readonly sect: string | null;
+  readonly domain: string | null;
   /** 批次 16：是否因心魔高位被动堕入魔道（区别于自选）。 */
   readonly daoFallback: boolean;
   /** 批次 8：灵根名（由 seed 派生，只影响心魔增速）。 */
@@ -220,7 +225,7 @@ type DerivedField =
   | 'realmName' | 'threshold' | 'passivePerSec' | 'canBreakthrough' | 'noiseTicks' | 'backlashTicks' | 'realmIndex' | 'nextRealmName'
   | 'chargeRemainingMs' | 'canChallenge' | 'challengeActive' | 'trialRemainingMs' | 'trialParry' | 'cooldownRemainingMs' | 'demo'
   | 'sprintGoalQi' | 'sprintProgressQi' | 'sprintWindowMs' | 'sprintReached' | 'sprintSteps' | 'sprintPerQi'
-  | 'dao' | 'lingGen' | 'pillCooldownMs' | 'trace' | 'daoFallback';
+  | 'dao' | 'sect' | 'domain' | 'lingGen' | 'pillCooldownMs' | 'trace' | 'daoFallback';
 
 /**
  * 一次「点按钮」的去向：什么都没开始（拒绝，按钮前置条件没满足）/ 10 秒开始走 / 真结算出成败 /
@@ -286,6 +291,9 @@ export interface Runtime {
    * 会重建 sink —— 邪修的代价是 demonBase，而 sink 在构造时就把 demonBase 固定了。
    */
   setDao(path: DaoPath): void;
+  /** 2026-11-26：选宗门/界域；会重建 sink（心魔基数在构造时固定）。 */
+  setSect(id: string | null): void;
+  setDomain(id: string | null): void;
   /** 批次 23：功法谱的永久产出加成（1 = 无加成）。宿主按发现数算好传进来。 */
   setInsightRate(mult: number): void;
   /** 批次 24：本境考校达标 → 渡劫失败不扣存量（宿主按效率算好传进来）。 */
@@ -296,6 +304,8 @@ export interface Runtime {
    * 变成一种可花的资源，也给入魔的高增速一个可对冲的手段。
    */
   takePill(): { readonly ok: boolean; readonly reason?: string };
+  /** 2026-11-26：服用库存丹药（8 种，即时效果）。 */
+  usePill(id: string): { readonly ok: boolean; readonly reason?: string };
   /**
    * 离线结算入口（任务 7B，契约 §7.2）：快进指定时长的 tick，按 0.6 折算入账，
    * 期间心魔不涨、杂念不砍、走火不罚。返回结算结果（null = 没跑，例如 0 tick）。
@@ -375,6 +385,9 @@ export interface RuntimeDeps {
    * 代价刻意放在 demonBase 上而不是 demonMult：后者会把调息的减量一起放大。
    */
   readonly dao?: DaoPath | null;
+  /** 2026-11-26：宗门 / 界域（元进度，由宿主从 gongfa:sect / gongfa:domain 读入）。 */
+  readonly sect?: string | null;
+  readonly domain?: string | null;
   /**
    * 这一局的随机种子。新档由宿主掷一次 crypto，同时喂给 createRuntime 与 newGameState ——
    * 两边必须同一个值，否则落盘的 state.seed 描述的不是眼前跑的随机流
@@ -436,6 +449,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 道途（批次 7）：只影响两处 —— 全产出倍率、心魔基础增速。
   // dao 变化必须重建 sink：demonBase 在 makeActionSink 构造时就固定了。
   let dao: DaoPath | null = deps.dao ?? null;
+  let sect: string | null = deps.sect ?? null;
+  let domain: string | null = deps.domain ?? null;
   // 批次 16：守正者若长期放纵心魔，会被拖入魔道（不是自选，是行为后果）。
   // 连续 DEMON_FALL_MS 处于 DEMON_FALL_LINE 以上才生效；掉回 DEMON_FALL_RELEASE 以下清零。
   let demonHighMs = 0;
@@ -446,10 +461,21 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   let failureMercy = false;
   // 灵根（批次 8）：seed 派生，只影响心魔增速（×0.9/1.0/1.1），不动产出 ——
   // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
-  const lingGenIndex = (state.seed >>> 0) % 3;
-  const lingGenName = ['上品灵根', '中品灵根', '下品灵根'][lingGenIndex] ?? '中品灵根';
-  const lingGenDemon = [0.9, 1, 1.1][lingGenIndex] ?? 1;
-  const demonBaseOf = (path: DaoPath | null): number => DEMON_BASE_PER_ACTION * (path === 'heretic' ? 2 : 1) * lingGenDemon;
+  // 2026-11-26：灵根从 3 种扩到 6 种；种子决定，心魔倍率 0.75–1.1。
+  // 顺序与 world.ts 的 ROOTS 对齐：天/变异/上/中/五行/下。
+  const lingGenIndex = (state.seed >>> 0) % 6;
+  const LING_GEN: readonly { readonly name: string; readonly demon: number }[] = [
+    { name: '天灵根', demon: 0.75 },
+    { name: '变异灵根', demon: 0.85 },
+    { name: '上品灵根', demon: 0.9 },
+    { name: '中品灵根', demon: 1 },
+    { name: '五行灵根', demon: 1.05 },
+    { name: '下品灵根', demon: 1.1 },
+  ];
+  const lingGenName = LING_GEN[lingGenIndex]?.name ?? '中品灵根';
+  const lingGenDemon = LING_GEN[lingGenIndex]?.demon ?? 1;
+  const demonBaseOf = (path: DaoPath | null): number =>
+    DEMON_BASE_PER_ACTION * (path === 'heretic' ? 2 : 1) * lingGenDemon * factionDemon(SECT_EFFECTS, sect) * factionDemon(DOMAIN_EFFECTS, domain);
   // 丹药冷却（批次 8）：墙钟，不按 tick —— 倍速下不该变成 30/3 秒。
   // 批次 27：丹药从「30 秒 / -0.15」收紧到「45 秒 / -0.10」——玩家反馈压心魔太容易。
 const PILL_COOLDOWN_MS = 45_000;
@@ -581,6 +607,8 @@ const PILL_DEMON_RELIEF = 0.1;
       sprintWindowMs: SPRINT_WINDOW_MS,
       sprintReached: sprintReachedRealm === realmIndex,
       dao,
+      sect,
+      domain,
       daoFallback,
       lingGen: lingGenName,
       pillCooldownMs: Math.max(0, pillReadyAt - now),
@@ -844,7 +872,8 @@ const PILL_DEMON_RELIEF = 0.1;
       // 杂念只砍程序产出 result.gain（D2）：契约 §2.3 把境界被动列为独立加法项，不参与这一刀。
       const mult = noiseGainMult({ demon: state.demon, seed: state.seed, tick: result.tick });
       if (mult < 1) noteTick(noiseTicks, result.tick);
-      const gained = (result.gain * mult + passivePerTick(currentRealm())) * daoRate(dao) * insightRate;
+      const gained = (result.gain * mult + passivePerTick(currentRealm())) * daoRate(dao) * insightRate
+        * factionRate(SECT_EFFECTS, sect) * factionRate(DOMAIN_EFFECTS, domain);
       state.qi += gained;
       state.rate = gained * TICKS_PER_SEC;
       state.ticks += 1;
@@ -1116,6 +1145,20 @@ const PILL_DEMON_RELIEF = 0.1;
       resetSink();
       markDirty();
     },
+    setSect: (id: string | null) => {
+      const next = id !== null && SECT_EFFECTS[id] !== undefined ? id : null;
+      if (sect === next) return;
+      sect = next;
+      resetSink();
+      markDirty();
+    },
+    setDomain: (id: string | null) => {
+      const next = id !== null && DOMAIN_EFFECTS[id] !== undefined ? id : null;
+      if (domain === next) return;
+      domain = next;
+      resetSink();
+      markDirty();
+    },
     takePill: () => {
       const now = wallClock.now();
       if (state.pauseRemainingMs > 0) return { ok: false, reason: '走火入魔期间无法服丹' };
@@ -1125,6 +1168,22 @@ const PILL_DEMON_RELIEF = 0.1;
       state.qi -= state.qi * 0.05;
       state.demon = Math.max(0, state.demon - PILL_DEMON_RELIEF);
       pillReadyAt = now + PILL_COOLDOWN_MS;
+      markDirty();
+      return { ok: true };
+    },
+    usePill: (id: string) => {
+      const pill = pillOf(id);
+      if (pill === null) return { ok: false, reason: '没有这种丹药' };
+      const effect = pill.effect;
+      if (effect.kind === 'qiPct') {
+        state.qi += currentRealm().threshold * effect.pct;
+      } else if (effect.kind === 'demon') {
+        state.demon = Math.min(1, Math.max(0, state.demon + effect.delta));
+      } else if (effect.kind === 'clearPause') {
+        state.pauseRemainingMs = 0;
+      } else {
+        state.chargeReadyAt = wallClock.now();
+      }
       markDirty();
       return { ok: true };
     },

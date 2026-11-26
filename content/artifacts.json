@@ -77,5 +77,56 @@
         "slots": 1
       }
     ]
+  },
+  {
+    "id": "skyBottle",
+    "name": {
+      "zh": "掌天瓶"
+    },
+    "effects": [
+      {
+        "type": "modifier",
+        "modifier": {
+          "id": "sky_bottle_rate",
+          "target": "rate",
+          "kind": "mul",
+          "value": 1.05
+        }
+      }
+    ]
+  },
+  {
+    "id": "tear",
+    "name": {
+      "zh": "流星泪"
+    },
+    "effects": [
+      {
+        "type": "modifier",
+        "modifier": {
+          "id": "tear_rate",
+          "target": "rate",
+          "kind": "mul",
+          "value": 1.08
+        }
+      }
+    ]
+  },
+  {
+    "id": "heavenPearl",
+    "name": {
+      "zh": "天逆珠"
+    },
+    "effects": [
+      {
+        "type": "modifier",
+        "modifier": {
+          "id": "heaven_pearl_budget",
+          "target": "budget",
+          "kind": "add",
+          "value": 30
+        }
+      }
+    ]
   }
 ]

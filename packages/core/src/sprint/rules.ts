@@ -10,7 +10,8 @@ export const SPRINT_WINDOW_TICKS = SPRINT_WINDOW_MS / TICK_MS;
 
 // 下标 = 【当前境界】下标（此刻在哪一境）。与 CHARGE_WINDOW_MS 的【目标境界】下标相反，别写反：
 // 在筑基攒够 3 200 减掉的是「筑基 → 金丹」这段等待，窗口按 realmIndex+1 取，目标按 realmIndex 取。
-export const SPRINT_GOAL_QI: readonly Qi[] = [480, 3_200, 30_000, 157_000];
+// 2026-11-26 扩到 9 境：化神 2e6 / 炼虚 1.2e7 / 合体 8e7 / 大乘 5e8 / 渡劫 3e9。
+export const SPRINT_GOAL_QI: readonly Qi[] = [480, 3_200, 30_000, 157_000, 2_000_000, 12_000_000, 80_000_000, 500_000_000, 3_000_000_000];
 
 // 表里没有的行（末境之后、或 realms.json 加了新境还没配目标）给 undefined = 这一境没有试炼目标，
 // 不返回 0：0 会让「窗口和 ≥ 目标」在一帧之内恒真，HUD 立刻显示一条已经达成的假进度。

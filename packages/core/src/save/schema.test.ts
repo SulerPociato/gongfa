@@ -56,7 +56,7 @@ describe('SaveFile / GameState 校验（契约 §5.1 + §5.2 第 3 步）', () =
 
   it('非法矩阵：每个字段各自报错并带出路径', () => {
     const cases: readonly [string, (state: Record<string, unknown>) => void][] = [
-      ['state.realm', (s) => { s['realm'] = 4; }],
+      ['state.realm', (s) => { s['realm'] = 9; }],
       ['state.realm', (s) => { s['realm'] = -1; }],
       ['state.demon', (s) => { s['demon'] = 1.5; }],
       ['state.equippedBook', (s) => { s['equippedBook'] = 'book_x'; }],

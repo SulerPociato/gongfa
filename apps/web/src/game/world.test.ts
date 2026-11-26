@@ -23,9 +23,9 @@ describe('世界观图鉴数据', () => {
     }
   });
 
-  it('只有前 4 境标可玩；灵根只有上/中/下三品可玩', () => {
-    expect(REALM_LADDER.filter((item) => item.playable === true).map((item) => item.name)).toEqual(['练气', '筑基', '结丹（金丹）', '元婴']);
-    expect(ROOTS.filter((item) => item.playable === true).map((item) => item.name)).toEqual(['上品灵根', '中品灵根', '下品灵根']);
+  it('9 境全部可玩；6 种灵根都可玩', () => {
+    expect(REALM_LADDER.filter((item) => item.playable === true).map((item) => item.name)).toEqual(['练气', '筑基', '结丹（金丹）', '元婴', '化神', '炼虚', '合体', '大乘', '渡劫']);
+    expect(ROOTS.filter((item) => item.playable === true)).toHaveLength(6);
   });
 
   it('分组覆盖全部数据，且每组都有标题/说明', () => {

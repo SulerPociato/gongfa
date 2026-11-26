@@ -60,8 +60,9 @@ export interface EnvelopeResult {
 }
 
 export const SPEED_VALUES: readonly number[] = [1, 2, 3];
-// 契约 §5.1：realm 是 0|1|2|3（炼气/筑基/金丹/元婴）。
-export const REALM_MAX = 3;
+// 契约 §5.1：realm 是 0..8（炼气/筑基/金丹/元婴/化神/炼虚/合体/大乘/渡劫）。
+// 2026-11-26 从 4 境扩到 9 境；旧档 0..3 仍合法，不需要迁移。
+export const REALM_MAX = 8;
 
 export function issueText(issue: SaveIssue): string {
   return `${issue.path}: ${issue.message}`;

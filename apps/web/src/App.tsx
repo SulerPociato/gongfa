@@ -19,6 +19,9 @@ import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFl
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
 import { createRuntime, urlSeed, CALM_DEMON_DELTA, type ChallengeResult, type Runtime, type RuntimeState } from './game/runtime';
+import { SECT_EFFECTS, DOMAIN_EFFECTS, describeEffect, readSect, readDomain, writeSect, writeDomain } from './game/factions';
+import { SECTS, DOMAINS } from './game/world';
+import { PILLS, readPills, grantPill, consumePill, claimPillDrop, pillForRealm, type PillRow } from './game/pills';
 import { clearGongfaKeys, consumeDemoReset, requestDemoReset } from './game/demo';
 import { RESET_CONFIRM_TEXT, resetAllSaves } from './game/reset';
 import { DEMO_SPEED } from './game/demo';
@@ -43,7 +46,7 @@ import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, missingPatterns, 
 import { readInsight, readLearned, readAwarded, writeInsight, writeLearned, writeAwarded } from './game/insightStore';
 import { insightFromSources, insightValueOf, missingSources, patternSource, sourceIds, trialSource } from './game/insightSources';
 import { FORMATIONS, formationOf, mergeFormation } from './game/formations';
-import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type FormationRow, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
+import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type FactionOption, type FormationRow, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { WorldCodex } from './game/WorldCodex';
 import { AlgorithmCard } from './game/AlgorithmCard';
@@ -179,6 +182,9 @@ const ARTIFACT_DROPS: Readonly<Record<number, readonly string[]>> = {
   1: ['abacus'],
   2: ['pearl', 'pouch'],
   3: ['vase'],
+  4: ['skyBottle'],
+  5: ['tear'],
+  6: ['heavenPearl'],
 };
 
 function artifactRows(equippedIds: readonly string[], realmIndex: number, ownedIds: readonly string[]): readonly ArtifactRow[] {
@@ -262,8 +268,7 @@ function getUnlockToastText(blockId: string): string {
 
 // 批次 6：道具指南（设置抽屉里）。effect 与 content/artifacts.json 的措辞对齐，
 // "什么时候用" 是玩家真正会问的那句 —— 没有它，两件道具就是两个不知道何时开的关键字。
-const ARTIFACT_GUIDE: readonly { readonly id: string; readonly glyph: string; readonly name: string; readonly effect: string; readonly when: string }[] = [
-  {
+const ARTIFACT_GUIDE: readonly { readonly id: string; readonly glyph: string; readonly name: string; readonly effect: string; readonly when: string }[] = [  {
     id: 'jade',
     glyph: '玉',
     name: '玉简',
@@ -298,7 +303,33 @@ const ARTIFACT_GUIDE: readonly { readonly id: string; readonly glyph: string; re
     effect: '心魔增速 ×0.90',
     when: '心魔经常越过 70%、杂念频繁时。它不改你的产出，只让心魔涨得慢一点',
   },
+  {
+    id: 'skyBottle',
+    glyph: '瓶',
+    name: '掌天瓶',
+    effect: '全产出 ×1.05',
+    when: '化神境渡劫掉落。它是纯乘数，任何已经跑起来的功法都能吃到',
+  },
+  {
+    id: 'tear',
+    glyph: '泪',
+    name: '流星泪',
+    effect: '全产出 ×1.08',
+    when: '炼虚境渡劫掉落。乘在最后，基础速率越高收益越大',
+  },
+  {
+    id: 'heavenPearl',
+    glyph: '珠',
+    name: '天逆珠',
+    effect: '每 tick 指令预算 +30 步',
+    when: '合体境渡劫掉落。程序越深越先撞预算，那时它比纯产出更值',
+  },
 ];
+
+// 2026-11-26：宗门/界域选项。数据来自 world.ts（名称/设定）+ factions.ts（数值），只在这里拼一次。
+const SECT_OPTIONS: readonly FactionOption[] = SECTS.map((item) => ({ id: item.id, name: item.name, effect: describeEffect(SECT_EFFECTS[item.id]) }));
+const DOMAIN_OPTIONS: readonly FactionOption[] = DOMAINS.map((item) => ({ id: item.id, name: item.name, effect: describeEffect(DOMAIN_EFFECTS[item.id]) }));
+const PILL_ROWS_EMPTY: readonly PillRow[] = PILLS.map((pill) => ({ id: pill.id, name: pill.name, desc: pill.desc, count: 0 }));
 
 // moment 的 id 与"解锁块 id"共用一条队列（unlockToasts），这里按 id 分派文案：
 // 先查 moment 表，再查解锁表——两边的 id 空间不重叠（moment 是英文事件名，块 id 是 gongfa_ 前缀）。
@@ -311,7 +342,7 @@ function momentToastText(id: string): string {
   return moment ?? getUnlockToastText(id);
 }
 
-function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'warning' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao' | 'formations' | 'scriptureSources'> & { readonly bestPerQi: number | null }): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'warning' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao' | 'formations' | 'scriptureSources' | 'sect' | 'domain' | 'sects' | 'domains' | 'pills'> & { readonly bestPerQi: number | null }): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -340,6 +371,11 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     demo: state.demo,
     nextStep: extra.nextStep,
     dao: extra.dao,
+    sect: extra.sect,
+    domain: extra.domain,
+    sects: extra.sects,
+    domains: extra.domains,
+    pills: extra.pills,
     formations: extra.formations,
     scriptureSources: extra.scriptureSources,
     trace: state.trace,
@@ -425,6 +461,10 @@ export function App() {
   const loadScriptureRef = useRef<((id: string) => void) | null>(null);
   // 阵法阁（2026-11-26）：拓印 = 追加到现有功法，不替换现有引灵。
   const traceFormationRef = useRef<((id: string) => void) | null>(null);
+  // 2026-11-26：宗门/界域选择，storage 在 effect 里才建，走转发口。
+  const chooseSectRef = useRef<((id: string | null) => void) | null>(null);
+  const chooseDomainRef = useRef<((id: string | null) => void) | null>(null);
+  const usePillRef = useRef<((id: string) => void) | null>(null);
   // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
   const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
@@ -446,6 +486,8 @@ export function App() {
       // 道途是元进度（gongfa:dao:<slot>），开局读一次交给 runtime：
       // 产出倍率在 run() 里现读，心魔基数在 sink 构造时固定。
       dao: readDao(createLocalStorageSaveStorage()),
+      sect: readSect(createLocalStorageSaveStorage()),
+      domain: readDomain(createLocalStorageSaveStorage()),
       markDirty: () => saveRef.current?.markDirty(),
       allowBreakthrough: () => readSettings(createLocalStorageSaveStorage()).settings.offlineBreakthrough,
       onOfflineReport: (result) => {
@@ -457,7 +499,7 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, warning: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, formations: [], scriptureSources: '', bestPerQi: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, warning: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, sect: null, domain: null, sects: SECT_OPTIONS, domains: DOMAIN_OPTIONS, pills: PILL_ROWS_EMPTY, formations: [], scriptureSources: '', bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 批次 29：第一次拿到悟道时点亮藏经阁（2.6 秒后自动熄）。
@@ -552,6 +594,39 @@ export function App() {
     if (container === null || runtime === null) return;
 
     const storage = createLocalStorageSaveStorage();
+    chooseSectRef.current = (id: string | null): void => {
+      runtime.setSect(id);
+      writeSect(storage, id);
+      setHud((previous) => ({ ...previous, sect: id }));
+      const name = SECT_OPTIONS.find((item) => item.id === id)?.name;
+      showToast(id === null ? '已退出宗门' : `入宗门：${name ?? id}`);
+    };
+    chooseDomainRef.current = (id: string | null): void => {
+      runtime.setDomain(id);
+      writeDomain(storage, id);
+      setHud((previous) => ({ ...previous, domain: id }));
+      const name = DOMAIN_OPTIONS.find((item) => item.id === id)?.name;
+      showToast(id === null ? '已离开洞府' : `洞府迁往：${name ?? id}`);
+    };
+    let pillCounts = readPills(storage);
+    const pillRows = (): readonly PillRow[] =>
+      PILLS.map((pill) => ({ id: pill.id, name: pill.name, desc: pill.desc, count: pillCounts[pill.id] ?? 0 }));
+    usePillRef.current = (id: string): void => {
+      if ((pillCounts[id] ?? 0) <= 0) {
+        showToast('这枚丹药还没有：首次试炼 / 突破会掉落');
+        return;
+      }
+      const result = runtime.usePill(id);
+      if (!result.ok) {
+        showToast(result.reason ?? '服用失败');
+        return;
+      }
+      const next = consumePill(storage, id);
+      if (next !== null) pillCounts = next;
+      setHud((previous) => ({ ...previous, pills: pillRows() }));
+      const pill = PILLS.find((item) => item.id === id);
+      showToast(`服下${pill?.name ?? '丹药'}：${pill?.desc ?? '已生效'}`);
+    };
     const demoFlags = createSessionFlagStore();
     // 试炼最佳效率是元进度：按活动槽读一次，之后由达成时更新（写回同一个键）。
     const loadedBest = readBest(storage);
@@ -1852,6 +1927,13 @@ export function App() {
         const goal = state.sprintGoalQi ?? 0;
         // 2026-11-26：本境试炼首次达成也给悟道 +1（账本去重，重复达成不再发）。
         const trialInsight = awardSource(trialSource(state.realmIndex));
+        // 首次达成试炼掉一枚本境丹药（8 境正好覆盖 8 种）。
+        const droppedPill = pillForRealm(state.realmIndex);
+        const firstDrop = claimPillDrop(storage, state.realmIndex);
+        if (firstDrop) {
+          pillCounts = grantPill(storage, droppedPill.id);
+          setHud((previous) => ({ ...previous, pills: pillRows() }));
+        }
         const previousBest = bestMap[state.realmIndex] ?? null;
         if (previousBest === null || state.sprintPerQi > previousBest) {
           const nextMap: BestMap = { ...bestMap, [state.realmIndex]: state.sprintPerQi };
@@ -1867,7 +1949,7 @@ export function App() {
         }
         momentTextOverrides.set(
           'sprint',
-          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步 · ${bestLine}。本境界蓄势减半${trialInsight > 0 ? ` · 悟道 +${trialInsight}` : ''}。`,
+          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步 · ${bestLine}。本境界蓄势减半${trialInsight > 0 ? ` · 悟道 +${trialInsight}` : ''}${firstDrop ? ` · 丹药 ${droppedPill.name}` : ''}。`,
         );
         pushMoment('sprint');
       }
@@ -1956,6 +2038,10 @@ export function App() {
           hasRepeat: workspace.getBlocksByType('gongfa_repeat', false).length > 0,
         }),
         dao: state.dao,
+        sect: state.sect,
+        domain: state.domain,
+        sects: SECT_OPTIONS,
+        domains: DOMAIN_OPTIONS,
         trace: state.trace,
         // 批次 19：积木库清单跟境界走（突破后新块要立刻出现在手机上）
         palette: toolboxForRealm(state.realmIndex, state.demo).contents.map((item) => item.type),
@@ -1964,6 +2050,7 @@ export function App() {
         scriptures: scriptureRows(),
         scriptureSources: scriptureSourcesText(),
         formations: formationRows(),
+        pills: pillRows(),
         scriptureHighlight: scriptureHighlightRef.current,
         quest: state.realmIndex === 0
           ? [
@@ -2039,6 +2126,9 @@ export function App() {
       pillActionRef.current = null;
       optimizeActionRef.current = null;
       traceFormationRef.current = null;
+      chooseSectRef.current = null;
+      chooseDomainRef.current = null;
+      usePillRef.current = null;
       trialPressRef.current = null;
       // 浮层是本地 state：StrictMode 的第二次挂载没有 demoPanelOpen，留着会挂着一块关不掉的面板。
       setDemoTrial(false);
@@ -2168,7 +2258,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onTraceFormation={(id) => { traceFormationRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen((open) => !open)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onTraceFormation={(id) => { traceFormationRef.current?.(id); }} onChooseSect={(id) => { chooseSectRef.current?.(id); }} onChooseDomain={(id) => { chooseDomainRef.current?.(id); }} onUsePill={(id) => { usePillRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen((open) => !open)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
@@ -2257,7 +2347,7 @@ export function App() {
                 折叠默认收起：抽屉只有 300px，全展开会把「重置存档」顶出首屏。 */}
             <details className="codex-section">
               <summary>道途与流派</summary>
-              <p>四境界：炼气 → 筑基 → 金丹 → 元婴。化神之后的劫，本门尚未开启。</p>
+              <p>九境界：炼气 → 筑基 → 金丹 → 元婴 → 化神 → 炼虚 → 合体 → 大乘 → 渡劫；渡劫为当前末境。</p>
               <p>流派：守正 / 入魔已开放，一次定终身；剑修、丹修、阵修、符修、体修在后续版本。</p>
               <p>灵根：开局由命格（种子）决定，上品心魔涨得慢、下品更快，不影响产出。</p>
               <p>丹药：存量换心魔，心魔条旁「服丹」；丹炉温养需要 30 秒。</p>
@@ -2266,7 +2356,7 @@ export function App() {
               <summary>世界观</summary>
               <p>洞府：你的画布。宗门与师尊：尚未出现。</p>
               <p>符箓＝条件，阵法＝循环，玉简＝缓存：这三句是这个世界的底层规则。</p>
-              <p>转世与飞升：元婴之后的路，留给下一次更新。</p>
+              <p>转世与飞升：渡劫之后是仙界，留给下一次更新。</p>
             </details>
             {/* 2026-11-26：世界观资产扩充——境界/界域/宗门/丹药/法宝/灵根，每条带计算机对照。 */}
             <details className="codex-section">

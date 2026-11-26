@@ -197,6 +197,15 @@ export interface CurveModel {
   readonly backlashAtSec: number | null;
 }
 
+import type { PillRow } from './pills';
+
+/** 宗门/界域选项：id 用来写元进度，effect 是一句人话。 */
+export interface FactionOption {
+  readonly id: string;
+  readonly name: string;
+  readonly effect: string;
+}
+
 export interface HudModel {
   readonly qi: number;
   readonly rate: number;
@@ -241,6 +250,11 @@ export interface HudModel {
   readonly nextStep: string;
   /** 批次 7：道途（null = 还没选）。选过之后这张卡消失。 */
   readonly dao: 'orthodox' | 'heretic' | null;
+  /** 2026-11-26：宗门/界域（元进度，null = 未选）与可选项。 */
+  readonly sect: string | null;
+  readonly domain: string | null;
+  readonly sects: readonly FactionOption[];
+  readonly domains: readonly FactionOption[];
   /** 批次 12：最近一分钟的观测快照（内存态，随刷新清空）。 */
   readonly trace: readonly TraceSample[];
   /** 批次 19：窄屏积木库的积木类型（点一下就加一块，替代 Blockly 侧栏）。 */
@@ -256,6 +270,8 @@ export interface HudModel {
   readonly scriptureSources: string;
   /** 阵法阁（2026-11-26）：4 套免费预设，只追加不替换。 */
   readonly formations: readonly FormationRow[];
+  /** 2026-11-26：丹药袋（8 种，0 个也显示，告诉玩家去哪拿）。 */
+  readonly pills: readonly PillRow[];
   /** 批次 29：刚拿到第一点悟道时把藏经阁点亮几秒，别让它一直躺在横条最右边。 */
   readonly scriptureHighlight: boolean;
 }
@@ -570,8 +586,7 @@ function SprintPanel({ model }: { readonly model: SprintModel }) {
  * 藏经阁行（批次 28）：学会的功法可以「抄录」到画布。
  * 抄录不是教程，是给你一份能跑的成品——看不懂就对照自己的写法。
  */
-export interface ScriptureRow {
-  readonly id: string;
+export interface ScriptureRow {  readonly id: string;
   readonly name: string;
   readonly algorithm: string;
   readonly teach: string;
@@ -1109,7 +1124,60 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, panelOpen, onTogglePanel, onLearnScripture, onLoadScripture, onTraceFormation, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly panelOpen: boolean; readonly onTogglePanel: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onTraceFormation: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+function PillPanel({ rows, onUse }: {
+  readonly rows: readonly PillRow[];
+  readonly onUse: (id: string) => void;
+}) {
+  return (
+    <section className="pills">
+      <p className="label">丹药袋 · {rows.reduce((sum, row) => sum + row.count, 0)} 枚</p>
+      <p className="pill-hint">首次试炼 / 突破掉落；服用立刻生效，不占丹炉冷却。</p>
+      <ul className="pill-list">
+        {rows.map((row) => (
+          <li key={row.id} className="pill">
+            <div className="pill-head"><b>{row.name}</b><span>×{row.count}</span></div>
+            <p className="pill-desc">{row.desc}</p>
+            <button className="pill-use" type="button" disabled={row.count <= 0} onClick={() => onUse(row.id)}>
+              {row.count > 0 ? '服用' : '还没有'}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function FactionPanel({ model, onSect, onDomain }: {
+  readonly model: HudModel;
+  readonly onSect: (id: string | null) => void;
+  readonly onDomain: (id: string | null) => void;
+}) {
+  const sect = model.sects.find((item) => item.id === model.sect);
+  const domain = model.domains.find((item) => item.id === model.domain);
+  return (
+    <section className="factions">
+      <p className="label">宗门 · 界域</p>
+      <label className="faction-row">
+        <span>宗门</span>
+        <select value={model.sect ?? ''} onChange={(event) => onSect(event.target.value === '' ? null : event.target.value)}>
+          <option value="">未入宗门</option>
+          {model.sects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      <p className="faction-effect">{sect?.effect ?? '未入宗门：无额外修正'}</p>
+      <label className="faction-row">
+        <span>界域</span>
+        <select value={model.domain ?? ''} onChange={(event) => onDomain(event.target.value === '' ? null : event.target.value)}>
+          <option value="">未定洞府</option>
+          {model.domains.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </label>
+      <p className="faction-effect">{domain?.effect ?? '未定洞府：无额外修正'}</p>
+    </section>
+  );
+}
+
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, panelOpen, onTogglePanel, onLearnScripture, onLoadScripture, onTraceFormation, onChooseSect, onChooseDomain, onUsePill, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly panelOpen: boolean; readonly onTogglePanel: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onTraceFormation: (id: string) => void; readonly onChooseSect: (id: string | null) => void; readonly onChooseDomain: (id: string | null) => void; readonly onUsePill: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -1202,6 +1270,8 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         <CurvePanel model={model.curve} />
         {/* 批次 24：试炼挪进横条 —— 右列在 900px 高度下要塞 4 张卡，试炼会被裁掉一半。 */}
         {model.realm.name !== '炼气' && <SprintPanel model={model.sprint} />}
+        <FactionPanel model={model} onSect={onChooseSect} onDomain={onChooseDomain} />
+        <PillPanel rows={model.pills} onUse={onUsePill} />
         <ScripturePanel
           insight={model.insight}
           rows={model.scriptures}

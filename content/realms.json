@@ -34,5 +34,50 @@
     "threshold": "8e5",
     "passivePerSec": 150,
     "actionMult": 100
+  },
+  {
+    "id": 4,
+    "name": {
+      "zh": "化神"
+    },
+    "threshold": "5e6",
+    "passivePerSec": 600,
+    "actionMult": 400
+  },
+  {
+    "id": 5,
+    "name": {
+      "zh": "炼虚"
+    },
+    "threshold": "3e7",
+    "passivePerSec": 2400,
+    "actionMult": 1600
+  },
+  {
+    "id": 6,
+    "name": {
+      "zh": "合体"
+    },
+    "threshold": "2e8",
+    "passivePerSec": 10000,
+    "actionMult": 6400
+  },
+  {
+    "id": 7,
+    "name": {
+      "zh": "大乘"
+    },
+    "threshold": "1.5e9",
+    "passivePerSec": 40000,
+    "actionMult": 25600
+  },
+  {
+    "id": 8,
+    "name": {
+      "zh": "渡劫"
+    },
+    "threshold": "1e10",
+    "passivePerSec": 160000,
+    "actionMult": 100000
   }
 ]
