@@ -63,7 +63,19 @@
 | 手机 390 | 面板 358×333、x=19、不横向溢出；飘字在面板上方 |
 | 截图 | `.qoder/scratch/qa/p1-hit.png`、`p1-miss.png`、`p6-mobile.png`、`p5-forced.png` |
 
-## 四、取舍 / 未做
+## 四、线上验证（2026-11-26 16:30）
+
+| 项 | 结果 |
+|---|---|
+| Pages workflow | `completed success`，head `adce8f5` |
+| 线上 bundle | `/gongfa/assets/index-BWfOQory.js` |
+| 承雷全流程 | 进窗口 85% → 命中 87% → 漏波 82%（颜色 high→mid）；失败结果层「再失败 1 次必成」 |
+| 保底跨刷新 | 失败后 `gongfa:pity={"realm":0,"attempt":2}`；刷新后 HUD「第 2 次冲关」、attempt=2 |
+| 第 3 次必成 | 恢复 attempt=3 → HUD「本发保底必成」→ 10 秒不接雷仍「突破成功」+「保底第 3 次，非骰值」→ attempt=1、pity 清空 |
+| 控制台 | 0 error |
+| 截图 | `.qoder/scratch/qa/p1-hit.png`（线上命中闪光）、`p6-mobile.png`（390 面板） |
+
+## 五、取舍 / 未做
 
 - **冷却 60 秒仍不跨刷新**：刷新可跳过冷却，但不会跳过保底；本轮没动，避免一次改太多。
 - **悟道仍刷新清零**：契约 §7.1 原样；它是货币，丢了玩家会疼，但本轮不在范围。
