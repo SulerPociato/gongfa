@@ -58,7 +58,17 @@
 - **自定义渲染器只改几何常量**：不改文本/连接语义；删除按 `renderer` 字段即可回退到默认 thrasos。
 - **性能**：headless Edge（`--disable-gpu`）下 rAF 本身约 30fps，皮肤全开与去 glow 相差 ~1ms；流雾是主要增量，已在手机端关闭。真机 GPU 下应更低。
 
-## 五、后续可选
+## 五、线上验证（2026-11-26 12:55）
+
+| 项 | 结果 |
+|---|---|
+| Pages workflow | `completed success`，head `4687e92` |
+| 线上 bundle | `/gongfa/assets/index-D9EMWYVZ.js` |
+| 线上计算样式 | `stroke: rgb(53,224,200)`、`fill: rgba(5,22,24,.8)`、`filter: drop-shadow(...4px)`、`font-family: KaiTi...`、`blocklySvg` 透明、朱印「道」在 |
+| 线上功能 | 灵力 6232、280/秒、errors 0、console 0 |
+| 截图 | `.qoder/scratch/qa/v13-online.png` |
+
+## 六、后续可选
 
 1. 给动作块加一枚**竖排符字小印**（`field_image`），进一步贴近参考图；需要逐块测宽。
 2. 把块间连接做成**细链 + 圆节点**（需要自定义 PathObject / 装饰层）。
