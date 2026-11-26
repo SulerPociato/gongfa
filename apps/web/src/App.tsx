@@ -34,6 +34,7 @@ import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type Moment
 import { nextStepOf } from './game/nextStep';
 import { palettePlacement } from './game/palette';
 import { RENDERER_NAME } from './game/blockSkin';
+import { clearPity, readPity, writePity } from './game/pity';
 import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
@@ -828,6 +829,12 @@ export function App() {
     game = grant.state;
     // 批次 3：功法谱发现记录从 localStorage 初始化（按槽隔离）。
     const slot = activeSlot(storage);
+    // 保底跨刷新（2026-11-26）：契约 §7.1 的「连续 3 次」不能因为刷新就清零。
+    // 只恢复同一境界的记录；换境/成功/清档时 attempt=1，会在下面的帧同步里清掉。
+    const storedPity = readPity(storage);
+    if (storedPity !== null && storedPity.realm === runtime.state().realm) {
+      runtime.restoreAttempt(storedPity.attempt);
+    }
     let algoFoundState: readonly PatternId[] = readFound(storage, slot);
     setAlgoFound(algoFoundState);
     let noticeList: readonly string[] = [
@@ -1667,7 +1674,19 @@ export function App() {
     // 境界/心魔/惩罚倒计时是连续变化的，逐帧比上一次贵；这些字段量化后拼成 key，
     // 只有真正看得出来的变化（灵力整数、速率、心魔千分位、剩余 0.1 秒、境界四件套、stall）才重渲染。
     // 渡劫三件套按秒量化：蓄势 2 分钟不需要 60 次/秒的重渲染，剩余 1 秒一跳就够玩家看清。
+    // 保底元进度的落盘闸门：attempt / realm 没变就不写，免得每帧碰 localStorage。
+    let lastPityAttempt = 0;
+    let lastPityRealm = -1;
+
     const loop = createLoop(runtime, (state) => {
+      // 保底跨刷新：本境界第 N 次一变就写/清（成功、换境、清档都回到 1）。
+      // 放在渲染闸门之前：玩家可能在这一帧就关页面。
+      if (state.attempt !== lastPityAttempt || state.realm !== lastPityRealm) {
+        lastPityAttempt = state.attempt;
+        lastPityRealm = state.realm;
+        if (state.attempt > 1) writePity(storage, { realm: state.realm, attempt: state.attempt });
+        else clearPity(storage);
+      }
       // 结算结果每出现一份新的就播报一次：引用相同 = 还是那一发，不重复说。
       if (state.lastChallenge !== seenChallenge) {
         seenChallenge = state.lastChallenge;

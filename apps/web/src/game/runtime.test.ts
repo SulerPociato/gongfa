@@ -133,3 +133,49 @@ describe('pressChallenge 的档位与结算前的境界名', () => {
     expect(result.realmName).toBe('炼气');
   });
 });
+
+describe('保底：跨刷新恢复与连败必成（2026-11-26）', () => {
+  it('restoreAttempt 只接受 1..3：0/负数回 1，≥3 当 3，非整数忽略', () => {
+    const runtime = challengeable(11);
+    runtime.restoreAttempt(2);
+    expect(runtime.state().attempt).toBe(2);
+    runtime.restoreAttempt(99);
+    expect(runtime.state().attempt).toBe(3);
+    runtime.restoreAttempt(0);
+    expect(runtime.state().attempt).toBe(1);
+    runtime.restoreAttempt(Number.NaN);
+    expect(runtime.state().attempt).toBe(1);
+  });
+
+  it('同一境界连败两次后，第 3 次必成（seed 73 前两发骰都烂也一样）', () => {
+    let now = 1_000_000;
+    (globalThis as unknown as { window: { location: { search: string } } }).window =
+      { location: { search: '?debug=1&charge=0' } };
+    const runtime = createRuntime({ seed: 73 }, { now: () => now });
+    expect(runtime.load(PROGRAM)).toEqual([]);
+    const topUp = (): void => { while (runtime.state().qi < 1000) runtime.run(1000); };
+
+    topUp();
+    runtime.pressChallenge();
+    const first = runtime.pressChallenge('auto');
+    expect(first.ok).toBe(false);
+    expect(runtime.state().attempt).toBe(2);
+
+    now += 60_001;
+    topUp();
+    runtime.pressChallenge();
+    const second = runtime.pressChallenge('auto');
+    expect(second.ok).toBe(false);
+    expect(runtime.state().attempt).toBe(3);
+
+    now += 60_001;
+    topUp();
+    // 第 3 次即便骰值仍然很烂也必须成：forced 来自 attempt >= GUARANTEE_ATTEMPT。
+    runtime.pressChallenge();
+    const third = runtime.pressChallenge('auto');
+    expect(third.ok).toBe(true);
+    expect(third.forced).toBe(true);
+    expect(runtime.state().realmName).toBe('筑基');
+    expect(runtime.state().attempt).toBe(1);
+  });
+});

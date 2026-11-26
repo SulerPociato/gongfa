@@ -6,6 +6,7 @@ import {
   TRIAL_DEMON_RISE_PER_SEC,
   TRIAL_PARRY_WINDOW_MS,
   TRIAL_WAVES_MS,
+  parryRate,
   parryWaveStates,
   type TrialWaveState,
   CHALLENGE_COOLDOWN_MS,
@@ -156,6 +157,10 @@ export interface RuntimeState {
     readonly hits: number;
     readonly misses: number;
     readonly demon: number;
+    /** 当前投影成功率（parryRate）：玩家能看见自己每接/漏一波把概率变成多少。 */
+    readonly rate: number;
+    /** 进窗口后的毫秒数：HUD 的 10 秒进度条用它。 */
+    readonly elapsedMs: number;
     /** 三波雷各自的界面状态：hit / miss / pending。按「哪一波」画灯，不按命中数推。 */
     readonly waves: readonly TrialWaveState[];
     /** 下一波天雷还有多少毫秒；null = 三波都已过。 */
@@ -251,6 +256,11 @@ export interface Runtime {
   load(program: Program): readonly string[];
   /** 用存档的数值状态覆盖运行时；返回内容表承接不了的项。 */
   restore(state: GameState): readonly string[];
+  /**
+   * 启动时恢复「本境界第 N 次冲关」的元进度（`gongfa:pity:<slot>`）。
+   * 只接受 1..3：0/负数当 1，≥3 当 3（第 3 次本来就必成，不额外送）。
+   */
+  restoreAttempt(attempt: number): void;
   /** 装备或卸下（含固化）功法书：衰减与 modifiers 成对装卸。 */
   attachBook(book: BookDef | null): void;
   /**
@@ -479,9 +489,9 @@ const PILL_DEMON_RELIEF = 0.1;
   const demoMode = urlDemo();
   const markDirty = deps.markDirty ?? (() => undefined);
 
-  // 渡劫的两个墙钟 deadline。P0 已知漏洞：attempt / insight / trialUntil / cooldownUntil 只在内存里，
-  // 刷新即清零 —— §7.1 的「同一境界连续 3 次必成」与「渡劫后 60 秒冷却」因此都能被刷新绕过。
-  // 契约 §5.1 没有对应字段，任务 8 造 schema v2 时一并落盘；HUD 的文案必须写明「刷新清零」。
+  // 渡劫的两个墙钟 deadline 与悟道只在内存里：刷新即清零 —— §7.1 的「渡劫后 60 秒冷却」仍可被刷新绕过。
+  // attempt（同一境界第 N 次）自 2026-11-26 起由宿主的 `gongfa:pity` 元进度保存，启动时 restoreAttempt 补回，
+  // 这样「连续 3 次必成」不会因为刷新变成「永远第 1 次」。契约 §5.1 仍没有这些字段，不写进 GameState。
   // 只有 chargeReadyAt（§5.1 现成字段）落盘，蓄势这条时间墙跨刷新继续。
   let trialUntil = 0;
   // 批次 38：承雷。trialStart 用来排三波雷；hits/misses 只在本次渡劫内累计。
@@ -494,7 +504,7 @@ const PILL_DEMON_RELIEF = 0.1;
 
   // 试炼（契约 §7.1.1）：60 秒滑动窗口只统计在线逐 tick 产出，达成一次就把本境界正在等的蓄势窗口减半。
   // sprintReachedRealm 记的是「哪一境拿到过减半」，所以下标相等才算已达成：换境后自然失效，
-  // 一条比较同时管住「只生效一次」与「不可叠加」。与 attempt / insight 同族：只在内存、刷新重置、不入档。
+  // 一条比较同时管住「只生效一次」与「不可叠加」。与 insight 同族：只在内存、刷新重置、不入档。
   const sprint = new SprintWindow();
   // 试炼效率（批次 6）：和产出窗口同长度的一条步数环，用来算「每步换多少灵力」。
   // 单独记的原因：SprintWindow 存的是 Qi，步数是普通计数，混在一起会把 BigInt 语义带进 UI。
@@ -547,11 +557,17 @@ const PILL_DEMON_RELIEF = 0.1;
         ? (() => {
             const elapsed = now - trialStart;
             const next = TRIAL_WAVES_MS.find((wave, index) => !trialWavesHit[index] && wave + TRIAL_PARRY_WINDOW_MS >= elapsed);
+            const waves = parryWaveStates(trialWavesHit, elapsed);
+            // 显示用的是「已经漏掉的波」而不是 trialMisses（后者只在结算时一次性累加）；
+            // 结算口径不变，这里只让玩家提前看见自己的成功率。
+            const missedNow = waves.filter((state) => state === 'miss').length;
             return {
               hits: trialHits,
               misses: trialMisses,
               demon: trialDemon,
-              waves: parryWaveStates(trialWavesHit, elapsed),
+              rate: parryRate({ hits: trialHits, misses: missedNow, demon: trialDemon }),
+              elapsedMs: elapsed,
+              waves,
               nextWaveInMs: next === undefined ? null : Math.max(0, next - elapsed),
             };
           })()
@@ -961,12 +977,13 @@ const PILL_DEMON_RELIEF = 0.1;
       backlashTicks.length = 0;
       pausedUntil = 0;
       state.pauseRemainingMs = 0;
-      // 挑战的墙钟与保底计数不跨会话（§5.1 没有这些字段）：读档后回到「本境界第 1 次、没在挑战、没在冷却」。
+      // 挑战的墙钟与悟道不跨会话（§5.1 没有这些字段）：读档后回到「没在挑战、没在冷却」。
+      // attempt 由宿主在 restore 之后用 `gongfa:pity` 补回（restoreAttempt），这里先归 1 只是兜底。
       trialUntil = 0;
       cooldownUntil = 0;
       state.attempt = 1;
       state.insight = 0;
-      // 试炼与 attempt / insight 同族：只在内存，换档 / 重载一律重新攒 60 秒。
+      // 试炼与 insight 同族：只在内存，换档 / 重载一律重新攒 60 秒。
       // 不清 sprintReachedRealm 的话，「上一档在筑基拿到的减半」会跟着新档的筑基境界生效。
       sprint.reset();
   resetSprintSteps();
@@ -999,6 +1016,10 @@ const PILL_DEMON_RELIEF = 0.1;
         errors.push(`存档境界 ${saved.realm} 在 content/realms.json 里还没有产出表（现有 ${content.realms.map((realm) => realm.id).join('/')}），先按境界 ${state.realm} 算`);
       }
       return errors;
+    },
+    restoreAttempt: (attempt) => {
+      if (!Number.isInteger(attempt)) return;
+      state.attempt = Math.min(3, Math.max(1, attempt));
     },
     attachBook: (book) => {
       currentBook = book;
