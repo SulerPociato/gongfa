@@ -17,6 +17,12 @@ describe('藏经阁（主动学功法）', () => {
     expect(new Set(SCRIPTURES.map((item) => item.id)).size).toBe(SCRIPTURES.length);
   });
 
+  it('总价 16，不超过「13 图案 + 4 试炼 = 17」的顺风上限', () => {
+    const total = SCRIPTURES.reduce((sum, item) => sum + item.cost, 0);
+    expect(total).toBe(16);
+    expect(total).toBeLessThanOrEqual(13 + 4);
+  });
+
   it('悟道不够不能学，学过不能重复学', () => {
     const first = SCRIPTURES[0]!;
     expect(canLearn(first, 0, [], 3)).toBe(false);

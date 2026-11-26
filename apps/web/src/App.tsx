@@ -40,8 +40,10 @@ import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
 import { errandOf } from './game/errand';
 import { SCRIPTURES, canLearn, missingBlocks, missingBlocksIn, scriptureOf } from './game/scriptures';
-import { readInsight, readLearned, writeInsight, writeLearned } from './game/insightStore';
-import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
+import { readInsight, readLearned, readAwarded, writeInsight, writeLearned, writeAwarded } from './game/insightStore';
+import { insightFromSources, insightValueOf, missingSources, patternSource, sourceIds, trialSource } from './game/insightSources';
+import { FORMATIONS, formationOf, mergeFormation } from './game/formations';
+import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type FormationRow, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
@@ -308,7 +310,7 @@ function momentToastText(id: string): string {
   return moment ?? getUnlockToastText(id);
 }
 
-function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'warning' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao'> & { readonly bestPerQi: number | null }): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'warning' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao' | 'formations' | 'scriptureSources'> & { readonly bestPerQi: number | null }): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -337,6 +339,8 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     demo: state.demo,
     nextStep: extra.nextStep,
     dao: extra.dao,
+    formations: extra.formations,
+    scriptureSources: extra.scriptureSources,
     trace: state.trace,
     quest: [],
     furnaceReady: false,
@@ -381,6 +385,8 @@ let pendingCorrupt: CorruptLineModel | null = null;
 // 再读就是「一切正常」——提示就这么被吞了（HANDOFF 第 4 条坑的同型问题）。
 // 生产构建只挂一次，模块变量不会被读到，不影响。
 let pendingFallbackNotice: string | null = null;
+// 悟道补发也跨一次重挂载：第一次挂载已经把账本写满，第二次算出来是 0，提示会消失。
+let pendingBackfillNotice: string | null = null;
 
 function corruptReport(storage: SaveStorage, loaded: LoadResult): CorruptLineModel | null {
   if (loaded.state !== null || loaded.summary === null) return null;
@@ -416,6 +422,8 @@ export function App() {
   // 批次 28：藏经阁（学功法 / 抄录）。
   const learnScriptureRef = useRef<((id: string) => void) | null>(null);
   const loadScriptureRef = useRef<((id: string) => void) | null>(null);
+  // 阵法阁（2026-11-26）：拓印 = 追加到现有功法，不替换现有引灵。
+  const traceFormationRef = useRef<((id: string) => void) | null>(null);
   // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
   const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
@@ -448,7 +456,7 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, warning: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, warning: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, formations: [], scriptureSources: '', bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 批次 29：第一次拿到悟道时点亮藏经阁（2.6 秒后自动熄）。
@@ -827,15 +835,13 @@ export function App() {
     let game: GameState = loaded.state ?? newGameState({ seed: runtime.state().seed, workspace: saved ?? STARTER_WORKSPACE_JSON, now: wallClock.now(), ownedBooks: [STARTER_BOOK_ID] });
     const grant = grantStarterBook(game, BOOK_CATALOGUE);
     game = grant.state;
-    // 批次 3：功法谱发现记录从 localStorage 初始化（按槽隔离）。
-    const slot = activeSlot(storage);
     // 保底跨刷新（2026-11-26）：契约 §7.1 的「连续 3 次」不能因为刷新就清零。
     // 只恢复同一境界的记录；换境/成功/清档时 attempt=1，会在下面的帧同步里清掉。
     const storedPity = readPity(storage);
     if (storedPity !== null && storedPity.realm === runtime.state().realm) {
       runtime.restoreAttempt(storedPity.attempt);
     }
-    let algoFoundState: readonly PatternId[] = readFound(storage, slot);
+    let algoFoundState: readonly PatternId[] = readFound(storage);
     setAlgoFound(algoFoundState);
     let noticeList: readonly string[] = [
       ...loaded.notices,
@@ -1064,8 +1070,24 @@ export function App() {
     };
 
     // ---- 批次 28：藏经阁 ----
-    // 悟道是元进度（渡劫失败 +1），学过哪些功法也存元进度：换档不该把知识清空。
+    // 悟道是元进度，来源见 insightSources：首次发现图案 +1、本境试炼达成 +1、渡劫失败 +1。
+    // 账本 `gongfa:insight:awarded` 防重复；启动时按「已发现 / 已达成」补发（老玩家不吃亏）。
     let metaInsight = readInsight(storage);
+    let awardedSources = readAwarded(storage);
+    const bootSources = sourceIds(readFound(storage), Object.keys(loadedBest).map(Number));
+    const bootMissing = missingSources(bootSources, awardedSources);
+    if (bootMissing.length > 0) {
+      const granted = insightFromSources(bootMissing);
+      metaInsight += granted;
+      awardedSources = [...awardedSources, ...bootMissing];
+      writeAwarded(storage, awardedSources);
+      writeInsight(storage, metaInsight);
+      pendingBackfillNotice = `补发悟道 +${granted}（已发现的图案 / 已达成试炼）`;
+      noticeList = [...noticeList, pendingBackfillNotice];
+    } else if (pendingBackfillNotice !== null) {
+      noticeList = [...noticeList, pendingBackfillNotice];
+      pendingBackfillNotice = null;
+    }
     let learnedScriptures = readLearned(storage);
     // runtime 的 insight 是本档累计，逐帧只做增量同步（刷新后从 0 起，不会重复加）。
     let insightSynced = 0;
@@ -1091,6 +1113,40 @@ export function App() {
       setHud((previous) => ({ ...previous, insight: metaInsight, scriptures: scriptureRows() }));
     };
     refreshScriptures();
+
+    /** 藏经阁标题下那句来源说明：三个来源 + 已拿到的图案/试炼数。 */
+    const scriptureSourcesText = (): string => {
+      const foundCount = algoFoundState.length;
+      const trialCount = Object.keys(bestMapRef.current).length;
+      return `悟道来源：首次发现图案 +1（${foundCount}/${PATTERN_TOTAL}）· 本境试炼达成 +1（${trialCount}/4）· 渡劫失败 +1`;
+    };
+
+    /** 发一笔来源；账本里已有就返回 0（幂等）。余额写失败下次启动会按账本差集补。 */
+    const awardSource = (source: string): number => {
+      if (awardedSources.includes(source)) return 0;
+      const value = insightValueOf(source);
+      if (value <= 0) return 0;
+      awardedSources = [...awardedSources, source];
+      metaInsight += value;
+      writeAwarded(storage, awardedSources);
+      writeInsight(storage, metaInsight);
+      refreshScriptures();
+      return value;
+    };
+
+    const formationRows = (): readonly FormationRow[] =>
+      FORMATIONS.map((item) => {
+        const locked = runtime.state().realmIndex < item.realm;
+        return {
+          id: item.id,
+          name: item.name,
+          algorithm: item.algorithm,
+          teach: item.teach,
+          realmName: item.realmName,
+          locked,
+          unlockText: locked ? `${item.realmName}解锁` : '',
+        };
+      });
 
     learnScriptureRef.current = (id: string): void => {
       const item = scriptureOf(id);
@@ -1148,6 +1204,46 @@ export function App() {
               ? `×${ratio.toFixed(1)}`
               : `${Math.round((ratio - 1) * 100) >= 0 ? '+' : ''}${Math.round((ratio - 1) * 100)}%`;
             showToast(`抄录前 ${before.toFixed(1)} / 秒 → 现在 ${after.toFixed(1)} / 秒（${delta}）`);
+          }, 3000);
+        },
+      });
+    };
+
+    // 阵法阁：拓印 = 在当前功法末尾追加；不替换现有引灵（mergeFormation 的硬约束）。
+    traceFormationRef.current = (id: string): void => {
+      const item = formationOf(id);
+      if (item === null) return;
+      if (runtime.state().realmIndex < item.realm) {
+        showToast(`《${item.name}》要 ${item.realmName}才能拓印`);
+        return;
+      }
+      const current = Blockly.serialization.workspaces.save(workspace) as unknown as WorkspaceJson;
+      const merged = mergeFormation(current, item);
+      const available = toolboxForRealm(runtime.state().realmIndex, runtime.state().demo).contents.map((entry) => entry.type);
+      const missing = missingBlocksIn(merged.workspace, available);
+      if (missing.length > 0) {
+        showToast(`这套阵法要 ${item.realmName}才能运转（缺 ${missing.join('、')}）`);
+        return;
+      }
+      setModal({
+        title: `拓印《${item.name}》到现有功法`,
+        body: `会在现有功法末尾追加 ${merged.appended} 块（保留现有 ${merged.kept} 块）。\n原有引灵 ${merged.arraysBefore} 块原样保留，追加后 ${merged.arraysAfter} 块。\n\n${item.teach}`,
+        confirmText: '追加到现有功法',
+        onConfirm: () => {
+          const before = runtime.state().rate;
+          reloadCanvas(merged.workspace as WorkspaceJson);
+          showToast(`已拓印《${item.name}》：只追加，未替换现有积木`);
+          window.setTimeout(() => {
+            const after = runtime.state().rate;
+            if (before <= 0) {
+              showToast(`《${item.name}》：现在 ${after.toFixed(1)} / 秒`);
+              return;
+            }
+            const ratio = after / before;
+            const delta = ratio >= 1.5
+              ? `×${ratio.toFixed(1)}`
+              : `${Math.round((ratio - 1) * 100) >= 0 ? '+' : ''}${Math.round((ratio - 1) * 100)}%`;
+            showToast(`拓印前 ${before.toFixed(1)} / 秒 → 现在 ${after.toFixed(1)} / 秒（${delta}）`);
           }, 3000);
         },
       });
@@ -1622,14 +1718,16 @@ export function App() {
       const hits = patternsOf(shape);
       // 去重源每次从存储读：闭包变量 algoFoundState 会在 effect 重建时变回旧值，
       // 导致同一图案被反复 enqueue。存储是唯一真相（与 writeFound 同源）。
-      const known = readFound(storage, slot);
+      const known = readFound(storage);
       const fresh = hits.filter((id) => !known.includes(id));
       if (fresh.length === 0) return;
       const next = [...known, ...fresh];
       // 同步闭包变量：主循环 effect 用它渲染 HUD 的功法谱行，不更新的话 HUD 永远显示旧值。
       algoFoundState = next;
       setAlgoFound(next);
-      writeFound(storage, slot, next);
+      writeFound(storage, next);
+      // 2026-11-26：首次发现图案也给悟道 +1（账本去重）。顺利玩家不靠失败也能攒够学费。
+      const awardedInsight = fresh.reduce((sum, id) => sum + awardSource(patternSource(id)), 0);
       // 卡片排队：入队时再兜一层去重（prev 里可能已有同图案，例如连续两次 compile）。
       setAlgoCards((previous) => {
         const merged = [...previous, ...fresh.filter((id) => !previous.includes(id))];
@@ -1639,17 +1737,18 @@ export function App() {
       // 这是"研究算法比多叠一块吐纳更划算"的唯一长期依据。
       runtimeRef.current?.setInsightRate(insightRate(next.length));
       const rank = rankReached(known.length, next.length);
+      const insightLine = awardedInsight > 0 ? ` · 悟道 +${awardedInsight}` : '';
       if (rank !== null) {
-        showToast(`功法谱 ${next.length} / ${PATTERN_TOTAL} · ${rank.name}：${rank.line}（${insightBonusText(next.length)}）`);
+        showToast(`功法谱 ${next.length} / ${PATTERN_TOTAL} · ${rank.name}：${rank.line}（${insightBonusText(next.length)}）${insightLine}`);
       } else if (fresh.length > 0) {
-        showToast(`刚发现「${patternDef(fresh[0] ?? 'linear').name}」· ${insightBonusText(next.length)}`);
+        showToast(`刚发现「${patternDef(fresh[0] ?? 'linear').name}」· ${insightBonusText(next.length)}${insightLine}`);
       }
       // HUD 的功法谱行要刷新：把 found 计数塞进 lastHudKey 的派生源。
       lastHudKey = '';
     }
 
     // 首次挂载后立刻识别一次（存档里可能已经有符合条件的结构）。
-    runtime.setInsightRate(insightRate(readFound(storage, slot).length));
+    runtime.setInsightRate(insightRate(readFound(storage).length));
     recognizePatterns();
 
     // 任务 7B：离线结算触发。条件：有存档 && 有程序 && 本会话首次。
@@ -1744,6 +1843,8 @@ export function App() {
         // 试炼评分（批次 6）：把"达成"变成可比较的数字——产出、用了多少步、每步换多少灵力。
         // 没有这三个数，「多算一遍」和「省步」就没有共同的度量。
         const goal = state.sprintGoalQi ?? 0;
+        // 2026-11-26：本境试炼首次达成也给悟道 +1（账本去重，重复达成不再发）。
+        const trialInsight = awardSource(trialSource(state.realmIndex));
         const previousBest = bestMap[state.realmIndex] ?? null;
         if (previousBest === null || state.sprintPerQi > previousBest) {
           const nextMap: BestMap = { ...bestMap, [state.realmIndex]: state.sprintPerQi };
@@ -1759,12 +1860,14 @@ export function App() {
         }
         momentTextOverrides.set(
           'sprint',
-          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步 · ${bestLine}。本境界蓄势减半。`,
+          `试炼达成：60 秒产出 ${Math.floor(state.sprintProgressQi)}（目标 ${goal}）· 用了 ${state.sprintSteps} 步 · 效率 ${state.sprintPerQi.toFixed(3)} 灵力/步 · ${bestLine}。本境界蓄势减半${trialInsight > 0 ? ` · 悟道 +${trialInsight}` : ''}。`,
         );
         pushMoment('sprint');
       }
       prevSprintReached = state.sprintReached;
       if (state.stall !== null) pushMoment('stall');
+      // 金丹解锁引灵/阵图：一次性说明「拖哪、阵图放哪、多少收益」，别只在工具箱里摆着。
+      if (state.realmIndex >= 2) pushMoment('array');
       // 道具说明卡：拥有即提示一次（"什么时候能用"由玩家自己的进度决定，
       // 不按境界或时间硬塞）。玉简提醒"配循环"，算盘提醒"撞上限时再用"。
       if (game.equippedArtifacts.includes('jade') || game.ownedArtifacts.includes('jade')) pushMoment('art-jade');
@@ -1852,6 +1955,8 @@ export function App() {
         // 批次 20：第一境三步目标。做完（或突破）就不再显示，避免长期占版面。
         insight: metaInsight,
         scriptures: scriptureRows(),
+        scriptureSources: scriptureSourcesText(),
+        formations: formationRows(),
         scriptureHighlight: scriptureHighlightRef.current,
         quest: state.realmIndex === 0
           ? [
@@ -1926,6 +2031,7 @@ export function App() {
       challengeActionRef.current = null;
       pillActionRef.current = null;
       optimizeActionRef.current = null;
+      traceFormationRef.current = null;
       trialPressRef.current = null;
       // 浮层是本地 state：StrictMode 的第二次挂载没有 demoPanelOpen，留着会挂着一块关不掉的面板。
       setDemoTrial(false);
@@ -2055,7 +2161,7 @@ export function App() {
         {/* 批次 6：应用内确认弹窗（替代 window.confirm）。 */}
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
-      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen((open) => !open)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onTraceFormation={(id) => { traceFormationRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen((open) => !open)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (

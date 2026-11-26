@@ -74,6 +74,21 @@ const ifBlock = (id: string, condition: unknown, thenBlock: unknown, elseBlock?:
   },
 });
 
+// 阵法（批次 26）：引灵 + 阵图。阵眼数写进 RUNES 字段，编译器按 0..4 夹取。
+const arrayBlock = (id: string, runes: number, next?: unknown): Record<string, unknown> => ({
+  type: 'gongfa_array',
+  id,
+  inputs: { RUNE: { block: { type: 'gongfa_array_rune', id: `${id}-rune`, fields: { RUNES: runes } } } },
+  ...(next === undefined ? {} : { next: { block: next } }),
+});
+
+// 批窗口（批次 13）：包住一段动作，把边际递减计数清零。
+const batch = (id: string, doBlock: unknown): Record<string, unknown> => ({
+  type: 'gongfa_batch',
+  id,
+  inputs: { DO: { block: doBlock } },
+});
+
 export const SCRIPTURES: readonly Scripture[] = [
   {
     id: 'straight',
@@ -97,6 +112,26 @@ export const SCRIPTURES: readonly Scripture[] = [
     workspace: () => hat(repeat('sc-r1', 5, breath('sc-b1'))),
   },
   {
+    id: 'jingXin',
+    name: '静心诀',
+    algorithm: '循环 + 先调后吐',
+    teach: '每一轮先调息把心魔压下去，再吐纳；适合心魔已经高、又不想放弃产出的局面。',
+    cost: 1,
+    realm: 1,
+    realmName: '筑基',
+    workspace: () => hat(repeat('sc-rj', 5, chain([calm('sc-calmj'), breath('sc-bj')]))),
+  },
+  {
+    id: 'array3',
+    name: '三才引灵',
+    algorithm: '阵法（引灵 + 阵图 3 眼）',
+    teach: '引灵是查询，阵图是索引：3 眼让单次产出变成 1.35 倍，但每次要多走 3 步。',
+    cost: 1,
+    realm: 2,
+    realmName: '金丹',
+    workspace: () => hat(arrayBlock('sc-arr1', 3)),
+  },
+  {
     id: 'qingXin',
     name: '清心周天',
     algorithm: '循环 + 分支（反馈控制）',
@@ -112,6 +147,16 @@ export const SCRIPTURES: readonly Scripture[] = [
           ifBlock('sc-i1', compare('sc-c1', 'demon', '>', 0.5), calm('sc-calm1'), breath('sc-b2')),
         ),
       ),
+  },
+  {
+    id: 'batch',
+    name: '分批吐纳',
+    algorithm: '批处理（沙漏重置递减）',
+    teach: '同一 tick 里连做 3 次吐纳会递减；沙漏把计数清零，用 3 步启动费换第二次满额。',
+    cost: 2,
+    realm: 2,
+    realmName: '金丹',
+    workspace: () => hat(batch('sc-bat1', chain([breath('sc-bb1'), breath('sc-bb2'), breath('sc-bb3')]))),
   },
   {
     id: 'huTi',

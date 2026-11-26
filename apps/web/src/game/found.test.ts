@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SaveStorage } from '@gongfa/core';
-import { readFound, writeFound, foundKey } from './found';
+import { foundKey, readFound, writeFound } from './found';
 
 function memoryStorage(initial: Record<string, string> = {}): SaveStorage {
   const data = new Map(Object.entries(initial));
@@ -21,53 +21,53 @@ function memoryStorage(initial: Record<string, string> = {}): SaveStorage {
   };
 }
 
+// 2026-11-26：功法谱从不带槽的全局键读，旧的按槽键首次读取时并集迁移。
+// 原因：存档 A/B 每 30 秒轮换，按槽存会在刷新后读到空表。
 describe('foundKey', () => {
-  it('A 槽 → gongfa:found:A', () => {
-    expect(foundKey('A')).toBe('gongfa:found:A');
-  });
-
-  it('B 槽 → gongfa:found:B', () => {
-    expect(foundKey('B')).toBe('gongfa:found:B');
+  it('不带槽位', () => {
+    expect(foundKey()).toBe('gongfa:found');
   });
 });
 
 describe('readFound / writeFound', () => {
   it('键不存在 → 空集', () => {
-    expect(readFound(memoryStorage(), 'A')).toEqual([]);
+    expect(readFound(memoryStorage())).toEqual([]);
   });
 
   it('写入后读出同一份', () => {
     const storage = memoryStorage();
-    writeFound(storage, 'A', ['linear', 'loop']);
-    expect(readFound(storage, 'A')).toEqual(['linear', 'loop']);
+    writeFound(storage, ['linear', 'loop']);
+    expect(readFound(storage)).toEqual(['linear', 'loop']);
   });
 
-  it('A 槽与 B 槽隔离', () => {
-    const storage = memoryStorage();
-    writeFound(storage, 'A', ['linear']);
-    writeFound(storage, 'B', ['loop', 'feedback']);
-    expect(readFound(storage, 'A')).toEqual(['linear']);
-    expect(readFound(storage, 'B')).toEqual(['loop', 'feedback']);
+  it('旧 A/B 两份并集迁移到全局，并写回', () => {
+    const storage = memoryStorage({
+      'gongfa:found:A': '["linear"]',
+      'gongfa:found:B': '["loop","linear"]',
+    });
+    expect(readFound(storage)).toEqual(['linear', 'loop']);
+    expect(storage.read('gongfa:found')).toBe('["linear","loop"]');
+  });
+
+  it('全局存在时不再读旧槽', () => {
+    const storage = memoryStorage({
+      'gongfa:found': '["linear"]',
+      'gongfa:found:A': '["loop"]',
+    });
+    expect(readFound(storage)).toEqual(['linear']);
   });
 
   it('JSON 解析失败 → 空集（不抛）', () => {
-    const storage = memoryStorage({ 'gongfa:found:A': 'not json' });
-    expect(readFound(storage, 'A')).toEqual([]);
+    expect(readFound(memoryStorage({ 'gongfa:found': 'not json' }))).toEqual([]);
   });
 
   it('非数组 JSON → 空集', () => {
-    const storage = memoryStorage({ 'gongfa:found:A': '{"foo":"bar"}' });
-    expect(readFound(storage, 'A')).toEqual([]);
+    expect(readFound(memoryStorage({ 'gongfa:found': '{"foo":"bar"}' }))).toEqual([]);
   });
 
-  it('数组里有未知 id → 过滤掉', () => {
-    const storage = memoryStorage({ 'gongfa:found:A': '["linear","unknown","loop"]' });
-    expect(readFound(storage, 'A')).toEqual(['linear', 'loop']);
-  });
-
-  it('数组里有非字符串 → 过滤掉', () => {
-    const storage = memoryStorage({ 'gongfa:found:A': '["linear",123,null,"loop"]' });
-    expect(readFound(storage, 'A')).toEqual(['linear', 'loop']);
+  it('数组里有未知 id / 非字符串 → 过滤掉', () => {
+    const storage = memoryStorage({ 'gongfa:found': '["linear",123,null,"unknown","loop"]' });
+    expect(readFound(storage)).toEqual(['linear', 'loop']);
   });
 
   it('写入失败（storage.write 返回 false）→ 不抛，下次读仍是旧值', () => {
@@ -77,8 +77,8 @@ describe('readFound / writeFound', () => {
       remove: () => {},
       keys: () => [],
     };
-    writeFound(storage, 'A', ['loop']);
-    expect(readFound(storage, 'A')).toEqual(['linear']);
+    writeFound(storage, ['loop']);
+    expect(readFound(storage)).toEqual(['linear']);
   });
 
   // 白名单必须跟着 PATTERNS 表：手写 4 个 id 时 break/while 读档会被静默丢掉，
@@ -90,6 +90,6 @@ describe('readFound / writeFound', () => {
       remove: () => {},
       keys: () => [],
     };
-    expect(readFound(storage, 'A')).toEqual(['linear', 'loop', 'break', 'while']);
+    expect(readFound(storage)).toEqual(['linear', 'loop', 'break', 'while']);
   });
 });

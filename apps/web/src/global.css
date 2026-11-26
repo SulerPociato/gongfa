@@ -2522,6 +2522,82 @@ body::before {
   background: var(--spirit);
 }
 
+/* 阵法阁（2026-11-26）：免费预设，只追加不替换。视觉上跟藏经阁分组，但用青色区分「积木」与「功法」。 */
+.formations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(53, 224, 200, 0.22);
+  border-radius: 12px;
+  background: rgba(10, 24, 24, 0.5);
+}
+
+.formation-hint {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.formation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formation {
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.formation.is-locked {
+  opacity: 0.62;
+}
+
+.formation-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--spirit);
+}
+
+.formation-algo {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.formation-teach {
+  margin: 4px 0 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.formation-trace {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(53, 224, 200, 0.5);
+  background: rgba(53, 224, 200, 0.12);
+  color: var(--spirit);
+  cursor: pointer;
+}
+
+.formation-trace:disabled {
+  color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: not-allowed;
+}
+
 /* 批次 24：本境考校（存量 + 效率）。达标变青，未达标保持灰。 */
 .errand {
   margin: 4px 0 0;

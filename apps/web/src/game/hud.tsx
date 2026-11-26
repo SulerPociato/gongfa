@@ -252,6 +252,10 @@ export interface HudModel {
   /** 批次 28：藏经阁（悟道学功法）与当前悟道余额。 */
   readonly insight: number;
   readonly scriptures: readonly ScriptureRow[];
+  /** 藏经阁标题下那句来源说明（图案/试炼/失败三个来源 + 已拿到多少）。 */
+  readonly scriptureSources: string;
+  /** 阵法阁（2026-11-26）：4 套免费预设，只追加不替换。 */
+  readonly formations: readonly FormationRow[];
   /** 批次 29：刚拿到第一点悟道时把藏经阁点亮几秒，别让它一直躺在横条最右边。 */
   readonly scriptureHighlight: boolean;
 }
@@ -315,7 +319,7 @@ function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow
     <div className="artifacts">
       {/* 批次 15：玩家反馈"不知道道具怎么用"——所以把「点一下就生效」写在第一行，
           并且每件都直接给出效果数字，不让人去翻图鉴。 */}
-      <p className="artifact-hint">点「装备」立刻生效，再点一次卸下</p>
+      <p className="artifact-hint">点「装备」立刻生效，再点一次卸下；道具是常驻效果，阵法是积木（去「阵法阁」拓印或自己拖「引灵」）</p>
       {rows.map((row) => (
         <div className={`artifact${row.locked ? ' is-locked' : ''}`} key={row.id}>
           <button
@@ -328,8 +332,8 @@ function ArtifactPanel({ rows, onToggle }: { readonly rows: readonly ArtifactRow
             {row.locked ? `${row.name} · ${row.unlockHint}` : row.equipped ? `卸下${row.name}` : `装备${row.name}`}
           </button>
           <p className="artifact-effect">{row.effect}</p>
-          {/* 只给已装备的那件显示「什么时候用」：五件全展开会把横条撑爆（实测被裁掉两行）。 */}
-          {!row.locked && row.equipped && <p className="artifact-when">{row.when}</p>}
+          {/* 2026-11-26：玩家反馈「只是能找到，不会用」——「什么时候用」不再等装备后才显示。 */}
+          {!row.locked && <p className="artifact-when">{row.when}</p>}
         </div>
       ))}
     </div>
@@ -579,9 +583,10 @@ export interface ScriptureRow {
   readonly unlockText: string;
 }
 
-function ScripturePanel({ insight, rows, onLearn, onLoad, highlight }: {
+function ScripturePanel({ insight, rows, sources, onLearn, onLoad, highlight }: {
   readonly insight: number;
   readonly rows: readonly ScriptureRow[];
+  readonly sources: string;
   readonly onLearn: (id: string) => void;
   readonly onLoad: (id: string) => void;
   readonly highlight: boolean;
@@ -589,7 +594,7 @@ function ScripturePanel({ insight, rows, onLearn, onLoad, highlight }: {
   return (
     <section className={`scriptures${highlight ? ' is-highlight' : ''}`}>
       <p className="label">藏经阁 · 悟道 {insight}</p>
-      <p className="scripture-hint">渡劫失败 +1 悟道；花悟道学一套上乘功法，学会可直接抄录到画布。</p>
+      <p className="scripture-hint">{sources || '渡劫失败 +1 悟道；花悟道学一套上乘功法，学会可直接抄录到画布。'}</p>
       <ul className="scripture-list">
         {rows.map((row) => (
           <li key={row.id} className={`scripture${row.learned ? ' is-learned' : ''}`}>
@@ -614,6 +619,51 @@ function ScripturePanel({ insight, rows, onLearn, onLoad, highlight }: {
                 </button>
               )}
             </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * 阵法阁（2026-11-26）：免费预设，只追加、不替换。
+ * 玩家原话是「不会用、只是能找到」，所以每行都写清形态与「不替换」承诺。
+ */
+export interface FormationRow {
+  readonly id: string;
+  readonly name: string;
+  readonly algorithm: string;
+  readonly teach: string;
+  readonly realmName: string;
+  readonly locked: boolean;
+  readonly unlockText: string;
+}
+
+function FormationPanel({ rows, onTrace }: {
+  readonly rows: readonly FormationRow[];
+  readonly onTrace: (id: string) => void;
+}) {
+  return (
+    <section className="formations">
+      <p className="label">阵法阁 · 拓印到现有功法</p>
+      <p className="formation-hint">只追加到现有功法末尾；你已有的引灵块原样保留，不替换。</p>
+      <ul className="formation-list">
+        {rows.map((row) => (
+          <li key={row.id} className={`formation${row.locked ? ' is-locked' : ''}`}>
+            <div className="formation-head">
+              <b>{row.name}</b>
+              <span className="formation-algo">{row.algorithm}</span>
+            </div>
+            <p className="formation-teach">{row.teach}</p>
+            <button
+              className="formation-trace"
+              type="button"
+              disabled={row.locked}
+              onClick={() => onTrace(row.id)}
+            >
+              {row.locked ? row.unlockText : '拓印到现有功法'}
+            </button>
           </li>
         ))}
       </ul>
@@ -1038,7 +1088,7 @@ export interface SettingsModel {
   readonly offlineBreakthrough: boolean;
 }
 
-export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, panelOpen, onTogglePanel, onLearnScripture, onLoadScripture, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly panelOpen: boolean; readonly onTogglePanel: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
+export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onCloseRetreat, onTakePill, onOpenCodex, onOptimize, panelOpen, onTogglePanel, onLearnScripture, onLoadScripture, onTraceFormation, onChooseDao }: { readonly model: HudModel; readonly onBookAction: (action: BookAction) => void; readonly onChallenge: () => void; readonly onArtifactAction: (id: string) => void; readonly onCloseRetreat: () => void; readonly onTakePill: () => void; readonly onOpenCodex: () => void; readonly onOptimize: () => void; readonly panelOpen: boolean; readonly onTogglePanel: () => void; readonly onLearnScripture: (id: string) => void; readonly onLoadScripture: (id: string) => void; readonly onTraceFormation: (id: string) => void; readonly onChooseDao: (path: 'orthodox' | 'heretic') => void }) {
   const qiRef = useRef<HTMLParagraphElement>(null);
   const prevQiRef = useRef(model.qi);
 
@@ -1134,10 +1184,12 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         <ScripturePanel
           insight={model.insight}
           rows={model.scriptures}
+          sources={model.scriptureSources}
           onLearn={(id) => onLearnScripture(id)}
           onLoad={(id) => onLoadScripture(id)}
           highlight={model.scriptureHighlight}
         />
+        <FormationPanel rows={model.formations} onTrace={(id) => onTraceFormation(id)} />
         <BookArtifactPanel
           bookModel={model.book}
           artifactRows={model.artifacts}
