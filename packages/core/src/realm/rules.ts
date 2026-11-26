@@ -133,6 +133,20 @@ export interface TrialParry {
   readonly demon: number;
 }
 
+/**
+ * 单波雷在界面上的状态（批次 38 补）：`hit` 已接住、`miss` 已过窗口且没接、`pending` 还没到。
+ * 结算仍只在 10 秒到期时记 miss（§7.1.2），这里只负责说真话：
+ * 三雷点是「哪一波」，不是「命中了几波」——只按 hits 数点亮会把「中 1 漏 2 中 3」画成「中 1 中 2」。
+ */
+export type TrialWaveState = 'pending' | 'hit' | 'miss';
+
+export function parryWaveStates(hits: readonly boolean[], elapsedMs: number): readonly TrialWaveState[] {
+  return TRIAL_WAVES_MS.map((wave, index) => {
+    if (hits[index] === true) return 'hit';
+    return elapsedMs > wave + TRIAL_PARRY_WINDOW_MS ? 'miss' : 'pending';
+  });
+}
+
 /** 承雷结算的成功率：85% 起，命中 +2%、漏掉 -5%，心魔高再扣一档。 */
 export function parryRate(input: TrialParry): number {
   const base = MANUAL_RATE + input.hits * PARRY_BONUS - input.misses * PARRY_PENALTY;

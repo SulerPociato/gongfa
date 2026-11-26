@@ -24,8 +24,11 @@ import {
   isChargeReady,
   isThresholdReached,
   parryRate,
+  parryWaveStates,
   passivePerTick,
   resolveChallenge,
+  TRIAL_PARRY_WINDOW_MS,
+  TRIAL_WAVES_MS,
 } from './rules';
 
 // 真表，不是夹具：本文件里凡是对得上契约 §2.3 / §3 的数字，都必须在 shipped JSON 上成立。
@@ -53,6 +56,18 @@ describe('content/realms.json 逐字段对契约（§2.3 表 + §3 阈值，不�
   it('表能过 loadContent 的多行规则（首境 id 0、id/threshold 严格递增、actionMult 不回退）', () => {
     expect(REALMS.length).toBe(4);
     expect(() => loadContent({ actions: actionsJson, realms: realmsJson })).not.toThrow();
+  });
+});
+
+describe('content/actions.json 对契约 §2.2.1 / §3 G5（调息 -0.0003）', () => {
+  it('调息自身 demonDelta = -0.0003（2026-11-23 收紧后的唯一实现值）', () => {
+    expect(CONTENT.actions.find((action) => action.id === 'calm')?.demonDelta).toBe(-0.0003);
+  });
+
+  it('边际递减按表值：k=2 → /1.6，k=4 → /2.8', () => {
+    const sink = makeActionSink({ content: CONTENT, realmIndex: 0 });
+    expect(sink.execute({ actionId: 'calm', k: 2, pc: 0, loopDepth: 0 }).demonDelta).toBeCloseTo(-0.0003 / 1.6, 12);
+    expect(sink.execute({ actionId: 'calm', k: 4, pc: 0, loopDepth: 0 }).demonDelta).toBeCloseTo(-0.0003 / 2.8, 12);
   });
 });
 
@@ -406,5 +421,16 @@ describe('承雷（批次 38）', () => {
     const sloppy = resolveChallenge({ ...base, parry: { hits: 0, misses: 3, demon: 0.9 } });
     expect(perfect.rate).toBeCloseTo(0.91, 5);
     expect(sloppy.rate).toBe(0.55);
+  });
+
+  // 三盏灯必须按「哪一波」画。只按命中数推的旧实现，会把「中 1 漏 2 中 3」画成「中 1 中 2」。
+  it('波次状态按波算：没到 = pending，过了窗口没接 = miss，接住 = hit', () => {
+    const [w1, w2, w3] = TRIAL_WAVES_MS;
+    expect(parryWaveStates([], 0)).toEqual(['pending', 'pending', 'pending']);
+    expect(parryWaveStates([], w1! + TRIAL_PARRY_WINDOW_MS)).toEqual(['pending', 'pending', 'pending']);
+    expect(parryWaveStates([], w1! + TRIAL_PARRY_WINDOW_MS + 1)).toEqual(['miss', 'pending', 'pending']);
+    expect(parryWaveStates([true, false, true], w3!)).toEqual(['hit', 'miss', 'hit']);
+    expect(parryWaveStates([true, true, true], 0)).toEqual(['hit', 'hit', 'hit']);
+    expect(parryWaveStates([false, true, false], w2! + TRIAL_PARRY_WINDOW_MS + 1)).toEqual(['miss', 'hit', 'pending']);
   });
 });

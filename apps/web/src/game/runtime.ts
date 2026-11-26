@@ -6,6 +6,8 @@ import {
   TRIAL_DEMON_RISE_PER_SEC,
   TRIAL_PARRY_WINDOW_MS,
   TRIAL_WAVES_MS,
+  parryWaveStates,
+  type TrialWaveState,
   CHALLENGE_COOLDOWN_MS,
   CHALLENGE_TRIAL_MS,
   CHARGE_WINDOW_MS,
@@ -154,6 +156,8 @@ export interface RuntimeState {
     readonly hits: number;
     readonly misses: number;
     readonly demon: number;
+    /** 三波雷各自的界面状态：hit / miss / pending。按「哪一波」画灯，不按命中数推。 */
+    readonly waves: readonly TrialWaveState[];
     /** 下一波天雷还有多少毫秒；null = 三波都已过。 */
     readonly nextWaveInMs: number | null;
   } | null;
@@ -547,6 +551,7 @@ const PILL_DEMON_RELIEF = 0.1;
               hits: trialHits,
               misses: trialMisses,
               demon: trialDemon,
+              waves: parryWaveStates(trialWavesHit, elapsed),
               nextWaveInMs: next === undefined ? null : Math.max(0, next - elapsed),
             };
           })()
