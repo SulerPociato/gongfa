@@ -7,6 +7,10 @@
   },
   "scripts": {
     "dev": "pnpm --filter @gongfa/web dev",
+    "dev:server": "node server/index.mjs",
+    "build": "pnpm --filter @gongfa/web build",
+    "serve": "node server/index.mjs",
+    "start": "node server/index.mjs",
     "sim": "tsx tools/balance-sim.ts",
     "sim:table": "tsx tools/balance-sim.ts --table",
     "test": "vitest run",

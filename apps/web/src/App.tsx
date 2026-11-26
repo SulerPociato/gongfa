@@ -49,6 +49,7 @@ import { FORMATIONS, formationOf, mergeFormation } from './game/formations';
 import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type ArtifactRow, type BookAction, type BookModel, type ChallengeModel, type ChallengeOutcome, type ChallengePhase, type CorruptLineModel, type CurveCompare, type CurveModel, type FactionOption, type FormationRow, type HudModel, type RealmModel, type RetreatReport, type ScriptureRow, type SprintModel } from './game/hud';
 import { TutorialBubble } from './game/tutorialBubble';
 import { WorldCodex } from './game/WorldCodex';
+import { CommunityPanel } from './game/CommunityPanel';
 import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
 
@@ -465,6 +466,11 @@ export function App() {
   const chooseSectRef = useRef<((id: string | null) => void) | null>(null);
   const chooseDomainRef = useRef<((id: string | null) => void) | null>(null);
   const usePillRef = useRef<((id: string) => void) | null>(null);
+  // 2026-11-27 社区：当前功法序列化 / 抄作业导入，都需要 effect 里的 workspace。
+  const currentBuildRef = useRef<(() => string) | null>(null);
+  const importBuildRef = useRef<((json: string) => void) | null>(null);
+  // 社区榜单按「本境用时」提交：进入当前境界的时刻（刷新后从当前时刻重算，榜单只作参考）。
+  const realmStartedAtRef = useRef(Date.now());
   // P1 纵切：炼器炉。分析要用 effect 闭包里的 saved/compile，所以同样走 ref 转发。
   const optimizeActionRef = useRef<(() => void) | null>(null);
   // 底部引导条的「跳过引导」同理：要写 localStorage、放掉工具箱的隐藏块，全在 useEffect 的作用域里。
@@ -502,6 +508,23 @@ export function App() {
   const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, warning: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, sect: null, domain: null, sects: SECT_OPTIONS, domains: DOMAIN_OPTIONS, pills: PILL_ROWS_EMPTY, formations: [], scriptureSources: '', bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 2026-11-27 社区版：同源 API 面板（榜单/帖子/账号）。
+  const [communityOpen, setCommunityOpen] = useState(false);
+  // 静态 Pages 没有 /api：先探活，探不到就不显示社区按钮，避免线上出现一排报错。
+  const [communityAvailable, setCommunityAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health', { headers: { accept: 'application/json' } })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body: unknown = await response.json().catch(() => null);
+        if (!cancelled && typeof body === 'object' && body !== null && (body as { ok?: unknown }).ok === true) {
+          setCommunityAvailable(true);
+        }
+      })
+      .catch(() => { /* 纯静态部署：没有后端，保持隐藏 */ });
+    return () => { cancelled = true; };
+  }, []);
   // 批次 29：第一次拿到悟道时点亮藏经阁（2.6 秒后自动熄）。
   // 逐帧回调只认首帧闭包，所以用 ref 而不是 state。
   const scriptureHighlightRef = useRef(false);
@@ -680,6 +703,25 @@ export function App() {
       // 窄屏统一 0.72 起步，桌面保持 1.0。
       zoom: { startScale: window.innerWidth < 900 ? 0.72 : 1, minScale: 0.4, maxScale: 1.6, controls: true, wheel: true, pinch: true },
     });
+    currentBuildRef.current = (): string => JSON.stringify(Blockly.serialization.workspaces.save(workspace));
+    importBuildRef.current = (json: string): void => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        showToast('功法码不是合法 JSON');
+        return;
+      }
+      setModal({
+        title: '抄作业',
+        body: '会用这份功法覆盖当前画布（当前程序会丢）。确认后可以立刻跑，也可以先看再改。',
+        confirmText: '覆盖并载入',
+        onConfirm: () => {
+          reloadCanvas(parsed as WorkspaceJson);
+          showToast('已载入社区功法');
+        },
+      });
+    };
 
     // 批次 18：手机/窄屏下 Blockly 的 SVG 尺寸是在 inject 时定的，布局换成堆叠后
     // 只要不 resize，工具箱里的积木就会画在可视区之外（真机实测左侧一整片空白灰）。
@@ -1913,6 +1955,7 @@ export function App() {
       }
       if (state.realmIndex !== lastRealmSeen) {
         lastRealmSeen = state.realmIndex;
+        realmStartedAtRef.current = Date.now();
         const drops = ARTIFACT_DROPS[state.realmIndex];
         if (drops !== undefined) grantArtifacts(drops, `${state.realmName}的渡劫奖励`);
       }
@@ -2129,6 +2172,8 @@ export function App() {
       chooseSectRef.current = null;
       chooseDomainRef.current = null;
       usePillRef.current = null;
+      currentBuildRef.current = null;
+      importBuildRef.current = null;
       trialPressRef.current = null;
       // 浮层是本地 state：StrictMode 的第二次挂载没有 demoPanelOpen，留着会挂着一块关不掉的面板。
       setDemoTrial(false);
@@ -2221,6 +2266,7 @@ export function App() {
         <div className="topbar-right">
           {hud.demo && <span className="topbar-badge demo">演示 {DEMO_SPEED}×</span>}
           <span className="topbar-mode">在线 ×1.0 ｜ 闭关 ×0.6</span>
+          {communityAvailable && <button className="topbar-community" type="button" onClick={() => setCommunityOpen(true)}>社区</button>}
           <button className="topbar-settings" type="button" aria-label="设置" onClick={() => setDrawerOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />
@@ -2259,6 +2305,18 @@ export function App() {
         {modal !== null && <Modal request={modal} onClose={() => setModal(null)} />}
       </div>
       <Hud model={hud} onTakePill={handleTakePill} onLearnScripture={(id) => { learnScriptureRef.current?.(id); }} onLoadScripture={(id) => { loadScriptureRef.current?.(id); }} onTraceFormation={(id) => { traceFormationRef.current?.(id); }} onChooseSect={(id) => { chooseSectRef.current?.(id); }} onChooseDomain={(id) => { chooseDomainRef.current?.(id); }} onUsePill={(id) => { usePillRef.current?.(id); }} onOpenCodex={() => setDrawerOpen(true)} onOptimize={() => { optimizeActionRef.current?.(); }} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen((open) => !open)} onBookAction={(action) => { bookActionRef.current?.(action); }} onChallenge={() => { challengeActionRef.current?.(); }} onArtifactAction={(id) => { artifactActionRef.current?.(id); }} onCloseRetreat={handleCloseRetreat} onChooseDao={handleChooseDao} />
+      {communityOpen && runtimeRef.current !== null && (
+        <CommunityPanel
+          realmIndex={runtimeRef.current.state().realmIndex}
+          realmName={runtimeRef.current.state().realmName}
+          seed={runtimeRef.current.state().seed}
+          playMs={Math.max(1_000, Date.now() - realmStartedAtRef.current)}
+          rate={runtimeRef.current.state().rate}
+          getBuild={() => currentBuildRef.current?.() ?? ''}
+          onImport={(json) => importBuildRef.current?.(json)}
+          onClose={() => setCommunityOpen(false)}
+        />
+      )}
       {/* 渡劫面板（批次 1）：正式玩法跟 phase 走；演示那块是 X 键举起来的，phase 永远不会是 trial。
           渲染在这里而不是 HUD 里：HUD 宽 300px 放不下「最显眼的一行」，窗口期玩家的手还在画布上。 */}
       {(hud.challenge.phase === 'trial' || demoTrial) && (
