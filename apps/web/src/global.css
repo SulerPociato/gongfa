@@ -3008,6 +3008,25 @@ body::before {
   background: rgba(255, 90, 70, 0.16);
 }
 
+/* 存档回退（主槽坏、备槽救回来）：不是红字，但必须当着玩家的面说一句。 */
+.issue-strip.is-warning {
+  color: #f0d49a;
+  background: rgba(232, 201, 120, 0.1);
+  border-color: rgba(232, 201, 120, 0.35);
+}
+
+.issue-strip.is-warning:hover {
+  background: rgba(232, 201, 120, 0.16);
+}
+
+.issue-strip.is-warning .issue-dot {
+  background: #e8c978;
+}
+
+.issue-strip.is-warning .issue-more {
+  color: rgba(240, 212, 154, 0.75);
+}
+
 .issue-dot {
   flex: 0 0 auto;
   width: 6px;
@@ -3122,6 +3141,12 @@ body::before {
   border-color: var(--m3-primary);
   color: var(--m3-primary);
   background: rgba(53, 224, 200, 0.14);
+}
+
+.trial-wave.is-miss {
+  border-color: rgba(255, 107, 87, 0.8);
+  color: #ff8a7a;
+  background: rgba(255, 90, 70, 0.14);
 }
 
 .trial-waves-text {

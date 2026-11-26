@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, NOISE_LINE, type BookPhase, type StallEvent } from '@gongfa/core';
-import { compareParts } from './format';
+import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, NOISE_LINE, PARRY_BONUS, PARRY_DEMON_RELIEF, PARRY_MISS_DEMON, PARRY_PENALTY, PARRY_RATE_MAX, PARRY_RATE_MIN, TRIAL_DEMON_RISE_PER_SEC, TRIAL_PARRY_WINDOW_MS, TRIAL_WAVES_MS, type BookPhase, type StallEvent, type TrialWaveState } from '@gongfa/core';
+import { compareParts, durationText } from './format';
 import { CLUSTER_LIMITS, REPLICA_LIMITS, quorumOf, simulateCluster } from './distributed';
 import type { TraceSample } from './runtime';
 import type { TutorialBarModel } from './tutorial';
@@ -102,6 +102,8 @@ export interface ChallengeModel {
     readonly hits: number;
     readonly misses: number;
     readonly demon: number;
+    /** 三波雷各自的界面状态：hit / miss / pending（按波画灯，不按命中数推）。 */
+    readonly waves: readonly TrialWaveState[];
     readonly nextWaveInMs: number | null;
   } | null;
   readonly cooldownRemainingMs: number;
@@ -195,6 +197,11 @@ export interface HudModel {
   readonly rate: number;
   readonly errors: readonly string[];
   readonly corrupt: CorruptLineModel | null;
+  /**
+   * 存档回退（主槽坏、备槽救回来）的首屏提示。它不进红字（档还在、玩法正常），
+   * 但也不能只躺在面板里 —— 玩家会以为进度凭空倒退。
+   */
+  readonly warning: string | null;
   readonly stall: StallEvent | null;
   /**
    * 步数经济学（批次 5）：本 tick 用了多少步、上限多少、每步换多少灵力。
@@ -724,7 +731,7 @@ export function ChallengePanel({ model, demo, onPress }: { readonly model: Chall
         <p className="challenge-hint">
           {demo
             ? '演示模式：点一下当场按 ' + percent(MANUAL_RATE) + ' 结算（无 10 秒窗口），按 X 才走面板。'
-            : `点一下进 ${(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒窗口：窗口内点确认 = ${percent(MANUAL_RATE)}，撒手 = ${percent(AUTO_RATE)} 托管。境界在结算之后才变。`}
+            : `点一下进 ${(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒窗口：${TRIAL_WAVES_MS.map((ms) => ms / 1000).join(' / ')} 秒三波雷，接住抬成功率、漏掉掉成功率（${percent(PARRY_RATE_MIN)}–${percent(PARRY_RATE_MAX)}）；点「交给天意」= ${percent(AUTO_RATE)} 结算。境界在结算之后才变。`}
         </p>
       )}
       {/* 保底与冷却都在内存里（§5.1 没这两个字段）：文案必须写明刷新清零，否则玩家以为攒到了第 2 次。 */}
@@ -758,7 +765,9 @@ export function TrialPanel({ model, demo, onPress, onParry }: {
       <p className="trial-panel-lead">
         {demo
           ? `演示模式：面板只由 X 键打开，点「确认冲关」当场按 ${percent(MANUAL_RATE)} 结算，无 10 秒窗口。`
-          : `不操作也会自动结算（${percent(AUTO_RATE)}）；点「立即冲关」= ${percent(MANUAL_RATE)}`}
+          : model.trialParry !== null
+            ? `${TRIAL_WAVES_MS.map((ms) => ms / 1000).join(' / ')} 秒三波天雷：接住压心魔、抬成功率（${percent(PARRY_RATE_MIN)}–${percent(PARRY_RATE_MAX)}）；不接按承雷战绩结算。`
+            : `不操作也会自动结算（${percent(AUTO_RATE)}）；点「立即冲关」= ${percent(MANUAL_RATE)}`}
       </p>
       {model.trialParry !== null ? (
         <>
@@ -769,12 +778,14 @@ export function TrialPanel({ model, demo, onPress, onParry }: {
             <span className="trial-demon-value">{(model.trialParry.demon * 100).toFixed(0)}%</span>
           </div>
           <div className="trial-waves" aria-label="天雷进度">
-            {[0, 1, 2].map((index) => (
+            {/* 三盏灯按「哪一波」画：命中数只说明接住几波，不能推出漏的是哪一波。 */}
+            {model.trialParry.waves.map((state, index) => (
               <span
                 key={index}
-                className={`trial-wave${model.trialParry !== null && model.trialParry.hits > index ? ' is-hit' : ''}`}
+                className={`trial-wave is-${state}`}
+                title={state === 'hit' ? '已接住' : state === 'miss' ? '已漏' : '还没到'}
               >
-                {model.trialParry !== null && model.trialParry.hits > index ? '✓' : '⚡'}
+                {state === 'hit' ? '✓' : state === 'miss' ? '✗' : '⚡'}
               </span>
             ))}
             <span className="trial-waves-text">
@@ -791,7 +802,9 @@ export function TrialPanel({ model, demo, onPress, onParry }: {
               交给天意 {percent(AUTO_RATE)}
             </button>
           </div>
-          <p className="trial-panel-note">雷到的一瞬点「承雷」：压心魔、抬成功率；漏一波心魔 +16%。</p>
+          <p className="trial-panel-note">
+            {`命中：心魔 −${Math.round(PARRY_DEMON_RELIEF * 100)}%、成功率 +${Math.round(PARRY_BONUS * 100)}%；漏一波：心魔 +${Math.round(PARRY_MISS_DEMON * 100)}%、成功率 −${Math.round(PARRY_PENALTY * 100)}%；窗口内每波只有 ±${TRIAL_PARRY_WINDOW_MS}ms，心魔每秒 +${Math.round(TRIAL_DEMON_RISE_PER_SEC * 100)}%。`}
+          </p>
         </>
       ) : (
         <>
@@ -807,7 +820,6 @@ export function TrialPanel({ model, demo, onPress, onParry }: {
           </button>
         )}
       </div>
-      <p className="trial-panel-note">改功法只改接下来的产出，不改成功率。</p>
         </>
       )}
       {/* 01-design §4.4 的「限时改功法」：改的是产出，不是概率 —— 这句必须写死，不然玩家会以为磨得越久越容易。 */}
@@ -836,12 +848,10 @@ export function ChallengeResultLayer({ outcome, onDismiss }: { readonly outcome:
 
 // 闭关报告面板（任务 7B）：离线结算后显示，玩家点「知道了」关闭
 function RetreatPanel({ report, onClose }: { readonly report: RetreatReport; readonly onClose: () => void }) {
-  const durationMin = Math.floor(report.elapsedMs / 60000);
-  const durationSec = Math.floor((report.elapsedMs % 60000) / 1000);
   return (
     <div className="retreat">
       <p className="retreat-title">闭关报告</p>
-      <p className="retreat-line">闭关 {durationMin}分{durationSec}秒 ｜ 灵力 +{Math.floor(report.creditedGained)}（离线效率 60%）</p>
+      <p className="retreat-line">闭关 {durationText(report.elapsedMs)} ｜ 灵力 +{Math.floor(report.creditedGained)}（离线效率 60%）</p>
       <p className="retreat-line">同期在线口径约 +{Math.floor(report.rawGained)}（未扣心魔、杂念与走火损失）</p>
       <p className="retreat-line">当前境界：{report.realmName}</p>
       {report.breakthrough !== null && (
@@ -964,15 +974,21 @@ export function Hud({ model, onBookAction, onChallenge, onArtifactAction, onClos
         <DemonStrip model={model.realm} onTakePill={onTakePill} />
         {/* 批次 36：红字/坏档/撞步不能只躺在面板里 —— 面板关着时玩家永远看不到。
             首屏给一条摘要，点开面板看全文。 */}
-        {(model.corrupt !== null || model.errors.length > 0 || model.stall !== null) && (
-          <button className="issue-strip" type="button" onClick={onTogglePanel}>
+        {(model.corrupt !== null || model.errors.length > 0 || model.stall !== null || model.warning !== null) && (
+          <button
+            className={`issue-strip${model.corrupt === null && model.errors.length === 0 && model.stall === null ? ' is-warning' : ''}`}
+            type="button"
+            onClick={onTogglePanel}
+          >
             <span className="issue-dot" aria-hidden="true" />
             <span className="issue-text">
               {model.corrupt !== null
                 ? model.corrupt.line
                 : model.errors.length > 0
                   ? model.errors[0]
-                  : `第 ${model.stall?.steps ?? 0} 步没跑完`}
+                  : model.stall !== null
+                    ? `第 ${model.stall.steps} 步没跑完`
+                    : model.warning}
             </span>
             <span className="issue-more">详情</span>
           </button>

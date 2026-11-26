@@ -14,7 +14,7 @@ import {
   TOOLBOX_JSON,
   type WorkspaceJson,
 } from '@gongfa/blocks';
-import { AUTO_RATE, BACKLASH_LINE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, MANUAL_RATE, NOISE_LINE, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, activeSlot, bookEvent, derivePhase, linearizeProgram, loadGame, newGameState, patternDef, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
+import { AUTO_RATE, BACKLASH_LINE, FAILURE_QI_MULT, NOISE_LINE, PARRY_BONUS, PARRY_DEMON_RELIEF, PARRY_MISS_DEMON, PARRY_PENALTY, PARRY_RATE_MAX, PARRY_RATE_MIN, PREVIEW_SECONDS, PATTERN_TOTAL, PATTERNS, TRIAL_WAVES_MS, activeSlot, bookEvent, derivePhase, linearizeProgram, loadGame, newGameState, patternDef, patternsOf, readSettings, shapeOf, writeSettings, type BookDef, type BookEvent, type BookPhase, type CurvePreview, type GameState, type LoadResult, type OfflineResult, type PatternId, type Program, type SaveStorage, Qi } from '@gongfa/core';
 import { blockLocalStorageWrites, createLocalStorageSaveStorage, createSessionFlagStore, wallClock } from './adapters/storage';
 import { randomSeed } from './adapters/seed';
 import { createSaveController, type SaveSnapshot } from './game/save';
@@ -32,6 +32,7 @@ import { readUnlocked, writeUnlocked } from './game/unlocked';
 import { Modal, type ModalRequest } from './game/Modal';
 import { MOMENT_TEXTS, PERSISTED_MOMENTS, readSeenActive, writeSeen, type MomentId } from './game/moments';
 import { nextStepOf } from './game/nextStep';
+import { palettePlacement } from './game/palette';
 import { readDao, writeDao } from './game/dao';
 import { readBest, writeBest, type BestMap } from './game/best';
 import { insightBonusText, insightRate, rankReached } from './game/insight';
@@ -305,7 +306,7 @@ function momentToastText(id: string): string {
   return moment ?? getUnlockToastText(id);
 }
 
-function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao'> & { readonly bestPerQi: number | null }): HudModel {
+function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternId[], extra: Pick<HudModel, 'errors' | 'corrupt' | 'warning' | 'save' | 'notices' | 'artifacts' | 'retreat' | 'curve' | 'toast' | 'tutorial' | 'nextStep' | 'dao'> & { readonly bestPerQi: number | null }): HudModel {
   return {
     qi: Math.floor(state.qi),
     rate: state.rate,
@@ -325,6 +326,7 @@ function hudModel(state: RuntimeState, book: BookModel, found: readonly PatternI
     book,
     errors: extra.errors,
     corrupt: extra.corrupt,
+    warning: extra.warning,
     save: extra.save,
     notices: extra.notices,
     retreat: extra.retreat,
@@ -372,6 +374,11 @@ type ChangeEvent = { readonly group?: string | undefined };
 // 逐字段明细 + 备份原文进 console.group('save:corrupt') 和「详情」展开区。
 // 回退备用槽成功（state 还在）不走这里：档读回来了，core 那时 errors 为空，只有一句灰字 notice。
 let pendingCorrupt: CorruptLineModel | null = null;
+
+// 回退备用槽的提示也走同一个「跨重挂载」兜底：StrictMode 第二次挂载时，第一次可能已经把 B 槽写成指针，
+// 再读就是「一切正常」——提示就这么被吞了（HANDOFF 第 4 条坑的同型问题）。
+// 生产构建只挂一次，模块变量不会被读到，不影响。
+let pendingFallbackNotice: string | null = null;
 
 function corruptReport(storage: SaveStorage, loaded: LoadResult): CorruptLineModel | null {
   if (loaded.state !== null || loaded.summary === null) return null;
@@ -439,7 +446,7 @@ export function App() {
   }
   const booted = runtimeRef.current.state();
   const initialSettings = readSettings(createLocalStorageSaveStorage());
-  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
+  const [hud, setHud] = useState<HudModel>(hudModel(booted, { phase: 'IDLE', text: '未装载功法 · 心魔 ×1.00', loadable: 0 }, [], { errors: [], corrupt: null, warning: null, save: ['读取存档…'], notices: [], artifacts: [], retreat: null, curve: NO_CURVE, toast: null, tutorial: null, nextStep: '', dao: null, bestPerQi: null }));
   const [settings, setSettings] = useState(initialSettings.settings);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // 批次 29：第一次拿到悟道时点亮藏经阁（2.6 秒后自动熄）。
@@ -615,11 +622,27 @@ export function App() {
       const block = workspace.newBlock(type);
       block.initSvg();
       block.render();
-      // 先试着接到「每 tick」的 BODY：手机上画布小，让新块自动落位比手动拖更省事。
+      // 手机上画布小，让新块自动落位比手动拖更省事：
+      // BODY 空 → 接 BODY；BODY 已占 → 沿 BODY 链走到链尾、接 next；都不行才浮空。
+      // （原来只有「BODY 空才接」，第 2 块起全浮空 —— 玩家点第二下看不到任何变化。）
       const hat = workspace.getBlocksByType('tick_hat', false)[0];
-      const body = hat?.getInput('BODY')?.connection;
-      if (body && !body.isConnected() && block.previousConnection) {
+      const body = hat?.getInput('BODY')?.connection ?? null;
+      let tail = body?.targetBlock() ?? null;
+      while (tail !== null) {
+        const next = tail.nextConnection?.targetBlock() ?? null;
+        if (next === null) break;
+        tail = next;
+      }
+      const tailNext = tail?.nextConnection ?? null;
+      const placement = palettePlacement({
+        statement: block.previousConnection !== null,
+        bodyConnected: body?.isConnected() === true,
+        tailHasNext: tailNext !== null && tailNext.targetBlock() === null,
+      });
+      if (placement === 'body' && body !== null && block.previousConnection !== null) {
         body.connect(block.previousConnection);
+      } else if (placement === 'chain' && tailNext !== null && block.previousConnection !== null) {
+        tailNext.connect(block.previousConnection);
       } else {
         block.moveBy(80, 120);
       }
@@ -777,6 +800,16 @@ export function App() {
     }
     // 损坏提示分层：HUD 那一行 + 控制台明细 + 「详情」展开区，都由这一次装载的结果决定
     const corrupted = corruptReport(storage, loaded) ?? pendingCorrupt;
+    // 回退备用槽：core 已经把话说好了（「主存档（A 槽）不可用，已回退 B 槽继续」），
+    // 这里只负责不让它在 StrictMode 第二次挂载时消失，并把它抬到首屏（不是只躺在面板里）。
+    let fallbackNotice: string | null = null;
+    if (loaded.state !== null && loaded.fellBack && loaded.summary !== null) {
+      fallbackNotice = loaded.summary;
+      pendingFallbackNotice = loaded.summary;
+    } else if (loaded.state !== null && pendingFallbackNotice !== null) {
+      fallbackNotice = pendingFallbackNotice;
+      pendingFallbackNotice = null;
+    }
     // 红字 = 这一 tick 有东西没按预期跑起来；任何一条都不静默。两处不进红字：
     // ① 积木没能上屏（已退回开局程序）时，core 对存档那份坏 workspace 的编译报错要丢掉——
     //    它说的不是眼前跑的程序，而且开局程序自带入口块，再报「缺少每 tick 入口块」就是假报错；
@@ -794,7 +827,12 @@ export function App() {
     const slot = activeSlot(storage);
     let algoFoundState: readonly PatternId[] = readFound(storage, slot);
     setAlgoFound(algoFoundState);
-    let noticeList: readonly string[] = [...loaded.notices, ...(grant.notice === null ? [] : [grant.notice])];
+    let noticeList: readonly string[] = [
+      ...loaded.notices,
+      // StrictMode 第二次挂载时 loaded.notices 已经是空的了（指针已切到好槽），靠兜底变量补回面板那一行。
+      ...(fallbackNotice !== null && !loaded.notices.includes(fallbackNotice) ? [fallbackNotice] : []),
+      ...(grant.notice === null ? [] : [grant.notice]),
+    ];
     // 按钮点出来的错误（非法相位、目录查不到书、积木装不上）单独一路：compile() 每次都重算 playErrors，
     // 不并进来就会被下一次改动抹掉。
     let actionErrors: string[] = [];
@@ -1259,7 +1297,7 @@ export function App() {
       const result = runtime.pressChallenge();
       if (result.phase === 'trial') {
         lastHudKey = '';
-        pushNotice(`渡劫开始：${(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒内点「立即冲关」按 ${(MANUAL_RATE * 100).toFixed(0)}% 算，放手则按 ${(AUTO_RATE * 100).toFixed(0)}% 托管`);
+        pushNotice(`渡劫开始：${TRIAL_WAVES_MS.map((ms) => ms / 1000).join(' / ')} 秒三波雷。承雷命中：心魔 −${Math.round(PARRY_DEMON_RELIEF * 100)}%、成功率 +${Math.round(PARRY_BONUS * 100)}%；漏一波：心魔 +${Math.round(PARRY_MISS_DEMON * 100)}%、成功率 −${Math.round(PARRY_PENALTY * 100)}%。不接按承雷战绩结算（${Math.round(PARRY_RATE_MIN * 100)}–${Math.round(PARRY_RATE_MAX * 100)}%），也可点「交给天意」按 ${Math.round(AUTO_RATE * 100)}%。`);
         return;
       }
       if (result.phase === 'idle') {
@@ -1842,6 +1880,7 @@ export function App() {
         ...previous,
         notices: noticeList,
         corrupt: corrupted,
+        warning: fallbackNotice,
         // 损坏那句在红字里（含备份 key），灰字只标这一次装载的来历，不重复两遍
         save: loaded.fresh ? ['新档 · 尚未落盘'] : ['档已装载'],
         retreat: offlineReport === null ? null : toRetreatReport(offlineReport, runtime.state().realmName),
