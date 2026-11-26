@@ -136,3 +136,16 @@
 - 代码分 3 个 commit：承雷 UI/文案、移动端点加+回退提示+时长、契约/报告。
 - 推送后等 GitHub Pages（约 45–60 秒），取新 `index-*.js`，在线上跑 S5（三雷点）+ S8（坏档）+ 控制台无 error。
 - 详细 hash 与线上截图见 commit 后的 `reviews/18` 追加或 HANDOFF。
+
+### 实测（2026-11-26 09:16）
+
+| 项 | 结果 |
+|---|---|
+| Pages workflow | `completed success`，head `52d4b21` |
+| 线上 bundle | `/gongfa/assets/index-lE8SLhqv.js`（1,079,122 B） |
+| 线上 S5 承雷 | 中 1 漏 2 中 3 → 灯 `⚡⚡⚡` → `✓⚡⚡` → `✓✗⚡` → `✓✗✓`，结算「突破成功」，console 0 error |
+| 线上 S3 点加 | 10.0 → 18.1 → 24.8 / 秒 |
+| 线上 S8 坏档 | A 坏 B 好 → 首屏「主存档（A 槽）不可用，已回退 B 槽继续」；两槽坏 → 红条 + 备份 key |
+| 线上 S9 离线 | 90 分钟 → 「闭关 1小时 ｜ 灵力 +21599」；30 秒无报告 |
+| 线上 console | 四个场景 0 error |
+
