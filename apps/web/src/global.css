@@ -304,6 +304,13 @@ body::before {
   .canvas-seal { display: none; }
   /* 手机上省一层全屏雾：软件合成时它是最大的那笔开销，背景云纹已经够用 */
   .canvas-mist { display: none; }
+  /* 手机上面板下方就是 HUD，飘字改到面板上方（画布区域），不压「下一步」文字 */
+  .trial-pop {
+    top: auto;
+    bottom: 100%;
+    height: auto;
+    padding: 0 0 10px;
+  }
 }
 
 /* ===== 积木皮肤：墨底 + 亮描边（参考图的读法；thrasos 渲染器） =====
@@ -3280,22 +3287,32 @@ body::before {
 }
 
 
-/* 批次 38：渡劫·承雷。心魔条 + 三波雷 + 承雷按钮 */
+/* 批次 38：渡劫·承雷。心魔 + 成功率并排、三波雷时间轴、10 秒进度、命中/漏雷整屏反馈 */
+.trial-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 0 2px;
+}
+
 .trial-demon {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 10px 0 6px;
+  margin: 0;
   font-size: 11px;
   color: var(--m3-on-surface-var);
 }
+
+.trial-head .trial-demon { flex: 1 1 auto; }
 
 .trial-demon-label { flex: 0 0 auto; color: #ff8f80; }
 
 .trial-demon-bar {
   flex: 1 1 auto;
-  height: 6px;
-  border-radius: 3px;
+  height: 7px;
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.1);
   overflow: hidden;
 }
@@ -3313,41 +3330,227 @@ body::before {
   color: #ffb4a8;
 }
 
+/* 成功率是这一屏的第二主角：接住/漏掉后立刻变，玩家能看见自己把概率打成了多少 */
+.trial-rate {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  line-height: 1;
+}
+
+.trial-rate span {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--m3-on-surface-var);
+}
+
+.trial-rate strong {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  color: var(--spirit);
+  text-shadow: 0 0 14px rgba(53, 224, 200, 0.35);
+}
+
+.trial-rate.is-mid strong {
+  color: var(--gold);
+  text-shadow: 0 0 14px rgba(232, 201, 120, 0.32);
+}
+
+.trial-rate.is-low strong {
+  color: #ff7b63;
+  text-shadow: 0 0 14px rgba(255, 123, 99, 0.35);
+}
+
+.trial-timeline { margin: 10px 0 0; }
+
 .trial-waves {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin: 4px 0 10px;
+  justify-content: space-between;
+  gap: 0;
+  margin: 4px 2px 8px;
+  padding: 0 4px;
   font-size: 12px;
 }
 
+/* 三盏灯之间的一条时间轴 */
+.trial-waves::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(53, 224, 200, 0.35), rgba(53, 224, 200, 0.1));
+}
+
 .trial-wave {
-  width: 22px;
-  height: 22px;
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(7, 18, 20, 0.92);
   color: rgba(255, 255, 255, 0.45);
-  font-size: 11px;
-  transition: all 160ms var(--ease-emphasized);
+  font-size: 14px;
+  transition: border-color 160ms var(--ease-emphasized), color 160ms var(--ease-emphasized), background 160ms var(--ease-emphasized);
+}
+
+/* 下一波：呼吸脉冲 + 外扩光圈，把「该按了」提前打出来 */
+.trial-wave.is-next {
+  border-color: rgba(233, 246, 243, 0.6);
+  color: #e9f6f3;
+  animation: trial-wave-pulse 1s ease-in-out infinite;
+}
+
+@keyframes trial-wave-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(53, 224, 200, 0.42); }
+  50% { transform: scale(1.12); box-shadow: 0 0 0 9px rgba(53, 224, 200, 0); }
 }
 
 .trial-wave.is-hit {
   border-color: var(--m3-primary);
   color: var(--m3-primary);
   background: rgba(53, 224, 200, 0.14);
+  box-shadow: 0 0 12px rgba(53, 224, 200, 0.35);
 }
 
 .trial-wave.is-miss {
   border-color: rgba(255, 107, 87, 0.8);
   color: #ff8a7a;
   background: rgba(255, 90, 70, 0.14);
+  box-shadow: 0 0 12px rgba(255, 90, 70, 0.3);
 }
 
-.trial-waves-text {
-  margin-left: 6px;
+.trial-progress {
+  position: relative;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin: 2px 2px 8px;
+}
+
+.trial-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--spirit), var(--gold));
+}
+
+.trial-progress-tick {
+  position: absolute;
+  top: -2px;
+  width: 1px;
+  height: 7px;
+  background: rgba(232, 201, 120, 0.55);
+}
+
+.trial-wave-cue {
+  margin: 0 0 2px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
   color: var(--m3-on-surface-var);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 命中/漏雷的整屏闪光：portal 到 body，z-index 低于面板（110），只照亮画布与四周，面板文字仍然清楚 */
+.trial-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 109;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+}
+
+.trial-flash.is-hit {
+  background:
+    radial-gradient(ellipse at 50% 50%, transparent 16%, rgba(53, 224, 200, 0.3) 64%, rgba(143, 245, 230, 0.6) 100%),
+    linear-gradient(112deg, transparent 34%, rgba(143, 245, 230, 0.5) 45%, rgba(255, 255, 255, 0.75) 50%, rgba(143, 245, 230, 0.5) 55%, transparent 66%);
+  animation: trial-flash 620ms ease-out both;
+}
+
+.trial-flash.is-miss {
+  background:
+    radial-gradient(ellipse at 50% 50%, transparent 14%, rgba(224, 75, 58, 0.34) 62%, rgba(255, 123, 99, 0.66) 100%),
+    linear-gradient(68deg, transparent 34%, rgba(255, 123, 99, 0.48) 45%, rgba(255, 214, 205, 0.7) 50%, rgba(255, 123, 99, 0.48) 55%, transparent 66%);
+  animation: trial-flash 680ms ease-out both;
+}
+
+@keyframes trial-flash {
+  0% { opacity: 0; }
+  5% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.trial-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 92px;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding-top: 10px;
+  pointer-events: none;
+}
+
+.trial-pop b {
+  position: relative;
+  z-index: 1;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 24px;
+  letter-spacing: 0.06em;
+  color: #f4fffc;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6);
+  animation: trial-fx-pop 720ms ease-out both;
+}
+
+.trial-pop::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84px;
+  height: 84px;
+  margin: -42px 0 0 -42px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0;
+  animation: trial-fx-ring 560ms ease-out both;
+}
+
+.trial-pop.is-hit { color: #8ff5e6; }
+.trial-pop.is-miss { color: #ff7b63; }
+
+@keyframes trial-fx-ring {
+  0% { opacity: 0.75; transform: scale(0.35); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
+@keyframes trial-fx-pop {
+  0% { opacity: 0; transform: translateY(10px) scale(0.86); }
+  16% { opacity: 1; transform: translateY(0) scale(1.08); }
+  68% { opacity: 1; transform: translateY(-4px) scale(1); }
+  100% { opacity: 0; transform: translateY(-22px) scale(0.98); }
+}
+
+/* 成功率每次变化弹一下：接住/漏掉的那一下，眼睛能落在数字上 */
+.trial-rate strong { animation: trial-rate-pop 240ms ease-out; }
+
+@keyframes trial-rate-pop {
+  0% { transform: scale(0.84); opacity: 0.45; }
+  60% { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .trial-parry {
@@ -3357,4 +3560,33 @@ body::before {
 
 .trial-parry:active {
   transform: scale(0.97);
+}
+
+/* 保底进度：第 2 次失败后一直挂在主按钮下面，别让玩家再赌「这次会不会中」 */
+.challenge-pity {
+  margin: 6px 0 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
+
+.challenge-pity.is-now {
+  color: #ffd98a;
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(232, 201, 120, 0.35);
+  animation: pity-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes pity-breathe {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trial-wave.is-next,
+  .challenge-pity.is-now { animation: none; }
+  .trial-flash,
+  .trial-pop b,
+  .trial-pop::after,
+  .trial-rate strong { animation-duration: 1ms; }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AUTO_RATE, CHALLENGE_TRIAL_MS, FAILURE_QI_MULT, GUARANTEE_ATTEMPT, MANUAL_RATE, NOISE_LINE, PARRY_BONUS, PARRY_DEMON_RELIEF, PARRY_MISS_DEMON, PARRY_PENALTY, PARRY_RATE_MAX, PARRY_RATE_MIN, TRIAL_DEMON_RISE_PER_SEC, TRIAL_PARRY_WINDOW_MS, TRIAL_WAVES_MS, type BookPhase, type StallEvent, type TrialWaveState } from '@gongfa/core';
 import { compareParts, durationText } from './format';
 import { CLUSTER_LIMITS, REPLICA_LIMITS, quorumOf, simulateCluster } from './distributed';
@@ -102,6 +103,10 @@ export interface ChallengeModel {
     readonly hits: number;
     readonly misses: number;
     readonly demon: number;
+    /** 当前投影成功率：接住/漏掉每一波后立刻变化，让玩家看见自己把概率打成了多少。 */
+    readonly rate: number;
+    /** 进窗口后的毫秒数：10 秒进度条用。 */
+    readonly elapsedMs: number;
     /** 三波雷各自的界面状态：hit / miss / pending（按波画灯，不按命中数推）。 */
     readonly waves: readonly TrialWaveState[];
     readonly nextWaveInMs: number | null;
@@ -734,15 +739,23 @@ export function ChallengePanel({ model, demo, onPress }: { readonly model: Chall
             : `点一下进 ${(CHALLENGE_TRIAL_MS / 1000).toFixed(0)} 秒窗口：${TRIAL_WAVES_MS.map((ms) => ms / 1000).join(' / ')} 秒三波雷，接住抬成功率、漏掉掉成功率（${percent(PARRY_RATE_MIN)}–${percent(PARRY_RATE_MAX)}）；点「交给天意」= ${percent(AUTO_RATE)} 结算。境界在结算之后才变。`}
         </p>
       )}
-      {/* 保底与冷却都在内存里（§5.1 没这两个字段）：文案必须写明刷新清零，否则玩家以为攒到了第 2 次。 */}
+      {/* 保底跨刷新（2026-11-26 起存 `gongfa:pity:<slot>` 元进度）；冷却仍只在内存。
+          第 2 次失败后必须把「下一发必成」说出来 —— 玩家连败时最需要的是确定的下限，不是再赌一次。 */}
       {/* 批次 21：第一次进来不要甩「失败 0 次 / 悟道 0」——玩家还没输过，这行只是噪音。 */}
       {model.attempt > 1 || model.phase !== 'threshold' ? (
         <p className="challenge-meta">
-          本档连续失败 {model.attempt - 1} 次（刷新清零）· 第 {model.attempt} 次冲关{model.attempt >= GUARANTEE_ATTEMPT ? '（保底必成）' : ''} ·
+          本档连续失败 {model.attempt - 1} 次（本档记录）· 第 {model.attempt} 次冲关{model.attempt >= GUARANTEE_ATTEMPT ? '（保底必成）' : ''} ·
           失败存量 ×{FAILURE_QI_MULT} · 悟道 {model.insight}（本档）
         </p>
       ) : (
         <p className="challenge-meta">攒满存量就能渡劫：成功进下一境，失败只扣 15%。</p>
+      )}
+      {model.attempt > 1 && (
+        <p className={`challenge-pity${model.attempt >= GUARANTEE_ATTEMPT ? ' is-now' : ''}`}>
+          {model.attempt >= GUARANTEE_ATTEMPT
+            ? '本发保底必成 —— 不会再有第 4 次'
+            : `再失败 ${GUARANTEE_ATTEMPT - model.attempt} 次，下一发必成`}
+        </p>
       )}
     </div>
   );
@@ -759,40 +772,133 @@ export function TrialPanel({ model, demo, onPress, onParry }: {
   readonly onPress: (mode: 'manual' | 'auto') => void;
   readonly onParry: () => void;
 }) {
+  const parry = model.trialParry;
+  const panelRef = useRef<HTMLDivElement>(null);
+  const prevWaves = useRef<string>('');
+  // 命中/漏雷的整屏特效：靠 waves 的「上一帧 → 这一帧」变化触发，一次事件只播一次。
+  const [fx, setFx] = useState<{ readonly kind: 'hit' | 'miss'; readonly id: number } | null>(null);
+
+  useEffect(() => {
+    if (parry === null) {
+      prevWaves.current = '';
+      setFx(null);
+      return;
+    }
+    const key = parry.waves.join(',');
+    const previous = prevWaves.current === '' ? null : prevWaves.current.split(',');
+    prevWaves.current = key;
+    if (previous === null) return;
+    const hit = parry.waves.findIndex((state, index) => state === 'hit' && previous[index] !== 'hit');
+    const miss = parry.waves.findIndex((state, index) => state === 'miss' && previous[index] !== 'miss');
+    if (hit < 0 && miss < 0) return;
+    const kind: 'hit' | 'miss' = hit >= 0 ? 'hit' : 'miss';
+    setFx({ kind, id: Date.now() });
+    const element = panelRef.current;
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (element === null || reduced || typeof element.animate !== 'function') return;
+    // keyframes 会整体替换 transform，必须把面板自身的 translateX(-50%) 带上，否则震动那 180ms 会跳到右边。
+    const center = 'translateX(-50%)';
+    const shake = kind === 'hit'
+      ? [
+        { transform: `${center} translate3d(0,0,0)` },
+        { transform: `${center} translate3d(-3px,1px,0)` },
+        { transform: `${center} translate3d(3px,-1px,0)` },
+        { transform: `${center} translate3d(0,0,0)` },
+      ]
+      : [
+        { transform: `${center} translate3d(0,0,0)` },
+        { transform: `${center} translate3d(-7px,0,0)` },
+        { transform: `${center} translate3d(6px,2px,0)` },
+        { transform: `${center} translate3d(-4px,-2px,0)` },
+        { transform: `${center} translate3d(0,0,0)` },
+      ];
+    element.animate(shake, { duration: kind === 'hit' ? 180 : 280, easing: 'ease-out' });
+    // 画布也震一下并提亮：只震画布，不震 HUD（数字还要读）。两套动画合并成一条，避免 transform 抢属性。
+    const board = document.querySelector<HTMLElement>('.canvas-wrap');
+    if (board !== null && typeof board.animate === 'function') {
+      const boardFrames = kind === 'hit'
+        ? [
+          { transform: 'translate3d(0,0,0) scale(1)', filter: 'brightness(1)' },
+          { transform: 'translate3d(-2px,1px,0) scale(1.012)', filter: 'brightness(1.75) saturate(1.15)' },
+          { transform: 'translate3d(2px,-1px,0) scale(1.008)', filter: 'brightness(1.35)' },
+          { transform: 'translate3d(0,0,0) scale(1)', filter: 'brightness(1)' },
+        ]
+        : [
+          { transform: 'translate3d(0,0,0) scale(1)', filter: 'brightness(1)' },
+          { transform: 'translate3d(-8px,1px,0) scale(1.01)', filter: 'brightness(1.3) saturate(1.5) hue-rotate(-8deg)' },
+          { transform: 'translate3d(6px,-2px,0) scale(1.006)', filter: 'brightness(1.15)' },
+          { transform: 'translate3d(-3px,1px,0) scale(1)', filter: 'brightness(1)' },
+          { transform: 'translate3d(0,0,0) scale(1)', filter: 'brightness(1)' },
+        ];
+      board.animate(boardFrames, { duration: kind === 'hit' ? 260 : 340, easing: 'ease-out' });
+    }
+    const vibrations = navigator as Navigator & { vibrate?: (pattern: number | number[]) => boolean };
+    vibrations.vibrate?.(kind === 'hit' ? 28 : 60);
+  }, [parry]);
+
+  useEffect(() => {
+    if (fx === null) return;
+    const timer = window.setTimeout(() => setFx(null), 700);
+    return () => window.clearTimeout(timer);
+  }, [fx]);
+
+  const rate = parry === null ? null : Math.round(parry.rate * 100);
+  const tone = parry === null ? '' : parry.rate >= MANUAL_RATE ? ' is-high' : parry.rate >= AUTO_RATE ? ' is-mid' : ' is-low';
+  const nextIndex = parry === null ? -1 : parry.waves.findIndex((state) => state === 'pending');
+
   return (
-    <div className="trial-panel" role="dialog" aria-label="渡劫挑战">
-      <p className="trial-panel-title">渡劫 · {model.realmName}{model.nextRealmName === null ? '' : ` → ${model.nextRealmName}`}</p>
-      <p className="trial-panel-lead">
-        {demo
-          ? `演示模式：面板只由 X 键打开，点「确认冲关」当场按 ${percent(MANUAL_RATE)} 结算，无 10 秒窗口。`
-          : model.trialParry !== null
-            ? `${TRIAL_WAVES_MS.map((ms) => ms / 1000).join(' / ')} 秒三波天雷：接住压心魔、抬成功率（${percent(PARRY_RATE_MIN)}–${percent(PARRY_RATE_MAX)}）；不接按承雷战绩结算。`
-            : `不操作也会自动结算（${percent(AUTO_RATE)}）；点「立即冲关」= ${percent(MANUAL_RATE)}`}
-      </p>
-      {model.trialParry !== null ? (
+    <div className="trial-panel" role="dialog" aria-label="渡劫挑战" ref={panelRef}>
+      {fx !== null && (
         <>
-          {/* 批次 38：承雷。三波雷，接住压心魔、漏掉涨心魔；成功率全程可见。 */}
-          <div className="trial-demon">
-            <span className="trial-demon-label">心魔</span>
-            <span className="trial-demon-bar"><i style={{ width: `${Math.min(100, model.trialParry.demon * 100)}%` }} /></span>
-            <span className="trial-demon-value">{(model.trialParry.demon * 100).toFixed(0)}%</span>
+          {/* 闪光放到 body 上（z 109 < 面板 110）：整屏都亮，面板文字仍然清楚。 */}
+          {createPortal(
+            <span key={`flash-${fx.id}`} className={`trial-flash is-${fx.kind}`} aria-hidden="true" />,
+            document.body,
+          )}
+          <span key={`pop-${fx.id}`} className={`trial-pop is-${fx.kind}`} aria-hidden="true">
+            <b>{fx.kind === 'hit' ? `承雷 +${Math.round(PARRY_BONUS * 100)}%` : `漏雷 −${Math.round(PARRY_PENALTY * 100)}%`}</b>
+          </span>
+        </>
+      )}
+      <p className="trial-panel-title">渡劫 · {model.realmName}{model.nextRealmName === null ? '' : ` → ${model.nextRealmName}`}</p>
+      {parry !== null ? (
+        <>
+          {/* 批次 38：承雷。心魔 + 成功率并排，玩家能看见「接这一下值多少」。 */}
+          <div className="trial-head">
+            <div className="trial-demon">
+              <span className="trial-demon-label">心魔</span>
+              <span className="trial-demon-bar"><i style={{ width: `${Math.min(100, parry.demon * 100)}%` }} /></span>
+              <span className="trial-demon-value">{(parry.demon * 100).toFixed(0)}%</span>
+            </div>
+            <div className={`trial-rate${tone}`} aria-live="polite">
+              <span>成功率</span>
+              <strong key={rate}>{rate}%</strong>
+            </div>
           </div>
-          <div className="trial-waves" aria-label="天雷进度">
-            {/* 三盏灯按「哪一波」画：命中数只说明接住几波，不能推出漏的是哪一波。 */}
-            {model.trialParry.waves.map((state, index) => (
-              <span
-                key={index}
-                className={`trial-wave is-${state}`}
-                title={state === 'hit' ? '已接住' : state === 'miss' ? '已漏' : '还没到'}
-              >
-                {state === 'hit' ? '✓' : state === 'miss' ? '✗' : '⚡'}
-              </span>
-            ))}
-            <span className="trial-waves-text">
-              {model.trialParry.nextWaveInMs === null
+          <div className="trial-timeline">
+            <div className="trial-waves" aria-label="天雷进度">
+              {/* 三盏灯按「哪一波」画：命中数只说明接住几波，不能推出漏的是哪一波。 */}
+              {parry.waves.map((state, index) => (
+                <span
+                  key={index}
+                  className={`trial-wave is-${state}${index === nextIndex ? ' is-next' : ''}`}
+                  title={state === 'hit' ? '已接住' : state === 'miss' ? '已漏' : '还没到'}
+                >
+                  {state === 'hit' ? '✓' : state === 'miss' ? '✗' : '⚡'}
+                </span>
+              ))}
+            </div>
+            <div className="trial-progress" aria-hidden="true">
+              <i style={{ width: `${Math.min(100, (parry.elapsedMs / CHALLENGE_TRIAL_MS) * 100)}%` }} />
+              {TRIAL_WAVES_MS.map((ms) => (
+                <span key={ms} className="trial-progress-tick" style={{ left: `${(ms / CHALLENGE_TRIAL_MS) * 100}%` }} />
+              ))}
+            </div>
+            <p className="trial-wave-cue">
+              {parry.nextWaveInMs === null
                 ? '三波已过 · 结算中'
-                : `下一波 ${(model.trialParry.nextWaveInMs / 1000).toFixed(1)}s`}
-            </span>
+                : `下一波 ${(parry.nextWaveInMs / 1000).toFixed(1)}s · 承雷窗口 ±${TRIAL_PARRY_WINDOW_MS}ms`}
+            </p>
           </div>
           <div className="trial-panel-actions">
             <button className="trial-primary trial-parry" type="button" onClick={onParry}>
@@ -803,11 +909,16 @@ export function TrialPanel({ model, demo, onPress, onParry }: {
             </button>
           </div>
           <p className="trial-panel-note">
-            {`命中：心魔 −${Math.round(PARRY_DEMON_RELIEF * 100)}%、成功率 +${Math.round(PARRY_BONUS * 100)}%；漏一波：心魔 +${Math.round(PARRY_MISS_DEMON * 100)}%、成功率 −${Math.round(PARRY_PENALTY * 100)}%；窗口内每波只有 ±${TRIAL_PARRY_WINDOW_MS}ms，心魔每秒 +${Math.round(TRIAL_DEMON_RISE_PER_SEC * 100)}%。`}
+            {`命中：心魔 −${Math.round(PARRY_DEMON_RELIEF * 100)}%、成功率 +${Math.round(PARRY_BONUS * 100)}%；漏一波：心魔 +${Math.round(PARRY_MISS_DEMON * 100)}%、成功率 −${Math.round(PARRY_PENALTY * 100)}%；心魔每秒 +${Math.round(TRIAL_DEMON_RISE_PER_SEC * 100)}%。`}
           </p>
         </>
       ) : (
         <>
+      <p className="trial-panel-lead">
+        {demo
+          ? `演示模式：面板只由 X 键打开，点「确认冲关」当场按 ${percent(MANUAL_RATE)} 结算，无 10 秒窗口。`
+          : `不操作也会自动结算（${percent(AUTO_RATE)}）；点「立即冲关」= ${percent(MANUAL_RATE)}`}
+      </p>
       <div className="trial-panel-actions">
         {/* demo 那一支写「确认」而不是「立即」：窗口是 X 键开的，这一下只是确认，
             而点 HUD「可冲关」仍然是当场结算 —— 两条路的差别必须能从文案上读出来。 */}
@@ -838,7 +949,13 @@ export function ChallengeResultLayer({ outcome, onDismiss }: { readonly outcome:
       <div className="result-talisman" aria-hidden="true" />
       <p className="result-title">{outcome.ok ? '突破成功' : '渡劫失败'}</p>
       <p className="result-sub">
-        {outcome.ok ? `${outcome.fromRealmName} → ${outcome.realmName}` : `存量 ×${FAILURE_QI_MULT}，心魔归 0，可再来一次`}
+        {outcome.ok
+          ? `${outcome.fromRealmName} → ${outcome.realmName}`
+          : `存量 ×${FAILURE_QI_MULT}，心魔归 0，可再来一次 · ${
+            outcome.attempt + 1 >= GUARANTEE_ATTEMPT
+              ? '下一发保底必成'
+              : `再失败 ${GUARANTEE_ATTEMPT - outcome.attempt - 1} 次必成`
+          }`}
       </p>
       {/* 第 3 次的成功来自保底而非骰子（§7.1）：不写出来，玩家会以为自己是 85% 里的幸运儿。 */}
       {outcome.ok && outcome.forced && <p className="result-forced">保底第 {outcome.attempt} 次，非骰值</p>}
