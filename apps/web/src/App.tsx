@@ -50,6 +50,7 @@ import { ChallengeResultLayer, CoachBanner, Hud, TrialPanel, TutorialBar, type A
 import { TutorialBubble } from './game/tutorialBubble';
 import { WorldCodex } from './game/WorldCodex';
 import { CommunityPanel } from './game/CommunityPanel';
+import { communityHealthUrl } from './game/communityApi';
 import { AlgorithmCard } from './game/AlgorithmCard';
 import { QiParticles } from './components/QiParticles';
 
@@ -514,7 +515,7 @@ export function App() {
   const [communityAvailable, setCommunityAvailable] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/health', { headers: { accept: 'application/json' } })
+    fetch(communityHealthUrl(), { headers: { accept: 'application/json' } })
       .then(async (response) => {
         if (!response.ok) return;
         const body: unknown = await response.json().catch(() => null);

@@ -1,4 +1,4 @@
-# 交接文档（2026-11-26）
+# 交接文档（2026-11-27）
 
 > 给「新开一个对话继续做这个项目」用。读完这份就能接手，不用翻历史。
 
@@ -8,8 +8,9 @@
 
 一句话定位：**别人挂时间，你挂自己写的算法**。玩家用积木搭"功法"（程序），程序每 tick 自动产灵力，境界越高乘数越大；核心乐趣是**优化算法**（循环/条件/预算/批处理），而不是堆数值。
 
-- 线上（评审用这条）：<https://sulerpociato.github.io/gongfa/?demo=1>
-- 仓库：`D:\gongfa`，`master` 分支，GitHub Pages 自动部署（push 后约 45–60 秒生效）
+- **Qoder Sites 公网（评审用这条，含社区）**：<https://code-cultivation-game-x4r5qii0vbg.qoder.zone/>
+- 静态备份（无后端，社区入口自动隐藏）：<https://sulerpociato.github.io/gongfa/?demo=1>
+- 仓库：`D:\gongfa`，`master` 分支；Qoder Sites 由 Qoder Function backend 托管，GitHub Pages 自动部署静态版
 - 演示模式：`?demo=1`，按 `F` 跳关到金丹、`X` 开渡劫面板、`R` 开重置弹窗
 
 ## 二、当前状态（接手时先跑一遍确认）
@@ -18,7 +19,7 @@
 HEAD = origin/master，工作区干净
 测试：672 通过（55 文件）
 类型检查：pnpm typecheck 四个工程全绿
-线上产物：index-fSE0mwsZ.js（2026-11-27 00:35 推送后构建；纯静态 Pages 隐藏社区入口，服务器版见 server/README.md）
+线上产物：Qoder Sites `index-C-GlgDFU.js`（Function backend + 社区已发布）；GitHub Pages `index-fSE0mwsZ.js`（纯静态，社区隐藏）
 ```
 
 三条命令自检：
@@ -74,7 +75,7 @@ reviews/            09–16：每一轮审查/方案/验收记录（有空就看
 | 藏经阁 | 18 套功法：基础 8 套花悟道（总价 16），天阶 10 套 0 悟道但需先领悟图案 |
 | 阵法阁 | 8 套免费预设（金丹 4 + 元婴 4），只追加到现有功法、不替换已有引灵 |
 | 世界观图鉴 | 设置抽屉：9 境 + 仙界 5 级、10 界域、9 宗门、8 丹药、3 法宝、6 灵根，每条带计算机对照 |
-| 社区（服务器版） | 昵称、境界榜、帖子/点赞/评论/举报、晒成绩、功法码「抄作业」；Node 同源 `/api`，纯静态 Pages 自动隐藏 |
+| 社区（Qoder Sites） | 昵称、境界榜、帖子/点赞/评论/举报、晒成绩、功法码「抄作业」；Qoder Function backend + 数据库，线上已验证 |
 | 存档 | schemaVersion 1，A/B 双槽 + `gongfa:active` 指针 |
 
 **改任何一个数 → 同步改契约 → 跑 `pnpm audit:balance` 看偏差。**
@@ -118,6 +119,7 @@ reviews/            09–16：每一轮审查/方案/验收记录（有空就看
 | 11-26 夜 | **修仙资产扩充**：世界观图鉴（9 境+仙界 5、10 界域、9 宗门、8 丹药、3 法宝、6 灵根，全部带 CS 对照）；功法 8→18（天阶 10 套 0 悟道、图案门槛）；阵法 4→8；661→666 | `reviews/25` `reviews/26` |
 | 11-26 深夜 | **全资产实装**：9 境可玩（阈值/倍率/蓄势/试炼/考校全接）；宗门/界域可选改数值；8 丹药可服；3 法宝可装备；6 灵根；666→672 | `reviews/27` `reviews/28` |
 | 11-27 凌晨 | **社区版**：Node 同源服务（账号/境界榜/帖子/评论/点赞/举报/抄作业）+ 10 条官方社区内容 + Docker/Nginx 部署文档；672 | `reviews/29` |
+| 11-27 傍晚 | **Qoder Sites A 方案上线**：Function backend + 数据库；注册/me/发帖/点赞/评论/榜单线上验证；公网含社区 | `qoder/README.md` |
 
 ## 八、已知问题（接手后优先处理）
 

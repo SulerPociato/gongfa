@@ -186,8 +186,11 @@ function readJson(req) {
 }
 
 function playerFrom(req) {
+  const direct = req.headers['x-gongfa-token'];
   const header = req.headers.authorization ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const token = typeof direct === 'string' && direct.length >= 20
+    ? direct
+    : (header.startsWith('Bearer ') ? header.slice(7) : '');
   if (token === '') return null;
   const tokenHash = hash(token);
   return db.players.find((player) => player.tokenHash === tokenHash) ?? null;

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+*.qoder.site
 .qoder/
 spike-blockly/spike.mjs
 .DS_Store

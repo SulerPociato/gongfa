@@ -47,6 +47,15 @@ export interface Account {
 
 const ACCOUNT_KEY = 'gongfa:account';
 
+// Qoder Sites 的 Function 入口是 /functions/v1/app；Node 版服务端仍是 /api。
+const API_BASE = typeof location !== 'undefined' && /\.qoder\.(zone|website)$/u.test(location.hostname)
+  ? '/functions/v1/app'
+  : '';
+
+export function communityHealthUrl(): string {
+  return `${API_BASE}/api/health`;
+}
+
 export function readAccount(): Account | null {
   try {
     const raw = localStorage.getItem(ACCOUNT_KEY);
@@ -73,8 +82,9 @@ export function clearAccount(): void {
 
 async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (token !== undefined) headers.authorization = `Bearer ${token}`;
-  const response = await fetch(path, { ...options, headers: { ...headers, ...(options.headers ?? {}) } });
+  // Qoder Sites Gateway 会剥离 Authorization；应用 token 用自定义头，Node 版也认。
+  if (token !== undefined) headers['x-gongfa-token'] = token;
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers: { ...headers, ...(options.headers ?? {}) } });
   const text = await response.text();
   let body: unknown = null;
   try {
