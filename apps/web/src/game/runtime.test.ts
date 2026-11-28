@@ -30,6 +30,32 @@ describe('runtime.run 的 dt 入口（真机停摆的回归）', () => {
     expect(s.qi).toBeGreaterThan(0);
   });
 
+  it('restore 后灵根由存档 seed 决定，不再沿用构造时的随机种子', () => {
+    const runtime = createRuntime({ seed: 0 });
+    expect(runtime.state().lingGen).toBe('天灵根');
+    runtime.restore({
+      schemaVersion: 1,
+      seed: 5,
+      realm: 1,
+      qi: '0',
+      demon: 0,
+      workspace: { blocks: { languageVersion: 0, blocks: [] } },
+      programs: [],
+      budgetPool: 200,
+      computeLimit: null,
+      ownedBooks: [],
+      equippedBook: null,
+      ownedArtifacts: [],
+      equippedArtifacts: [],
+      offlineRate: 0.6,
+      stats: { totalQi: '0', breakthroughs: 0, playMs: 0 },
+      lastSeenAt: 0,
+      speed: 1,
+      chargeReadyAt: 0,
+    });
+    expect(runtime.state().lingGen).toBe('下品灵根');
+  });
+
   it('run(-1) 不抛，qi / ticks / playMs 一律不动', () => {
     const runtime = running();
     runtime.run(1000);

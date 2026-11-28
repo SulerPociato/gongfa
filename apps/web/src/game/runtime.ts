@@ -463,7 +463,8 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
   // 动产出会把 11:09 目标表一起改掉，而它是"命格"不是"数值档位"。
   // 2026-11-26：灵根从 3 种扩到 6 种；种子决定，心魔倍率 0.75–1.1。
   // 顺序与 world.ts 的 ROOTS 对齐：天/变异/上/中/五行/下。
-  const lingGenIndex = (state.seed >>> 0) % 6;
+  // 2026-11-28：灵根必须按**读档后的 seed** 重算 —— 构造时用的是宿主随机种子，
+  // restore() 会把 state.seed 换成存档里的值；不重算就会每次刷新换灵根（真机 QA 抓到）。
   const LING_GEN: readonly { readonly name: string; readonly demon: number }[] = [
     { name: '天灵根', demon: 0.75 },
     { name: '变异灵根', demon: 0.85 },
@@ -472,8 +473,15 @@ export function createRuntime(deps: RuntimeDeps = {}, clock: Clock = wallClock):
     { name: '五行灵根', demon: 1.05 },
     { name: '下品灵根', demon: 1.1 },
   ];
-  const lingGenName = LING_GEN[lingGenIndex]?.name ?? '中品灵根';
-  const lingGenDemon = LING_GEN[lingGenIndex]?.demon ?? 1;
+  let lingGenIndex = 0;
+  let lingGenName = '中品灵根';
+  let lingGenDemon = 1;
+  const applyLingGen = (seed: number): void => {
+    lingGenIndex = (seed >>> 0) % 6;
+    lingGenName = LING_GEN[lingGenIndex]?.name ?? '中品灵根';
+    lingGenDemon = LING_GEN[lingGenIndex]?.demon ?? 1;
+  };
+  applyLingGen(state.seed);
   const demonBaseOf = (path: DaoPath | null): number =>
     DEMON_BASE_PER_ACTION * (path === 'heretic' ? 2 : 1) * lingGenDemon * factionDemon(SECT_EFFECTS, sect) * factionDemon(DOMAIN_EFFECTS, domain);
   // 丹药冷却（批次 8）：墙钟，不按 tick —— 倍速下不该变成 30/3 秒。
@@ -1033,6 +1041,8 @@ const PILL_DEMON_RELIEF = 0.1;
       currentBook = null;
       currentJadeCache = null;
       vm.setBudget(BASE_BUDGET);
+      // 灵根由存档 seed 决定：restore 换 seed 后必须重算，再重建 sink（demonBase 已固定）。
+      applyLingGen(state.seed);
       resetSink();
       // 存量已经达标却还没有蓄势时刻（离线达标、或读的是任务 5 那份没有该字段的档）：从这一帧补起算点。
       // 拿当前时刻而不是达标时刻，是因为契约没存达标时刻；宁可多等，也不给玩家一个假就绪。
@@ -1180,6 +1190,8 @@ const PILL_DEMON_RELIEF = 0.1;
       } else if (effect.kind === 'demon') {
         state.demon = Math.min(1, Math.max(0, state.demon + effect.delta));
       } else if (effect.kind === 'clearPause') {
+        // pauseRemainingMs 是派生字段；真正计时的是 pausedUntil，必须一起清。
+        pausedUntil = 0;
         state.pauseRemainingMs = 0;
       } else {
         state.chargeReadyAt = wallClock.now();

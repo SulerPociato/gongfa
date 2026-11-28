@@ -17,9 +17,9 @@
 
 ```
 HEAD = origin/master，工作区干净
-测试：672 通过（55 文件）
+测试：673 通过（55 文件）
 类型检查：pnpm typecheck 四个工程全绿
-线上产物：Qoder Sites `index-C-GlgDFU.js`（Function backend + 社区已发布）；GitHub Pages `index-fSE0mwsZ.js`（纯静态，社区隐藏）
+线上产物：Qoder Sites `index-C-GlgDFU.js`（Function backend + 社区已发布；灵根修复待重新发布为本地 `index-BjwFrses.js`）；GitHub Pages 静态版
 ```
 
 三条命令自检：
@@ -119,6 +119,7 @@ reviews/            09–16：每一轮审查/方案/验收记录（有空就看
 | 11-26 夜 | **修仙资产扩充**：世界观图鉴（9 境+仙界 5、10 界域、9 宗门、8 丹药、3 法宝、6 灵根，全部带 CS 对照）；功法 8→18（天阶 10 套 0 悟道、图案门槛）；阵法 4→8；661→666 | `reviews/25` `reviews/26` |
 | 11-26 深夜 | **全资产实装**：9 境可玩（阈值/倍率/蓄势/试炼/考校全接）；宗门/界域可选改数值；8 丹药可服；3 法宝可装备；6 灵根；666→672 | `reviews/27` `reviews/28` |
 | 11-27 凌晨 | **社区版**：Node 同源服务（账号/境界榜/帖子/评论/点赞/举报/抄作业）+ 10 条官方社区内容 + Docker/Nginx 部署文档；672 | `reviews/29` |
+| 11-28 晚 | **全量真机 QA**：8 法宝/8 丹药/18 功法/8 阵法/9 境/6 灵根/9 宗门/10 界域；抓到并修复「restore 后灵根不按种子重算」；672→673 | `reviews/31` |
 | 11-27 傍晚 | **Qoder Sites A 方案上线**：Function backend + 数据库；注册/me/发帖/点赞/评论/榜单线上验证；公网含社区 | `qoder/README.md` |
 
 ## 八、已知问题（接手后优先处理）
@@ -170,7 +171,7 @@ reviews/            09–16：每一轮审查/方案/验收记录（有空就看
 
 ```bash
 pnpm typecheck                 # 必须 0
-pnpm test                      # 必须全绿（当前 672）
+pnpm test                      # 必须全绿（当前 673）
 pnpm audit:fuzz                # 抛异常必须 0
 pnpm audit:balance             # 记录偏差，别静默变
 pnpm --filter @gongfa/web build
